@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Trade Desk</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#060a10;color:#a8c4d8;font-family:'IBM Plex Sans',sans-serif;overscroll-behavior:none;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:2px;height:2px}
+::-webkit-scrollbar-thumb{background:#1a2d42}
+input,textarea,select{background:#0b1622;border:1px solid #1a2d42;color:#a8c4d8;font-family:'IBM Plex Mono',monospace;font-size:12px;padding:8px 10px;border-radius:3px;outline:none;width:100%;-webkit-appearance:none}
+input:focus,textarea:focus,select:focus{border-color:#00e5aa}
+select option{background:#0b1622}
+button{cursor:pointer;font-family:'IBM Plex Mono',monospace;-webkit-tap-highlight-color:transparent}
+.lbl{font-size:10px;color:#2d4a60;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px}
+.val{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#a8c4d8}
+.pos{color:#00e5aa!important}
+.neg{color:#f43f5e!important}
+.card{background:#0b1622;border:1px solid #142030;border-radius:4px;padding:14px}
+.badge{display:inline-block;padding:2px 8px;border-radius:2px;font-size:10px;font-weight:600;letter-spacing:.05em}
+.btn{border-radius:3px;font-size:11px;letter-spacing:.07em;padding:9px 18px;border:none;cursor:pointer}
+.btn-p{background:#00e5aa;color:#060a10;font-weight:700}
+.btn-g{background:transparent;color:#2d4a60;border:1px solid #1a2d42}
+.btn-warn{background:#f59e0b;color:#060a10;font-weight:700}
+.btn-danger{background:#f43f5e;color:#fff;font-weight:700}
+.frow{margin-bottom:12px}
+.frow label{display:block;font-size:10px;color:#2d4a60;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;align-items:flex-end;justify-content:center;z-index:200;padding:0}
+.modal{background:#0b1622;border:1px solid #1a2d42;border-radius:8px 8px 0 0;padding:20px;width:100%;max-height:92vh;overflow-y:auto}
+.st{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;margin-top:16px}
+th{padding:8px 10px;text-align:left;color:#2d4a60;font-size:10px;letter-spacing:.06em;font-weight:500;font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+td{padding:9px 10px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:#a8c4d8;white-space:nowrap}
+table{width:100%;border-collapse:collapse}
+.trow:hover{background:#0f1e2e}
+#bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#0b1622;border-top:1px solid #142030;display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom,0px)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px 8px;gap:3px;background:none;border:none;color:#2d4a60;font-size:9px;letter-spacing:.06em;text-transform:uppercase}
+.nav-btn.active{color:#00e5aa}
+.nav-icon{font-size:18px;line-height:1}
+.iv-pill{display:inline-flex;align-items:center;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace}
+#main{padding:12px 12px 120px;max-width:900px;margin:0 auto}
+#topbar{border-bottom:1px solid #142030;padding:0 12px;display:flex;align-items:center;height:48px;position:sticky;top:0;background:#060a10;z-index:50}
+.section{display:none}
+.section.active{display:block}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#00e5aa;font-weight:600;letter-spacing:.15em;margin-right:auto">◈ TRADE DESK</div>
+  <div id="ytd-display" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;margin-right:10px"></div>
+  <button class="btn btn-g" onclick="refreshAll()" id="refresh-btn" style="padding:5px 10px;font-size:10px;margin-right:6px">↻</button>
+  <button class="btn btn-g" onclick="toggleDebug()" id="debug-btn" style="padding:5px 8px;font-size:10px;margin-right:6px">🔍</button>
+  <button onclick="openSettings()" style="background:none;border:none;color:#2d4a60;font-size:18px">⚙</button>
+</div>
+
+<div id="main">
+
+  <!-- MARKET TAB -->
+  <div id="tab-market" class="section active">
+    <div class="g2" style="margin-bottom:14px">
+      <div class="card" style="padding:12px">
+        <div class="lbl">Open Trades</div>
+        <div id="kpi-open" style="font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:#00e5aa">—</div>
+        <div id="kpi-winrate" style="font-size:10px;color:#2d4a60;margin-top:3px"></div>
+      </div>
+      <div class="card" style="padding:12px">
+        <div class="lbl">YTD P&L</div>
+        <div id="kpi-pnl" style="font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600"></div>
+        <div id="kpi-pct" style="font-family:'IBM Plex Mono',monospace;font-size:11px;margin-top:3px"></div>
+      </div>
+    </div>
+
+    <div id="debug-panel" style="display:none;background:#000;border:1px solid #f59e0b;border-radius:4px;padding:10px;margin-bottom:12px;font-family:'IBM Plex Mono',monospace">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:10px;color:#f59e0b;letter-spacing:.1em">DEBUG LOG</span>
+        <button onclick="document.getElementById('debug-log').innerHTML=''" style="background:none;border:none;color:#2d4a60;font-size:11px">CLEAR</button>
+      </div>
+      <div id="debug-log" style="max-height:180px;overflow-y:auto;font-size:10px;line-height:1.7"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <input id="watch-input" placeholder="ADD TICKER..." style="flex:1;font-size:13px" onkeydown="addTicker(event)">
+    </div>
+
+    <div id="watchlist-cards" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- POSITIONS TAB -->
+  <div id="tab-positions" class="section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em">OPEN POSITIONS</div>
+      <button class="btn btn-p" style="padding:7px 14px" onclick="openTradeModal()">+ NEW TRADE</button>
+    </div>
+    <div id="positions-cards" style="display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+
+  <!-- TRADES TAB -->
+  <div id="tab-trades" class="section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-g filter-btn active" data-filter="All" onclick="setFilter('All',this)">ALL</button>
+        <button class="btn btn-g filter-btn" data-filter="Open" onclick="setFilter('Open',this)">OPEN</button>
+        <button class="btn btn-g filter-btn" data-filter="Closed" onclick="setFilter('Closed',this)">CLOSED</button>
+      </div>
+      <button class="btn btn-p" style="padding:7px 14px" onclick="openTradeModal()">+ NEW</button>
+    </div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table id="trades-table">
+        <thead><tr>
+          <th>TICKER</th><th>SPREAD</th><th>EXP</th><th>DTE</th><th>PREM</th><th>P&L</th><th>STATUS</th>
+        </tr></thead>
+        <tbody id="trades-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- DIARY TAB -->
+  <div id="tab-diary" class="section">
+    <div id="diary-content"></div>
+  </div>
+
+  <!-- STATS TAB -->
+  <div id="tab-stats" class="section">
+    <div id="stats-content"></div>
+  </div>
+
+</div>
+
+<!-- Bottom Nav -->
+<nav id="bottom-nav">
+  <button class="nav-btn active" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>MARKET</button>
+  <button class="nav-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POSITIONS</button>
+  <button class="nav-btn" onclick="switchTab('trades',this)"><span class="nav-icon">≡</span>TRADES</button>
+  <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
+  <button class="nav-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
+</nav>
+
+<!-- TRADE MODAL -->
+<div id="trade-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:680px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div id="trade-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#00e5aa;letter-spacing:.1em">NEW TRADE</div>
+      <button onclick="closeTradeModal()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+    </div>
+    <div class="g2">
+      <div class="frow"><label>Ticker</label><input id="tf-ticker" placeholder="NVDA" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="frow"><label>Trade Type</label><select id="tf-tradeType"></select></div>
+    </div>
+    <div class="g3">
+      <div class="frow"><label>Short Strike</label><input id="tf-shortStrike" type="number"></div>
+      <div class="frow"><label>Long Strike</label><input id="tf-longStrike" type="number"></div>
+      <div class="frow"><label>Contracts</label><input id="tf-contracts" type="number" value="1"></div>
+    </div>
+    <div class="g2">
+      <div class="frow"><label>Entry Date</label><input id="tf-entryDate" type="date"></div>
+      <div class="frow"><label>Expiry</label><input id="tf-expiry" type="date"></div>
+    </div>
+    <div class="g2">
+      <div class="frow"><label>Premium Collected ($)</label><input id="tf-premium" type="number" placeholder="450"></div>
+      <div class="frow"><label>Status</label><select id="tf-status"><option>Open</option><option>Closed</option><option>Rolled</option><option>Expired</option></select></div>
+    </div>
+    <div class="g2">
+      <div class="frow"><label>Take Profit — underlying ($)</label><input id="tf-tpPrice" type="number" placeholder="e.g. 195.00"></div>
+      <div class="frow"><label>Stop Loss — underlying ($)</label><input id="tf-slPrice" type="number" placeholder="e.g. 178.00"></div>
+    </div>
+    <div class="frow"><label>Entry Type</label><select id="tf-entryType"><option value="">Select...</option></select></div>
+    <div class="frow"><label>Thesis</label><textarea id="tf-thesis" style="height:60px" placeholder="Why are you in this trade?"></textarea></div>
+    <div class="frow"><label>Entry Trigger</label><textarea id="tf-entryTrigger" style="height:50px"></textarea></div>
+    <div class="g2">
+      <div class="frow"><label>Stop Logic</label><textarea id="tf-stopLogic" style="height:50px"></textarea></div>
+      <div class="frow"><label>Target Logic</label><textarea id="tf-targetLogic" style="height:50px"></textarea></div>
+    </div>
+    <div class="frow"><label>Chart Link (URL)</label><input id="tf-chartLink" type="url" placeholder="https://..."></div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-g" onclick="closeTradeModal()" style="flex:1">CANCEL</button>
+      <button class="btn btn-p" onclick="saveTrade()" style="flex:1">SAVE TRADE</button>
+    </div>
+  </div>
+</div>
+
+<!-- EXIT MODAL -->
+<div id="exit-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:460px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div id="exit-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#f59e0b;letter-spacing:.1em">CLOSE POSITION</div>
+      <button onclick="closeExitModal()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+    </div>
+    <div class="g2">
+      <div class="frow"><label>Close As</label><select id="ef-status"><option>Closed</option><option>Rolled</option><option>Expired</option></select></div>
+      <div class="frow"><label>Exit Date</label><input id="ef-exitDate" type="date"></div>
+    </div>
+    <div class="g2">
+      <div class="frow"><label>Realized P&L ($)</label><input id="ef-pnl" type="number" placeholder="+350 or -420"></div>
+      <div class="frow"><label>Exit Reason</label><select id="ef-reason"><option value="">Select...</option></select></div>
+    </div>
+    <div class="frow"><label>Thesis Accuracy</label>
+      <select id="ef-accuracy"><option value="">Was your read correct?</option><option>Correct</option><option>Partially Correct</option><option>Wrong</option></select>
+    </div>
+    <div class="frow"><label>Lesson Learned</label><textarea id="ef-lesson" style="height:70px" placeholder="What would you do differently?"></textarea></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-g" onclick="closeExitModal()" style="flex:1">CANCEL</button>
+      <button class="btn btn-warn" onclick="confirmExit()" style="flex:1">CLOSE POSITION</button>
+    </div>
+  </div>
+</div>
+
+<!-- ROLL MODAL -->
+<div id="roll-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:460px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div id="roll-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#f59e0b;letter-spacing:.1em">ROLL POSITION</div>
+      <button onclick="closeRollModal()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+    </div>
+    <div id="roll-current" style="background:#060a10;border:1px solid #142030;border-radius:3px;padding:10px;margin-bottom:16px;font-size:11px;color:#4d7a9a;font-family:'IBM Plex Mono',monospace"></div>
+    <div class="g3">
+      <div class="frow"><label>New Short Strike</label><input id="rf-newShort" type="number"></div>
+      <div class="frow"><label>New Long Strike</label><input id="rf-newLong" type="number"></div>
+      <div class="frow"><label>New Expiry</label><input id="rf-newExpiry" type="date"></div>
+    </div>
+    <div class="frow"><label>Credit (+) / Debit (-)</label><input id="rf-credit" type="number" placeholder="+50 or -120"></div>
+    <div class="frow"><label>Why rolling?</label><textarea id="rf-reason" style="height:60px"></textarea></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-g" onclick="closeRollModal()" style="flex:1">CANCEL</button>
+      <button class="btn btn-warn" onclick="confirmRoll()" style="flex:1">LOG ROLL</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div id="settings-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:500px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#00e5aa;letter-spacing:.1em">SETTINGS</div>
+      <button onclick="closeSettings()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+    </div>
+    <div class="st" style="margin-top:0">Account</div>
+    <div class="g2">
+      <div class="frow"><label>Starting Account Balance ($)</label><input id="s-balance" type="number" placeholder="38788"></div>
+      <div class="frow"><label>YTD Deposits ($)</label><input id="s-deposits" type="number" placeholder="0"></div>
+    </div>
+    <div style="font-size:11px;color:#2d4a60;margin-bottom:16px">% return = Realized P&L ÷ (Starting + Deposits). Simple approximation.</div>
+    <div class="st">Telegram Alerts</div>
+    <div class="frow"><label>Bot Token</label><input id="s-tgbot" placeholder="123456789:ABC..."></div>
+    <div class="frow"><label>Chat ID</label><input id="s-tgchat" placeholder="-100..."></div>
+    <div class="g2">
+      <div class="frow"><label>IV Rank Alert Threshold</label><input id="s-ivrank" type="number" placeholder="60"></div>
+      <div class="frow"><label>Strike Proximity % Alert</label><input id="s-strikeprox" type="number" placeholder="5"></div>
+    </div>
+    <button class="btn btn-g" style="width:100%;margin-bottom:16px" onclick="testTelegram()">TEST TELEGRAM</button>
+    <div class="st">Sync Between Devices</div>
+    <div style="font-size:11px;color:#2d4a60;margin-bottom:10px">Export your data on one device, paste it into the other to sync trades, journal, and settings.</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn btn-g" style="flex:1" onclick="exportData()">📤 EXPORT DATA</button>
+      <button class="btn btn-g" style="flex:1" onclick="showImport()">📥 IMPORT DATA</button>
+    </div>
+    <div id="import-area" style="display:none">
+      <div class="frow"><label>Paste exported data here</label><textarea id="import-text" style="height:80px;font-size:10px" placeholder="Paste JSON here..."></textarea></div>
+      <button class="btn btn-warn" style="width:100%;margin-bottom:10px" onclick="importData()">IMPORT & OVERWRITE</button>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-g" onclick="closeSettings()" style="flex:1">CANCEL</button>
+      <button class="btn btn-p" onclick="saveSettings()" style="flex:1">SAVE</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+const MDA_TOKEN = "d2E2NDEybGtwZTBabnhSV2pkeEZBb3JfWW9uOHpKNnNIRTJ2bzNYZVlMcz0";
+const MDA_BASE = "https://api.marketdata.app/v1";
+const STORAGE_KEY = "trading_desk_v3_html";
+const POLL_INTERVAL = 90000;
+
+const ENTRY_TYPES = ["Uptrend / Momentum","Reversal","News / Event","IV Play","Support Bounce","Breakout","Scalp","Earnings Play","Other"];
+const EXIT_REASONS = ["Profit Target Hit","Stop Loss Hit","Rolled","Expired Worthless","Closed Early","Earnings Risk","Same-Day Scalp","Other"];
+const TRADE_TYPES = ["Bull Put Spread","Bear Call Spread","Short Put","Short Call","Long Call","Long Put","Iron Condor","Stock Long","Stock Short"];
+const DTE_BUCKETS = ["0–1 DTE","2–7 DTE","8–15 DTE","16–30 DTE","31–45 DTE","45+ DTE"];
+
+// ── Seed data ─────────────────────────────────────────────────────────────────
+const IBKR_SEED = [{"id":1,"ticker":"COST","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-12","expiry":"2026-02-20","shortStrike":970,"longStrike":955,"premiumCollected":1076,"contracts":4,"realizedPnl":384.75,"exitDate":"2026-02-12","dteAtEntry":8,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":2,"ticker":"KO","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-17","expiry":"2026-02-20","shortStrike":79,"longStrike":77.5,"premiumCollected":340,"contracts":10,"realizedPnl":12.63,"exitDate":"2026-02-18","dteAtEntry":3,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":3,"ticker":"MRNA","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-17","expiry":"2026-02-20","shortStrike":41,"longStrike":39,"premiumCollected":540,"contracts":20,"realizedPnl":326.77,"exitDate":"2026-02-18","dteAtEntry":3,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":4,"ticker":"PYPL","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-17","expiry":"2026-03-20","shortStrike":37.5,"longStrike":35,"premiumCollected":450,"contracts":10,"realizedPnl":243.33,"exitDate":"2026-02-23","dteAtEntry":31,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":5,"ticker":"AMZN","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-18","expiry":"2026-02-25","shortStrike":200,"longStrike":197.5,"premiumCollected":940,"contracts":20,"realizedPnl":603.07,"exitDate":"2026-02-20","dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":6,"ticker":"CAT","tradeType":"Bull Put Spread","status":"Open","entryDate":"2026-02-18","expiry":"2026-03-20","shortStrike":730,"longStrike":710,"premiumCollected":2000,"contracts":4,"realizedPnl":null,"exitDate":null,"dteAtEntry":30,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":7,"ticker":"JPM","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-18","expiry":"2026-02-27","shortStrike":300,"longStrike":295,"premiumCollected":680,"contracts":10,"realizedPnl":-2543.79,"exitDate":"2026-02-27","dteAtEntry":9,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":8,"ticker":"USO","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-18","expiry":"2026-02-25","shortStrike":76,"longStrike":74,"premiumCollected":410,"contracts":10,"realizedPnl":228.93,"exitDate":"2026-02-20","dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":9,"ticker":"HOOD","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-20","expiry":"2026-02-27","shortStrike":72,"longStrike":70,"premiumCollected":676,"contracts":20,"realizedPnl":654.84,"exitDate":"2026-02-27","dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":10,"ticker":"NVDA","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-20","expiry":"2026-02-27","shortStrike":180,"longStrike":175,"premiumCollected":2100,"contracts":20,"realizedPnl":853.31,"exitDate":"2026-02-25","dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":11,"ticker":"TSM","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-20","expiry":"2026-02-27","shortStrike":360,"longStrike":352.5,"premiumCollected":1500,"contracts":10,"realizedPnl":929.65,"exitDate":"2026-02-24","dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":12,"ticker":"YINN","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-20","expiry":"2026-02-27","shortStrike":38.5,"longStrike":36.5,"premiumCollected":410,"contracts":10,"realizedPnl":130.4,"exitDate":"2026-02-20","dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":13,"ticker":"AMZN","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-27","expiry":"2026-03-02","shortStrike":205,"longStrike":195,"premiumCollected":885,"contracts":15,"realizedPnl":121.52,"exitDate":"2026-02-27","dteAtEntry":3,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":14,"ticker":"HOOD","tradeType":"Bull Put Spread","status":"Open","entryDate":"2026-02-27","expiry":"2026-03-06","shortStrike":70,"longStrike":68,"premiumCollected":495,"contracts":15,"realizedPnl":null,"exitDate":null,"dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":15,"ticker":"NKE","tradeType":"Bull Put Spread","status":"Open","entryDate":"2026-02-27","expiry":"2026-03-06","shortStrike":60,"longStrike":58,"premiumCollected":570,"contracts":15,"realizedPnl":null,"exitDate":null,"dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":16,"ticker":"NVDA","tradeType":"Bull Put Spread","status":"Open","entryDate":"2026-02-27","expiry":"2026-04-02","shortStrike":200,"longStrike":195,"premiumCollected":3950,"contracts":10,"realizedPnl":null,"exitDate":null,"dteAtEntry":34,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":17,"ticker":"PLTR","tradeType":"Bull Put Spread","status":"Open","entryDate":"2026-02-27","expiry":"2026-03-06","shortStrike":130,"longStrike":127,"premiumCollected":990,"contracts":15,"realizedPnl":null,"exitDate":null,"dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]},{"id":18,"ticker":"TSM","tradeType":"Bull Put Spread","status":"Closed","entryDate":"2026-02-27","expiry":"2026-03-06","shortStrike":360,"longStrike":355,"premiumCollected":1010,"contracts":10,"realizedPnl":89.65,"exitDate":"2026-02-27","dteAtEntry":7,"entryType":"","thesis":"","exitReason":"","thesisAccuracy":"","lessonLearned":"","chartLink":"","tpPrice":"","slPrice":"","rolls":[],"journal":[]}];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let STATE = {
+  watchlist: ["SPY","QQQ","VIX","NVDA","PLTR","HOOD","CAT","NKE","TSM","AAPL"],
+  trades: IBKR_SEED,
+  nextId: 19,
+  quotes: {}, candles: {}, earnings: {},
+  tgBot: "", tgChat: "", alertIVRank: 60, alertStrikeProx: 5,
+  accountBalance: 38788, ytdDeposits: 10118
+};
+let editingTradeId = null;
+let exitingTradeId = null;
+let rollingTradeId = null;
+let currentFilter = "All";
+let pollTimer = null;
+let currentDiaryId = null;
+
+// ── Supabase Persistence ─────────────────────────────────────────────────────
+const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyanBzd3JpcnN6ZXJocGJvamdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzMzgyOTQsImV4cCI6MjA4NzkxNDI5NH0.aLCb5xP8WbeQuMpLJ3uoGFYebENCWQ-WBbtQZLvtYuA";
+
+async function save() {
+  const body = JSON.stringify({ data: STATE });
+  try {
+    // Try update first
+    const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Prefer": "return=minimal" },
+      body
+    });
+    if (!r.ok) throw new Error("patch failed");
+  } catch {
+    // Fallback to localStorage
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(e) {}
+  }
+}
+
+async function load() {
+  try {
+    const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    if (!r.ok) throw new Error("load failed");
+    const rows = await r.json();
+    if (rows && rows[0] && rows[0].data && rows[0].data.trades) {
+      const d = rows[0].data;
+      STATE = {...STATE, ...d, quotes:{}, candles:{}};
+      return;
+    }
+  } catch(e) {}
+  // Fallback to localStorage
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (s) { const d = JSON.parse(s); STATE = {...STATE, ...d, quotes:{}, candles:{}}; }
+  } catch(e) {}
+}
+
+// ── Market Data API ───────────────────────────────────────────────────────────
+async function mdaFetch(path) {
+  const url = MDA_BASE + path + (path.includes("?") ? "&" : "?") + "token=" + MDA_TOKEN + "&format=json";
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+async function fetchQuote(ticker) {
+  try {
+    const d = await mdaFetch("/stocks/quotes/" + ticker + "/");
+    if (d.s !== "ok") return null;
+    return { price: d.last[0], change: d.change[0], changePct: d.changepct[0] * 100, volume: d.volume[0], ts: new Date().toLocaleTimeString() };
+  } catch { return null; }
+}
+
+async function fetchCandles(ticker, from, to) {
+  try {
+    const d = await mdaFetch("/stocks/candles/D/" + ticker + "/?from=" + from + "&to=" + to);
+    return d.s === "ok" ? d : null;
+  } catch { return null; }
+}
+
+async function fetchEarnings(ticker) {
+  try {
+    const d = await mdaFetch("/stocks/earnings/" + ticker + "/?datekey=next");
+    return d.s === "ok" && d.reportDate ? d.reportDate[0] : null;
+  } catch { return null; }
+}
+
+// ── IV Rank & helpers ─────────────────────────────────────────────────────────
+function calcIVRank(candles) {
+  if (!candles?.c?.length || candles.c.length < 20) return null;
+  const closes = candles.c;
+  const returns = closes.slice(1).map((c,i) => Math.log(c/closes[i]));
+  const hv30 = Math.sqrt(returns.slice(-30).reduce((s,r) => s+r*r, 0)/30) * Math.sqrt(252) * 100;
+  const hvArr = [];
+  for (let i=30; i<returns.length; i++) {
+    const sl = returns.slice(i-30,i);
+    hvArr.push(Math.sqrt(sl.reduce((s,r)=>s+r*r,0)/30)*Math.sqrt(252)*100);
+  }
+  if (!hvArr.length) return null;
+  const mn = Math.min(...hvArr), mx = Math.max(...hvArr);
+  return mx > mn ? Math.round(((hv30-mn)/(mx-mn))*100) : null;
+}
+
+function calcLowDist(candles, days) {
+  if (!candles?.l?.length) return null;
+  const sl = candles.l.slice(-days);
+  const low = Math.min(...sl);
+  const curr = candles.c[candles.c.length-1];
+  return ((curr-low)/low)*100;
+}
+
+function daysLeft(expiry) { return Math.ceil((new Date(expiry)-new Date())/86400000); }
+function dteColor(d) { return d<=3?"#f43f5e":d<=7?"#f59e0b":"#00e5aa"; }
+function dteBucket(d) { return d<=1?"0–1 DTE":d<=7?"2–7 DTE":d<=15?"8–15 DTE":d<=30?"16–30 DTE":d<=45?"31–45 DTE":"45+ DTE"; }
+function fmt$(n) { return (n>=0?"+$":"-$")+Math.abs(n).toFixed(0); }
+function pct(n) { return (n>=0?"+":"")+n.toFixed(1)+"%"; }
+
+// ── Telegram ──────────────────────────────────────────────────────────────────
+async function sendTelegram(msg) {
+  if (!STATE.tgBot || !STATE.tgChat) return;
+  try {
+    await fetch("https://api.telegram.org/bot"+STATE.tgBot+"/sendMessage", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({chat_id:STATE.tgChat, text:msg, parse_mode:"HTML"})
+    });
+  } catch {}
+}
+
+// ── Debug ─────────────────────────────────────────────────────────────────────
+function dbg(msg, type="info") {
+  const colors = {info:"#6a8fa8", success:"#00e5aa", warn:"#f59e0b", error:"#f43f5e"};
+  const el = document.getElementById("debug-log");
+  if (!el) return;
+  const ts = new Date().toLocaleTimeString();
+  el.innerHTML += `<div style="color:${colors[type]||colors.info};margin-bottom:2px;word-break:break-all"><span style="color:#2d4a60">${ts} </span>${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+function toggleDebug() {
+  const p = document.getElementById("debug-panel");
+  p.style.display = p.style.display === "none" ? "block" : "none";
+  document.getElementById("debug-btn").style.color = p.style.display==="block" ? "#f59e0b" : "#2d4a60";
+}
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
+async function refreshAll() {
+  const btn = document.getElementById("refresh-btn");
+  btn.textContent = "…"; btn.disabled = true;
+  const tickers = [...new Set([...STATE.watchlist, ...STATE.trades.filter(t=>t.status==="Open").map(t=>t.ticker)])];
+  const today = new Date().toISOString().slice(0,10);
+  const yearAgo = new Date(Date.now()-366*86400000).toISOString().slice(0,10);
+
+  dbg("Fetching: " + tickers.join(", "));
+
+  // Parallel quote fetches - fast
+  const results = await Promise.allSettled(tickers.map(async t => {
+    const q = await fetchQuote(t);
+    dbg(q ? "✓ "+t+" = $"+q.price.toFixed(2) : "✗ "+t+" failed", q?"success":"error");
+    return {t, q};
+  }));
+  results.forEach(r => { if (r.status==="fulfilled" && r.value.q) STATE.quotes[r.value.t] = r.value.q; });
+
+  checkAlerts();
+  renderAll();
+  btn.textContent = "↻"; btn.disabled = false;
+
+  // Background: candles (skip if already cached)
+  if (Object.keys(STATE.candles).length === 0) {
+    for (const ticker of tickers) {
+      try {
+        const [c, e] = await Promise.all([fetchCandles(ticker, yearAgo, today), fetchEarnings(ticker)]);
+        if (c) STATE.candles[ticker] = c;
+        if (e) STATE.earnings[ticker] = e;
+        renderWatchlist(); renderPositions();
+      } catch {}
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+}
+
+// ── Alert checking ─────────────────────────────────────────────────────────────
+function checkAlerts() {
+  STATE.trades.filter(t=>t.status==="Open").forEach(t => {
+    const q = STATE.quotes[t.ticker];
+    if (!q) return;
+    const prox = ((q.price - t.shortStrike)/q.price)*100;
+    const dl = daysLeft(t.expiry);
+    if (prox < STATE.alertStrikeProx && prox >= 0) sendTelegram(`⚠️ <b>${t.ticker}</b> — $${q.price.toFixed(2)} only ${prox.toFixed(1)}% above short strike $${t.shortStrike}\nDTE: ${dl}`);
+    if (q.price < t.shortStrike) sendTelegram(`🔴 <b>${t.ticker} BREACHED SHORT STRIKE</b>\n$${q.price.toFixed(2)} < $${t.shortStrike} | DTE: ${dl}`);
+    if (t.tpPrice && q.price >= parseFloat(t.tpPrice)) sendTelegram(`✅ <b>${t.ticker} TAKE PROFIT HIT</b>\n$${q.price.toFixed(2)} ≥ TP $${t.tpPrice}`);
+    if (t.slPrice && q.price <= parseFloat(t.slPrice)) sendTelegram(`🛑 <b>${t.ticker} STOP LOSS HIT</b>\n$${q.price.toFixed(2)} ≤ SL $${t.slPrice}`);
+    if (dl === 1) sendTelegram(`⏰ <b>${t.ticker}</b> expires TOMORROW — ${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+  });
+}
+
+// ── Render helpers ─────────────────────────────────────────────────────────────
+function renderAll() { renderKPIs(); renderWatchlist(); renderPositions(); renderTrades(); renderStats(); if (currentDiaryId) renderDiary(); }
+
+function renderKPIs() {
+  const closed = STATE.trades.filter(t=>t.status!=="Open");
+  const open = STATE.trades.filter(t=>t.status==="Open");
+  const pnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const wins = closed.filter(t=>(t.realizedPnl||0)>0).length;
+  const wr = closed.length ? Math.round(wins/closed.length*100) : 0;
+  const base = (STATE.accountBalance||0)+(STATE.ytdDeposits||0);
+  const pct_ = base>0 ? (pnl/base*100) : null;
+
+  document.getElementById("kpi-open").textContent = open.length;
+  document.getElementById("kpi-winrate").textContent = "Win rate: "+wr+"%";
+  const pnlEl = document.getElementById("kpi-pnl");
+  pnlEl.textContent = (pnl>=0?"+$":"-$")+Math.abs(pnl).toFixed(0);
+  pnlEl.style.color = pnl>=0?"#00e5aa":"#f43f5e";
+  const pctEl = document.getElementById("kpi-pct");
+  if (pct_!==null) { pctEl.textContent=(pct_>=0?"+":"")+pct_.toFixed(1)+"% simple return"; pctEl.style.color=pct_>=0?"#00e5aa":"#f43f5e"; }
+  const ytdEl = document.getElementById("ytd-display");
+  ytdEl.innerHTML = "YTD: <span style='color:"+(pnl>=0?"#00e5aa":"#f43f5e")+"'>"+(pnl>=0?"+$":"-$")+Math.abs(pnl).toFixed(0)+"</span>";
+}
+
+function renderWatchlist() {
+  const el = document.getElementById("watchlist-cards");
+  el.innerHTML = STATE.watchlist.map(ticker => {
+    const q = STATE.quotes[ticker];
+    const c = STATE.candles[ticker];
+    const ivr = c ? calcIVRank(c) : null;
+    const earn = STATE.earnings[ticker];
+    const earnDays = earn ? daysLeft(earn) : null;
+
+    const ivrColor = ivr===null?"#2d4a60":ivr>=70?"#00e5aa":ivr>=40?"#f59e0b":"#f43f5e";
+    const ivrBg = ivr===null?"#142030":ivr>=70?"rgba(0,229,170,.1)":ivr>=40?"rgba(245,158,11,.1)":"rgba(244,63,94,.1)";
+
+    const d30 = c ? calcLowDist(c,30) : null;
+    const d60 = c ? calcLowDist(c,60) : null;
+    const d365 = c ? calcLowDist(c,365) : null;
+
+    const barColor = (v) => v===null?"#1a2d42":v<5?"#f43f5e":v<15?"#f59e0b":"#00e5aa";
+    const barWidth = (v) => v===null?0:Math.min(v/30*100,100);
+
+    const openPos = STATE.trades.filter(t=>t.status==="Open"&&t.ticker===ticker);
+    const hasPos = openPos.length > 0;
+
+    return `<div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:${q?10:0}px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:${hasPos?"#00e5aa":"#a8c4d8"}">${ticker}</div>
+          ${hasPos?`<span style="font-size:9px;color:#00e5aa;border:1px solid #00e5aa33;padding:1px 5px;border-radius:2px">LIVE</span>`:""}
+          ${earnDays!==null&&earnDays<=45?`<span style="font-size:9px;color:#f59e0b;border:1px solid #f59e0b33;padding:1px 5px;border-radius:2px">EARN ${earnDays}d</span>`:""}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="iv-pill" style="color:${ivrColor};background:${ivrBg}">${ivr!==null?"IV "+ivr:"IV —"}</span>
+          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:#2d4a60;font-size:16px;line-height:1">×</button>
+        </div>
+      </div>
+      ${q ? `
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:#a8c4d8">$${q.price.toFixed(2)}</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>
+        </div>
+        ${c ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+          ${[["30D",d30],["60D",d60],["1Y",d365]].map(([l,v])=>`<div>
+            <div style="font-size:9px;color:#2d4a60;margin-bottom:2px">${l} LOW</div>
+            <div style="font-size:10px;color:${barColor(v)}">${v!==null?"+"+v.toFixed(1)+"%":"—"}</div>
+            <div style="height:2px;background:#1a2d42;border-radius:1px;margin-top:3px"><div style="height:100%;width:${barWidth(v)}%;background:${barColor(v)};border-radius:1px"></div></div>
+          </div>`).join("")}
+        </div>` : `<div style="font-size:10px;color:#2d4a60">Loading candles...</div>`}
+        <div style="font-size:9px;color:#2d4a60;margin-top:6px">${q.ts}</div>
+      ` : `<div style="font-size:11px;color:#2d4a60">Loading...</div>`}
+    </div>`;
+  }).join("");
+}
+
+function renderPositions() {
+  const open = STATE.trades.filter(t=>t.status==="Open");
+  const el = document.getElementById("positions-cards");
+  if (!open.length) { el.innerHTML = `<div style="text-align:center;padding:40px;color:#2d4a60;font-family:'IBM Plex Mono',monospace;font-size:11px">NO OPEN POSITIONS<br><br><button class="btn btn-p" onclick="openTradeModal()">+ LOG FIRST TRADE</button></div>`; return; }
+
+  el.innerHTML = open.map(t => {
+    const q = STATE.quotes[t.ticker];
+    const dl = daysLeft(t.expiry);
+    const maxLoss = (t.shortStrike-t.longStrike)*t.contracts*100 - t.premiumCollected;
+    const prox = q ? ((q.price-t.shortStrike)/q.price*100) : null;
+    const proxColor = prox===null?"#2d4a60":prox<2?"#f43f5e":prox<5?"#f59e0b":"#00e5aa";
+    const proxWidth = prox===null?100:Math.max(0,Math.min(prox/10*100,100));
+
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+        <div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:#a8c4d8">${t.ticker}</div>
+          <div style="font-size:10px;color:#2d4a60;margin-top:2px">${t.longStrike}/${t.shortStrike} · ${t.contracts}x · exp ${t.expiry}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#00e5aa">+$${(t.premiumCollected||0).toFixed(0)}</div>
+          <div style="font-size:9px;color:${dteColor(dl)};margin-top:2px">${dl}d DTE</div>
+        </div>
+      </div>
+      ${q ? `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:10px;color:#2d4a60">PRICE vs SHORT STRIKE</span>
+          <span style="font-size:10px;color:${proxColor}">${prox!==null?prox.toFixed(1)+"%":"—"} above</span>
+        </div>
+        <div style="height:3px;background:#1a2d42;border-radius:2px"><div style="height:100%;width:${proxWidth}%;background:${proxColor};border-radius:2px;transition:width .3s"></div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:3px">
+          <span style="font-size:9px;color:#2d4a60">SHORT $${t.shortStrike}</span>
+          <span style="font-size:9px;color:#a8c4d8">$${q.price.toFixed(2)}</span>
+        </div>
+      </div>` : ""}
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+        <div><div class="lbl">PREMIUM</div><div class="val">$${(t.premiumCollected||0).toFixed(0)}</div></div>
+        <div><div class="lbl">MAX LOSS</div><div class="val" style="color:#f43f5e">-$${maxLoss.toFixed(0)}</div></div>
+        <div><div class="lbl">DTE</div><div class="val" style="color:${dteColor(dl)}">${dl}d</div></div>
+      </div>
+      ${(t.tpPrice||t.slPrice) ? `<div class="g2" style="margin-bottom:10px">
+        <div style="background:#060a10;border:1px solid #00e5aa22;border-radius:3px;padding:8px 10px">
+          <div style="font-size:9px;color:#00e5aa;letter-spacing:.08em;margin-bottom:3px">TAKE PROFIT</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#00e5aa;font-weight:600">${t.tpPrice?"$"+t.tpPrice:"—"}</div>
+          ${t.tpPrice&&q?`<div style="font-size:10px;color:#2d4a60;margin-top:2px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
+        </div>
+        <div style="background:#060a10;border:1px solid #f43f5e22;border-radius:3px;padding:8px 10px">
+          <div style="font-size:9px;color:#f43f5e;letter-spacing:.08em;margin-bottom:3px">STOP LOSS</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#f43f5e;font-weight:600">${t.slPrice?"$"+t.slPrice:"—"}</div>
+          ${t.slPrice&&q?`<div style="font-size:10px;color:#2d4a60;margin-top:2px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
+        </div>
+      </div>` : ""}
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-warn" style="flex:1;padding:7px" onclick="openExitModal(${t.id})">EXIT</button>
+        <button class="btn btn-g" style="flex:1;padding:7px" onclick="openRollModal(${t.id})">ROLL</button>
+        <button class="btn btn-g" style="flex:1;padding:7px" onclick="openDiary(${t.id})">DIARY</button>
+        <button class="btn btn-g" style="padding:7px 10px" onclick="openTradeModal(${t.id})">✎</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderTrades() {
+  const trades = currentFilter==="All" ? STATE.trades : STATE.trades.filter(t=>t.status===currentFilter);
+  const sorted = [...trades].sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate));
+  const tbody = document.getElementById("trades-tbody");
+  tbody.innerHTML = sorted.map(t => {
+    const pnlColor = t.realizedPnl===null?"#2d4a60":t.realizedPnl>0?"#00e5aa":"#f43f5e";
+    const statusColors = {Open:"#00e5aa",Closed:"#374151",Rolled:"#f59e0b",Expired:"#8b5cf6"};
+    const dl = daysLeft(t.expiry);
+    return `<tr class="trow" onclick="openDiary(${t.id})" style="border-bottom:1px solid #0f1e2e">
+      <td style="color:#a8c4d8;font-weight:500">${t.ticker}</td>
+      <td>${t.longStrike}/${t.shortStrike}</td>
+      <td>${t.expiry}</td>
+      <td style="color:${dteColor(dl)}">${dl}d</td>
+      <td>$${(t.premiumCollected||0).toFixed(0)}</td>
+      <td style="color:${pnlColor}">${t.realizedPnl!==null?(t.realizedPnl>=0?"+$":"-$")+Math.abs(t.realizedPnl).toFixed(0):"—"}</td>
+      <td><span class="badge" style="background:${statusColors[t.status]||"#374151"}22;color:${statusColors[t.status]||"#a8c4d8"}">${t.status}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+function renderDiary() {
+  const t = STATE.trades.find(x=>x.id===currentDiaryId);
+  if (!t) return;
+  const q = STATE.quotes[t.ticker];
+  const dl = daysLeft(t.expiry);
+
+  let html = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <button onclick="currentDiaryId=null;renderDiaryList()" style="background:none;border:none;color:#2d4a60;font-size:20px">←</button>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#a8c4d8;font-weight:600">${t.ticker} — ${t.longStrike}/${t.shortStrike}</div>
+      <span class="badge" style="background:#00e5aa22;color:#00e5aa">${t.status}</span>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="g2" style="margin-bottom:12px">
+        <div><div class="lbl">Entry</div><div class="val">${t.entryDate}</div></div>
+        <div><div class="lbl">Expiry</div><div class="val" style="color:${dteColor(dl)}">${t.expiry} (${dl}d)</div></div>
+        <div><div class="lbl">Premium</div><div class="val">$${(t.premiumCollected||0).toFixed(0)}</div></div>
+        <div><div class="lbl">Contracts</div><div class="val">${t.contracts}</div></div>
+        ${q?`<div><div class="lbl">Last Price</div><div class="val">$${q.price.toFixed(2)}</div></div>`:""}
+        ${t.realizedPnl!==null?`<div><div class="lbl">Realized P&L</div><div class="val" style="color:${t.realizedPnl>=0?"#00e5aa":"#f43f5e"}">${t.realizedPnl>=0?"+$":"-$"}${Math.abs(t.realizedPnl).toFixed(0)}</div></div>`:""}
+      </div>
+      ${t.thesis?`<div style="margin-top:8px"><div class="lbl">Thesis</div><div style="font-size:12px;color:#a8c4d8;line-height:1.6">${t.thesis}</div></div>`:""}
+      ${t.exitReason?`<div style="margin-top:8px"><div class="lbl">Exit Reason</div><div class="val">${t.exitReason}</div></div>`:""}
+      ${t.thesisAccuracy?`<div style="margin-top:8px"><div class="lbl">Thesis Accuracy</div><div class="val">${t.thesisAccuracy}</div></div>`:""}
+      ${t.lessonLearned?`<div style="margin-top:8px"><div class="lbl">Lesson Learned</div><div style="font-size:12px;color:#a8c4d8;line-height:1.6">${t.lessonLearned}</div></div>`:""}
+      ${t.chartLink?`<div style="margin-top:8px"><a href="${t.chartLink}" target="_blank" class="btn btn-g" style="display:inline-block;padding:5px 12px;font-size:10px;text-decoration:none">📊 VIEW CHART</a></div>`:""}
+    </div>
+    ${(t.rolls||[]).length?`<div class="card" style="margin-bottom:12px">
+      <div class="st" style="margin-top:0">Roll History</div>
+      ${t.rolls.map(r=>`<div style="border-left:2px solid #f59e0b;padding:8px 12px;margin-bottom:8px;background:#060a10;border-radius:0 3px 3px 0">
+        <div style="font-size:10px;color:#f59e0b;margin-bottom:4px">${r.date}</div>
+        <div style="font-size:11px;color:#a8c4d8">${r.newLong}/${r.newShort} → ${r.newExpiry} · ${r.creditDebit>=0?"+$":"-$"}${Math.abs(r.creditDebit||0).toFixed(0)}</div>
+        ${r.reason?`<div style="font-size:11px;color:#4d7a9a;margin-top:3px">${r.reason}</div>`:""}
+      </div>`).join("")}
+    </div>`:""}
+    <div class="card" style="margin-bottom:12px">
+      <div class="st" style="margin-top:0">Journal</div>
+      ${(t.journal||[]).map(j=>`<div style="border-bottom:1px solid #0f1e2e;padding:10px 0">
+        <div style="font-size:9px;color:#2d4a60;margin-bottom:4px">${new Date(j.date).toLocaleString()}</div>
+        <div style="font-size:12px;color:#a8c4d8;line-height:1.6">${j.text}</div>
+      </div>`).join("")}
+      <div style="margin-top:12px">
+        <textarea id="journal-input" style="height:70px;margin-bottom:8px" placeholder="Add a note..."></textarea>
+        <button class="btn btn-p" style="width:100%" onclick="addJournal()">ADD NOTE</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-g" onclick="openTradeModal(${t.id})" style="flex:1">EDIT TRADE</button>
+      ${t.status==="Open"?`<button class="btn btn-warn" onclick="openExitModal(${t.id})" style="flex:1">EXIT</button>`:""}
+    </div>
+  `;
+  document.getElementById("diary-content").innerHTML = html;
+}
+
+function renderDiaryList() {
+  const sorted = [...STATE.trades].sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate));
+  document.getElementById("diary-content").innerHTML = `
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:14px">SELECT TRADE TO VIEW DIARY</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${sorted.map(t=>`<button onclick="openDiary(${t.id})" class="card" style="text-align:left;border:1px solid #142030;cursor:pointer;-webkit-tap-highlight-color:transparent">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#a8c4d8">${t.ticker}</span>
+            <span style="font-size:11px;color:#2d4a60;margin-left:8px">${t.longStrike}/${t.shortStrike}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${t.realizedPnl!==null?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${t.realizedPnl>=0?"#00e5aa":"#f43f5e"}">${t.realizedPnl>=0?"+$":"-$"}${Math.abs(t.realizedPnl).toFixed(0)}</span>`:""}
+            <span class="badge" style="background:${t.status==="Open"?"#00e5aa22":"#37415122"};color:${t.status==="Open"?"#00e5aa":"#6b7280"}">${t.status}</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#2d4a60;margin-top:4px">${t.entryDate} · ${t.expiry}</div>
+      </button>`).join("")}
+    </div>
+  `;
+}
+
+function renderStats() {
+  const closed = STATE.trades.filter(t=>t.status!=="Open");
+  const pnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const wins = closed.filter(t=>(t.realizedPnl||0)>0);
+  const wr = closed.length ? Math.round(wins.length/closed.length*100) : 0;
+  const avgPnl = closed.length ? pnl/closed.length : 0;
+
+  const buckets = {};
+  DTE_BUCKETS.forEach(b=>buckets[b]={wins:0,losses:0,pnl:0,count:0});
+  closed.forEach(t=>{
+    const b = dteBucket(t.dteAtEntry||0);
+    buckets[b].count++;
+    buckets[b].pnl += (t.realizedPnl||0);
+    if ((t.realizedPnl||0)>0) buckets[b].wins++; else buckets[b].losses++;
+  });
+
+  document.getElementById("stats-content").innerHTML = `
+    <div class="g2" style="margin-bottom:16px">
+      <div class="card" style="padding:12px"><div class="lbl">Win Rate</div><div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:#00e5aa">${wr}%</div></div>
+      <div class="card" style="padding:12px"><div class="lbl">Realized P&L</div><div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:${pnl>=0?"#00e5aa":"#f43f5e"}">${pnl>=0?"+$":"-$"}${Math.abs(pnl).toFixed(0)}</div></div>
+      <div class="card" style="padding:12px"><div class="lbl">Total Trades</div><div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:#a8c4d8">${closed.length}</div></div>
+      <div class="card" style="padding:12px"><div class="lbl">Avg P&L / Trade</div><div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:${avgPnl>=0?"#00e5aa":"#f43f5e"}">${avgPnl>=0?"+$":"-$"}${Math.abs(avgPnl).toFixed(0)}</div></div>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:12px">DTE BUCKET PERFORMANCE</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${DTE_BUCKETS.map(b=>{
+        const bk = buckets[b];
+        if (!bk.count) return `<div class="card" style="padding:10px 14px;opacity:.4"><div style="display:flex;justify-content:space-between"><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#2d4a60">${b}</span><span style="font-size:10px;color:#2d4a60">—</span></div></div>`;
+        const bwr = bk.count ? Math.round(bk.wins/bk.count*100) : 0;
+        const bcolor = bwr>=70?"#00e5aa":bwr>=50?"#f59e0b":"#f43f5e";
+        return `<div class="card" style="padding:12px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a8c4d8">${b}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bk.pnl>=0?"#00e5aa":"#f43f5e"}">${bk.pnl>=0?"+$":"-$"}${Math.abs(bk.pnl).toFixed(0)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:10px;color:#2d4a60">${bk.wins}W / ${bk.losses}L · ${bk.count} trades</span>
+            <span style="font-size:12px;font-family:'IBM Plex Mono',monospace;color:${bcolor}">${bwr}%</span>
+          </div>
+          <div style="height:2px;background:#1a2d42;border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bcolor};border-radius:1px"></div></div>
+        </div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.getElementById("tab-"+name).classList.add("active");
+  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  if (name==="diary" && !currentDiaryId) renderDiaryList();
+  if (name==="stats") renderStats();
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────────────
+function addTicker(e) {
+  if (e.key!=="Enter") return;
+  const v = document.getElementById("watch-input").value.trim().toUpperCase();
+  if (!v) return;
+  if (!STATE.watchlist.includes(v)) STATE.watchlist.push(v);
+  document.getElementById("watch-input").value = "";
+  save(); renderWatchlist();
+}
+function removeWatcher(ticker) {
+  STATE.watchlist = STATE.watchlist.filter(t=>t!==ticker);
+  save(); renderWatchlist();
+}
+
+// ── Trade filter ──────────────────────────────────────────────────────────────
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll(".filter-btn").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  renderTrades();
+}
+
+// ── Trade modal ───────────────────────────────────────────────────────────────
+function openTradeModal(id=null) {
+  editingTradeId = id;
+  const t = id ? STATE.trades.find(x=>x.id===id) : null;
+
+  // Populate selects
+  const ttSel = document.getElementById("tf-tradeType");
+  ttSel.innerHTML = TRADE_TYPES.map(x=>`<option${t&&t.tradeType===x?" selected":""}>${x}</option>`).join("");
+  const etSel = document.getElementById("tf-entryType");
+  etSel.innerHTML = `<option value="">Select...</option>`+ENTRY_TYPES.map(x=>`<option${t&&t.entryType===x?" selected":""}>${x}</option>`).join("");
+
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById("trade-modal-title").textContent = t ? "EDIT — "+t.ticker : "NEW TRADE";
+  document.getElementById("tf-ticker").value = t?.ticker||"";
+  document.getElementById("tf-shortStrike").value = t?.shortStrike||"";
+  document.getElementById("tf-longStrike").value = t?.longStrike||"";
+  document.getElementById("tf-contracts").value = t?.contracts||1;
+  document.getElementById("tf-entryDate").value = t?.entryDate||today;
+  document.getElementById("tf-expiry").value = t?.expiry||"";
+  document.getElementById("tf-premium").value = t?.premiumCollected||"";
+  document.getElementById("tf-status").value = t?.status||"Open";
+  document.getElementById("tf-tpPrice").value = t?.tpPrice||"";
+  document.getElementById("tf-slPrice").value = t?.slPrice||"";
+  document.getElementById("tf-thesis").value = t?.thesis||"";
+  document.getElementById("tf-entryTrigger").value = t?.entryTrigger||"";
+  document.getElementById("tf-stopLogic").value = t?.stopLogic||"";
+  document.getElementById("tf-targetLogic").value = t?.targetLogic||"";
+  document.getElementById("tf-chartLink").value = t?.chartLink||"";
+  document.getElementById("trade-modal").style.display = "flex";
+}
+function closeTradeModal() { document.getElementById("trade-modal").style.display="none"; }
+
+function saveTrade() {
+  const ticker = document.getElementById("tf-ticker").value.trim().toUpperCase();
+  if (!ticker) return;
+  const newTrade = {
+    ticker, id: editingTradeId,
+    tradeType: document.getElementById("tf-tradeType").value,
+    shortStrike: parseFloat(document.getElementById("tf-shortStrike").value)||0,
+    longStrike: parseFloat(document.getElementById("tf-longStrike").value)||0,
+    contracts: parseInt(document.getElementById("tf-contracts").value)||1,
+    entryDate: document.getElementById("tf-entryDate").value,
+    expiry: document.getElementById("tf-expiry").value,
+    premiumCollected: parseFloat(document.getElementById("tf-premium").value)||0,
+    status: document.getElementById("tf-status").value,
+    tpPrice: document.getElementById("tf-tpPrice").value,
+    slPrice: document.getElementById("tf-slPrice").value,
+    entryType: document.getElementById("tf-entryType").value,
+    thesis: document.getElementById("tf-thesis").value,
+    entryTrigger: document.getElementById("tf-entryTrigger").value,
+    stopLogic: document.getElementById("tf-stopLogic").value,
+    targetLogic: document.getElementById("tf-targetLogic").value,
+    chartLink: document.getElementById("tf-chartLink").value,
+  };
+  if (editingTradeId) {
+    const prev = STATE.trades.find(x=>x.id===editingTradeId);
+    newTrade.rolls = prev.rolls||[]; newTrade.journal = prev.journal||[];
+    newTrade.dteAtEntry = prev.dteAtEntry; newTrade.realizedPnl = prev.realizedPnl; newTrade.exitDate = prev.exitDate;
+    newTrade.exitReason = prev.exitReason; newTrade.thesisAccuracy = prev.thesisAccuracy; newTrade.lessonLearned = prev.lessonLearned;
+    // Fire TP/SL alerts if changed
+    if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Take Profit set at $${newTrade.tpPrice}\nSpread: ${newTrade.longStrike}/${newTrade.shortStrike} x${newTrade.contracts}`);
+    if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Stop Loss set at $${newTrade.slPrice}\nSpread: ${newTrade.longStrike}/${newTrade.shortStrike} x${newTrade.contracts}`);
+    STATE.trades = STATE.trades.map(x=>x.id===editingTradeId?newTrade:x);
+  } else {
+    const entryD = new Date(newTrade.entryDate), expiryD = new Date(newTrade.expiry);
+    newTrade.id = STATE.nextId++;
+    newTrade.dteAtEntry = Math.ceil((expiryD-entryD)/86400000);
+    newTrade.rolls=[]; newTrade.journal=[]; newTrade.realizedPnl=null; newTrade.exitDate=null;
+    newTrade.exitReason=""; newTrade.thesisAccuracy=""; newTrade.lessonLearned=""; newTrade.createdAt=new Date().toISOString().slice(0,10);
+    STATE.trades.push(newTrade);
+    if (!STATE.watchlist.includes(ticker)) STATE.watchlist.push(ticker);
+  }
+  save(); closeTradeModal(); renderAll();
+}
+
+// ── Exit modal ────────────────────────────────────────────────────────────────
+function openExitModal(id) {
+  exitingTradeId = id;
+  const t = STATE.trades.find(x=>x.id===id);
+  document.getElementById("exit-modal-title").textContent = "CLOSE — "+t.ticker+" "+t.longStrike+"/"+t.shortStrike;
+  document.getElementById("ef-exitDate").value = new Date().toISOString().slice(0,10);
+  document.getElementById("ef-pnl").value = "";
+  document.getElementById("ef-lesson").value = "";
+  const rSel = document.getElementById("ef-reason");
+  rSel.innerHTML = `<option value="">Select...</option>`+EXIT_REASONS.map(r=>`<option>${r}</option>`).join("");
+  document.getElementById("exit-modal").style.display="flex";
+}
+function closeExitModal() { document.getElementById("exit-modal").style.display="none"; }
+function confirmExit() {
+  STATE.trades = STATE.trades.map(t => t.id===exitingTradeId ? {
+    ...t,
+    status: document.getElementById("ef-status").value,
+    exitDate: document.getElementById("ef-exitDate").value,
+    realizedPnl: parseFloat(document.getElementById("ef-pnl").value)||0,
+    exitReason: document.getElementById("ef-reason").value,
+    thesisAccuracy: document.getElementById("ef-accuracy").value,
+    lessonLearned: document.getElementById("ef-lesson").value,
+  } : t);
+  save(); closeExitModal(); renderAll();
+}
+
+// ── Roll modal ────────────────────────────────────────────────────────────────
+function openRollModal(id) {
+  rollingTradeId = id;
+  const t = STATE.trades.find(x=>x.id===id);
+  document.getElementById("roll-modal-title").textContent = "ROLL — "+t.ticker+" "+t.longStrike+"/"+t.shortStrike;
+  document.getElementById("roll-current").textContent = "Current: "+t.longStrike+"/"+t.shortStrike+" exp "+t.expiry;
+  document.getElementById("rf-newShort").value=""; document.getElementById("rf-newLong").value="";
+  document.getElementById("rf-newExpiry").value=""; document.getElementById("rf-credit").value="";
+  document.getElementById("rf-reason").value="";
+  document.getElementById("roll-modal").style.display="flex";
+}
+function closeRollModal() { document.getElementById("roll-modal").style.display="none"; }
+function confirmRoll() {
+  const roll = {
+    date: new Date().toISOString().slice(0,10),
+    newShort: parseFloat(document.getElementById("rf-newShort").value)||0,
+    newLong: parseFloat(document.getElementById("rf-newLong").value)||0,
+    newExpiry: document.getElementById("rf-newExpiry").value,
+    creditDebit: parseFloat(document.getElementById("rf-credit").value)||0,
+    reason: document.getElementById("rf-reason").value,
+  };
+  STATE.trades = STATE.trades.map(t => t.id===rollingTradeId ? {
+    ...t, rolls: [...(t.rolls||[]), roll],
+    shortStrike: roll.newShort||t.shortStrike,
+    longStrike: roll.newLong||t.longStrike,
+    expiry: roll.newExpiry||t.expiry,
+    premiumCollected: (t.premiumCollected||0)+(roll.creditDebit||0)
+  } : t);
+  save(); closeRollModal(); renderAll();
+}
+
+// ── Diary ─────────────────────────────────────────────────────────────────────
+function openDiary(id) {
+  currentDiaryId = id;
+  // Switch to diary tab
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.getElementById("tab-diary").classList.add("active");
+  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll(".nav-btn")[3].classList.add("active");
+  renderDiary();
+}
+function addJournal() {
+  const txt = document.getElementById("journal-input").value.trim();
+  if (!txt) return;
+  STATE.trades = STATE.trades.map(t => t.id===currentDiaryId ? {
+    ...t, journal: [...(t.journal||[]), {text:txt, date:new Date().toISOString()}]
+  } : t);
+  save(); renderDiary();
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById("s-balance").value = STATE.accountBalance||"";
+  document.getElementById("s-deposits").value = STATE.ytdDeposits||"";
+  document.getElementById("s-tgbot").value = STATE.tgBot||"";
+  document.getElementById("s-tgchat").value = STATE.tgChat||"";
+  document.getElementById("s-ivrank").value = STATE.alertIVRank||60;
+  document.getElementById("s-strikeprox").value = STATE.alertStrikeProx||5;
+  document.getElementById("settings-modal").style.display="flex";
+}
+function closeSettings() { document.getElementById("settings-modal").style.display="none"; }
+function saveSettings() {
+  STATE.accountBalance = parseFloat(document.getElementById("s-balance").value)||0;
+  STATE.ytdDeposits = parseFloat(document.getElementById("s-deposits").value)||0;
+  STATE.tgBot = document.getElementById("s-tgbot").value.trim();
+  STATE.tgChat = document.getElementById("s-tgchat").value.trim();
+  STATE.alertIVRank = parseFloat(document.getElementById("s-ivrank").value)||60;
+  STATE.alertStrikeProx = parseFloat(document.getElementById("s-strikeprox").value)||5;
+  save(); closeSettings(); renderKPIs();
+}
+async function testTelegram() {
+  const bot = document.getElementById("s-tgbot").value.trim();
+  const chat = document.getElementById("s-tgchat").value.trim();
+  if (!bot||!chat) { alert("Enter bot token and chat ID first"); return; }
+  try {
+    await fetch("https://api.telegram.org/bot"+bot+"/sendMessage",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({chat_id:chat,text:"✅ Trade Desk connected! Alerts are working.",parse_mode:"HTML"})
+    });
+    alert("Test message sent!");
+  } catch(e) { alert("Failed: "+e.message); }
+}
+
+// ── Export / Import ───────────────────────────────────────────────────────────
+function exportData() {
+  const data = JSON.stringify({
+    trades: STATE.trades,
+    watchlist: STATE.watchlist,
+    nextId: STATE.nextId,
+    accountBalance: STATE.accountBalance,
+    ytdDeposits: STATE.ytdDeposits,
+    tgBot: STATE.tgBot,
+    tgChat: STATE.tgChat,
+    alertIVRank: STATE.alertIVRank,
+    alertStrikeProx: STATE.alertStrikeProx,
+  });
+  // Copy to clipboard
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(data).then(() => alert("✅ Data copied to clipboard!\n\nOn your other device:\n1. Open Settings (⚙)\n2. Tap Import Data\n3. Paste and import")).catch(() => showExportText(data));
+  } else {
+    showExportText(data);
+  }
+}
+function showExportText(data) {
+  const imp = document.getElementById("import-area");
+  imp.style.display = "block";
+  document.getElementById("import-text").value = data;
+  alert("Copy the text from the box below, then paste it on your other device.");
+}
+function showImport() {
+  const imp = document.getElementById("import-area");
+  imp.style.display = imp.style.display === "none" ? "block" : "none";
+  document.getElementById("import-text").value = "";
+}
+function importData() {
+  const txt = document.getElementById("import-text").value.trim();
+  if (!txt) return;
+  try {
+    const d = JSON.parse(txt);
+    if (!d.trades) throw new Error("Invalid data");
+    STATE = {...STATE, ...d, quotes:{}, candles:{}};
+    save();
+    closeSettings();
+    renderAll();
+    alert("✅ Data imported! "+d.trades.length+" trades loaded.");
+  } catch(e) {
+    alert("❌ Import failed: "+e.message+"\nMake sure you pasted the full exported text.");
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async () => {
+  await load();
+  renderAll();
+  refreshAll();
+  pollTimer = setInterval(refreshAll, POLL_INTERVAL);
+})();
+</script>
+</body>
+</html>
