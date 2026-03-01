@@ -16,7 +16,7 @@ input,textarea,select{background:#0b1622;border:1px solid #1a2d42;color:#a8c4d8;
 input:focus,textarea:focus,select:focus{border-color:#00e5aa}
 select option{background:#0b1622}
 button{cursor:pointer;font-family:'IBM Plex Mono',monospace;-webkit-tap-highlight-color:transparent}
-.lbl{font-size:10px;color:#2d4a60;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px}
+.lbl{font-size:10px;color:#6a8fa8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px}
 .val{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#a8c4d8}
 .pos{color:#00e5aa!important}
 .neg{color:#f43f5e!important}
@@ -24,22 +24,22 @@ button{cursor:pointer;font-family:'IBM Plex Mono',monospace;-webkit-tap-highligh
 .badge{display:inline-block;padding:2px 8px;border-radius:2px;font-size:10px;font-weight:600;letter-spacing:.05em}
 .btn{border-radius:3px;font-size:11px;letter-spacing:.07em;padding:9px 18px;border:none;cursor:pointer}
 .btn-p{background:#00e5aa;color:#060a10;font-weight:700}
-.btn-g{background:transparent;color:#2d4a60;border:1px solid #1a2d42}
+.btn-g{background:transparent;color:#6a8fa8;border:1px solid #1a2d42}
 .btn-warn{background:#f59e0b;color:#060a10;font-weight:700}
 .btn-danger{background:#f43f5e;color:#fff;font-weight:700}
 .frow{margin-bottom:12px}
-.frow label{display:block;font-size:10px;color:#2d4a60;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+.frow label{display:block;font-size:10px;color:#6a8fa8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;align-items:flex-end;justify-content:center;z-index:200;padding:0}
 .modal{background:#0b1622;border:1px solid #1a2d42;border-radius:8px 8px 0 0;padding:20px;width:100%;max-height:92vh;overflow-y:auto}
-.st{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;margin-top:16px}
-th{padding:8px 10px;text-align:left;color:#2d4a60;font-size:10px;letter-spacing:.06em;font-weight:500;font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+.st{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;margin-top:16px}
+th{padding:8px 10px;text-align:left;color:#6a8fa8;font-size:10px;letter-spacing:.06em;font-weight:500;font-family:'IBM Plex Mono',monospace;white-space:nowrap}
 td{padding:9px 10px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:#a8c4d8;white-space:nowrap}
 table{width:100%;border-collapse:collapse}
 .trow:hover{background:#0f1e2e}
 #bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#0b1622;border-top:1px solid #142030;display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom,0px)}
-.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px 8px;gap:3px;background:none;border:none;color:#2d4a60;font-size:9px;letter-spacing:.06em;text-transform:uppercase}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px 8px;gap:3px;background:none;border:none;color:#4d7a9a;font-size:9px;letter-spacing:.06em;text-transform:uppercase}
 .nav-btn.active{color:#00e5aa}
 .nav-icon{font-size:18px;line-height:1}
 .iv-pill{display:inline-flex;align-items:center;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace}
@@ -53,10 +53,10 @@ table{width:100%;border-collapse:collapse}
 
 <div id="topbar">
   <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#00e5aa;font-weight:600;letter-spacing:.15em;margin-right:auto">◈ TRADE DESK</div>
-  <div id="ytd-display" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;margin-right:10px"></div>
+  <div id="ytd-display" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;margin-right:10px"></div>
   <button class="btn btn-g" onclick="refreshAll()" id="refresh-btn" style="padding:5px 10px;font-size:10px;margin-right:6px">↻</button>
   <button class="btn btn-g" onclick="toggleDebug()" id="debug-btn" style="padding:5px 8px;font-size:10px;margin-right:6px">🔍</button>
-  <button onclick="openSettings()" style="background:none;border:none;color:#2d4a60;font-size:18px">⚙</button>
+  <button onclick="openSettings()" style="background:none;border:none;color:#6a8fa8;font-size:18px">⚙</button>
 </div>
 
 <div id="main">
@@ -67,7 +67,7 @@ table{width:100%;border-collapse:collapse}
       <div class="card" style="padding:12px">
         <div class="lbl">Open Trades</div>
         <div id="kpi-open" style="font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:#00e5aa">—</div>
-        <div id="kpi-winrate" style="font-size:10px;color:#2d4a60;margin-top:3px"></div>
+        <div id="kpi-winrate" style="font-size:10px;color:#6a8fa8;margin-top:3px"></div>
       </div>
       <div class="card" style="padding:12px">
         <div class="lbl">YTD P&L</div>
@@ -79,7 +79,7 @@ table{width:100%;border-collapse:collapse}
     <div id="debug-panel" style="display:none;background:#000;border:1px solid #f59e0b;border-radius:4px;padding:10px;margin-bottom:12px;font-family:'IBM Plex Mono',monospace">
       <div style="display:flex;justify-content:space-between;margin-bottom:6px">
         <span style="font-size:10px;color:#f59e0b;letter-spacing:.1em">DEBUG LOG</span>
-        <button onclick="document.getElementById('debug-log').innerHTML=''" style="background:none;border:none;color:#2d4a60;font-size:11px">CLEAR</button>
+        <button onclick="document.getElementById('debug-log').innerHTML=''" style="background:none;border:none;color:#6a8fa8;font-size:11px">CLEAR</button>
       </div>
       <div id="debug-log" style="max-height:180px;overflow-y:auto;font-size:10px;line-height:1.7"></div>
     </div>
@@ -94,9 +94,10 @@ table{width:100%;border-collapse:collapse}
   <!-- POSITIONS TAB -->
   <div id="tab-positions" class="section active">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em">OPEN POSITIONS</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em">OPEN POSITIONS</div>
       <button class="btn btn-p" style="padding:7px 14px" onclick="openTradeModal()">+ NEW TRADE</button>
     </div>
+    <div id="incomplete-banner"></div>
     <div id="positions-cards" style="display:flex;flex-direction:column;gap:10px"></div>
   </div>
 
@@ -139,9 +140,10 @@ table{width:100%;border-collapse:collapse}
 
 <!-- Bottom Nav -->
 <nav id="bottom-nav">
-  <button class="nav-btn active" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POSITIONS</button>
-  <button class="nav-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>WATCHLIST</button>
+  <button class="nav-btn active" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POS</button>
+  <button class="nav-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>WATCH</button>
   <button class="nav-btn" onclick="switchTab('trades',this)"><span class="nav-icon">≡</span>TRADES</button>
+  <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
   <button class="nav-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
   <button class="nav-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span>FORECAST</button>
 </nav>
@@ -151,7 +153,7 @@ table{width:100%;border-collapse:collapse}
   <div class="modal" style="max-width:680px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div id="trade-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#00e5aa;letter-spacing:.1em">NEW TRADE</div>
-      <button onclick="closeTradeModal()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+      <button onclick="closeTradeModal()" style="background:none;border:none;color:#6a8fa8;font-size:22px">×</button>
     </div>
     <div class="g2">
       <div class="frow"><label>Ticker</label><input id="tf-ticker" placeholder="NVDA" oninput="this.value=this.value.toUpperCase()"></div>
@@ -170,21 +172,31 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Premium Collected ($)</label><input id="tf-premium" type="number" placeholder="450"></div>
       <div class="frow"><label>Status</label><select id="tf-status"><option>Open</option><option>Closed</option><option>Rolled</option><option>Expired</option></select></div>
     </div>
-    <div class="g2">
-      <div class="frow"><label>Take Profit — underlying ($)</label><input id="tf-tpPrice" type="number" placeholder="e.g. 195.00"></div>
-      <div class="frow"><label>Stop Loss — underlying ($)</label><input id="tf-slPrice" type="number" placeholder="e.g. 178.00"></div>
-    </div>
     <div class="g3">
       <div class="frow"><label>Delta at Entry</label><input id="tf-deltaEntry" type="number" step="0.01" placeholder="e.g. -0.18"></div>
       <div class="frow"><label>POP at Entry (%)</label><input id="tf-pop" type="number" placeholder="e.g. 78"></div>
       <div class="frow"><label>Entry Type</label><select id="tf-entryType"><option value="">Select...</option></select></div>
     </div>
-    <div class="frow"><label>Thesis</label><textarea id="tf-thesis" style="height:60px" placeholder="Why are you in this trade?"></textarea></div>
-    <div class="frow"><label>Entry Trigger</label><textarea id="tf-entryTrigger" style="height:50px"></textarea></div>
-    <div class="g2">
-      <div class="frow"><label>Stop Logic</label><textarea id="tf-stopLogic" style="height:50px"></textarea></div>
-      <div class="frow"><label>Target Logic</label><textarea id="tf-targetLogic" style="height:50px"></textarea></div>
+
+    <!-- REQUIRED EXIT RULES -->
+    <div style="background:#060a10;border:1px solid #00e5aa33;border-radius:4px;padding:14px;margin-bottom:12px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#00e5aa;letter-spacing:.12em;margin-bottom:4px">EXIT RULES — REQUIRED</div>
+      <div style="font-size:10px;color:#6a8fa8;margin-bottom:12px">Define these before entering. No exceptions.</div>
+      <div class="frow">
+        <label>🎯 Profit Target — underlying price ($) <span style="color:#f43f5e">*</span></label>
+        <input id="tf-tpPrice" type="number" placeholder="e.g. 195.00 — the price at which you take profit">
+      </div>
+      <div class="frow">
+        <label>🛑 Hard Stop — underlying price ($) <span style="color:#f43f5e">*</span></label>
+        <input id="tf-slPrice" type="number" placeholder="e.g. 178.00 — the price at which you exit no matter what">
+      </div>
+      <div class="frow" style="margin-bottom:0">
+        <label>💀 Thesis Invalidation — price level ($) <span style="color:#f43f5e">*</span></label>
+        <input id="tf-thesisInvalidation" type="number" placeholder="e.g. 180.00 — if price breaks this, your reason for being in is gone">
+      </div>
     </div>
+
+    <div class="frow"><label>Thesis — why are you in this trade?</label><textarea id="tf-thesis" style="height:60px" placeholder="What's the setup? What needs to happen for this to work?"></textarea></div>
     <div class="frow"><label>Chart Link (URL)</label><input id="tf-chartLink" type="url" placeholder="https://..."></div>
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-g" onclick="closeTradeModal()" style="flex:1">CANCEL</button>
@@ -198,7 +210,7 @@ table{width:100%;border-collapse:collapse}
   <div class="modal" style="max-width:460px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div id="exit-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#f59e0b;letter-spacing:.1em">CLOSE POSITION</div>
-      <button onclick="closeExitModal()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+      <button onclick="closeExitModal()" style="background:none;border:none;color:#6a8fa8;font-size:22px">×</button>
     </div>
     <div class="g2">
       <div class="frow"><label>Close As</label><select id="ef-status"><option>Closed</option><option>Rolled</option><option>Expired</option></select></div>
@@ -215,12 +227,39 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>MAE — Worst spread debit ($)</label><input id="ef-mae" type="number" placeholder="e.g. 800"></div>
       <div class="frow"><label>MFE — Best spread debit ($)</label><input id="ef-mfe" type="number" placeholder="e.g. 120"></div>
     </div>
-    <div style="font-size:9px;color:#2d4a60;margin-bottom:12px;line-height:1.6">MAE = highest debit seen (worst case). MFE = lowest debit seen (best case). Enter as dollar value e.g. $8.00 spread = 800.</div>
+    <div style="font-size:9px;color:#6a8fa8;margin-bottom:12px;line-height:1.6">MAE = highest debit seen (worst case). MFE = lowest debit seen (best case). Enter as dollar value e.g. $8.00 spread = 800.</div>
     <div class="g2">
       <div class="frow"><label>Exit Reason</label><select id="ef-reason"><option value="">Select...</option></select></div>
       <div class="frow"><label>Thesis Accuracy</label><select id="ef-accuracy"><option value="">Was your read correct?</option><option>Correct</option><option>Partially Correct</option><option>Wrong</option></select></div>
     </div>
-    <div class="frow"><label>Lesson Learned</label><textarea id="ef-lesson" style="height:70px" placeholder="What would you do differently?"></textarea></div>
+    <div style="background:#060a10;border:1px solid #1a2d42;border-radius:4px;padding:12px;margin-bottom:12px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:10px">RULE ADHERENCE</div>
+      <div class="frow">
+        <label>Did you follow your exit rules?</label>
+        <select id="ef-ruleAdherence" onchange="toggleRuleBreakdown(this.value)">
+          <option value="">Select...</option>
+          <option>Yes — exited exactly as planned</option>
+          <option>Partial — bent the rules but close</option>
+          <option>No — deviated from the plan</option>
+        </select>
+      </div>
+      <div id="ef-rule-breakdown" style="display:none">
+        <div class="frow" style="margin-bottom:0">
+          <label>Why did you deviate?</label>
+          <select id="ef-ruleBreak">
+            <option value="">Select...</option>
+            <option>Held past stop — hoped it would recover</option>
+            <option>Ignored thesis invalidation level</option>
+            <option>Panic exited before stop was hit</option>
+            <option>Chased profit — held past target</option>
+            <option>Sized up / down mid-trade</option>
+            <option>No exit rules were set at entry</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="frow"><label>Lesson Learned</label><textarea id="ef-lesson" style="height:60px" placeholder="What would you do differently?"></textarea></div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-g" onclick="closeExitModal()" style="flex:1">CANCEL</button>
       <button class="btn btn-warn" onclick="confirmExit()" style="flex:1">CLOSE POSITION</button>
@@ -233,7 +272,7 @@ table{width:100%;border-collapse:collapse}
   <div class="modal" style="max-width:460px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div id="roll-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#f59e0b;letter-spacing:.1em">ROLL POSITION</div>
-      <button onclick="closeRollModal()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+      <button onclick="closeRollModal()" style="background:none;border:none;color:#6a8fa8;font-size:22px">×</button>
     </div>
     <div id="roll-current" style="background:#060a10;border:1px solid #142030;border-radius:3px;padding:10px;margin-bottom:16px;font-size:11px;color:#4d7a9a;font-family:'IBM Plex Mono',monospace"></div>
     <div class="g3">
@@ -255,14 +294,14 @@ table{width:100%;border-collapse:collapse}
   <div class="modal" style="max-width:500px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#00e5aa;letter-spacing:.1em">SETTINGS</div>
-      <button onclick="closeSettings()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+      <button onclick="closeSettings()" style="background:none;border:none;color:#6a8fa8;font-size:22px">×</button>
     </div>
     <div class="st" style="margin-top:0">Account</div>
     <div class="g2">
       <div class="frow"><label>Starting Account Balance ($)</label><input id="s-balance" type="number" placeholder="38788"></div>
       <div class="frow"><label>YTD Deposits ($)</label><input id="s-deposits" type="number" placeholder="0"></div>
     </div>
-    <div style="font-size:11px;color:#2d4a60;margin-bottom:16px">% return = Realized P&L ÷ (Starting + Deposits). Simple approximation.</div>
+    <div style="font-size:11px;color:#6a8fa8;margin-bottom:16px">% return = Realized P&L ÷ (Starting + Deposits). Simple approximation.</div>
     <div class="st">Telegram Alerts</div>
     <div class="frow"><label>Bot Token</label><input id="s-tgbot" placeholder="123456789:ABC..."></div>
     <div class="frow"><label>Chat ID</label><input id="s-tgchat" placeholder="-100..."></div>
@@ -272,7 +311,7 @@ table{width:100%;border-collapse:collapse}
     </div>
     <button class="btn btn-g" style="width:100%;margin-bottom:16px" onclick="testTelegram()">TEST TELEGRAM</button>
     <div class="st">Sync Between Devices</div>
-    <div style="font-size:11px;color:#2d4a60;margin-bottom:10px">Export your data on one device, paste it into the other to sync trades, journal, and settings.</div>
+    <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Export your data on one device, paste it into the other to sync trades, journal, and settings.</div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <button class="btn btn-g" style="flex:1" onclick="exportData()">📤 EXPORT DATA</button>
       <button class="btn btn-g" style="flex:1" onclick="showImport()">📥 IMPORT DATA</button>
@@ -293,9 +332,9 @@ table{width:100%;border-collapse:collapse}
   <div class="modal" style="max-width:420px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div id="sr-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#00e5aa;letter-spacing:.1em">S/R LEVELS</div>
-      <button onclick="closeSRModal()" style="background:none;border:none;color:#2d4a60;font-size:22px">×</button>
+      <button onclick="closeSRModal()" style="background:none;border:none;color:#6a8fa8;font-size:22px">×</button>
     </div>
-    <div style="font-size:11px;color:#2d4a60;margin-bottom:16px">Set your price action support & resistance levels. Leave blank to hide.</div>
+    <div style="font-size:11px;color:#6a8fa8;margin-bottom:16px">Set your price action support & resistance levels. Leave blank to hide.</div>
     <div style="font-size:10px;color:#f43f5e;letter-spacing:.08em;margin-bottom:8px">SUPPORT</div>
     <div class="g3" style="margin-bottom:16px">
       <div class="frow"><label>S1</label><input id="sr-s1" type="number" placeholder="e.g. 195"></div>
@@ -324,7 +363,30 @@ const POLL_INTERVAL = 90000;
 
 const ENTRY_TYPES = ["Uptrend / Momentum","Reversal","News / Event","IV Play","Support Bounce","Breakout","Scalp","Earnings Play","Other"];
 const EXIT_REASONS = ["Profit Target Hit","Stop Loss Hit","Rolled","Expired Worthless","Closed Early","Earnings Risk","Same-Day Scalp","Other"];
-const TRADE_TYPES = ["Bull Put Spread","Bear Call Spread","Short Put","Short Call","Long Call","Long Put","Iron Condor","Stock Long","Stock Short"];
+
+// Trade types — ⭐ = core strategies
+const TRADE_TYPES = [
+  "⭐ Covered Call","⭐ Cash Secured Put","⭐ Bull Put Spread","⭐ Bear Call Spread","⭐ Long Call","⭐ Short Call",
+  "── Basic ──",
+  "Long Put","Bull Call Spread","Bear Put Spread",
+  "── Neutral / Income ──",
+  "Iron Condor","Iron Butterfly","Short Straddle","Short Strangle","Long Straddle","Long Strangle","Long Put Butterfly","Long Call Butterfly","Long Put Condor","Long Call Condor",
+  "── Calendar / Diagonal ──",
+  "Calendar Call Spread","Calendar Put Spread","Diagonal Call Spread","Diagonal Put Spread",
+  "── Naked ──",
+  "Short Put","Short Call (Naked)","Short Straddle (Naked)","Short Strangle (Naked)",
+  "── Advanced ──",
+  "Collar","Protective Put","Inverse Iron Butterfly","Inverse Iron Condor","Short Put Butterfly","Short Call Butterfly",
+  "── Ratio / Broken Wing ──",
+  "Call Ratio Spread","Put Ratio Spread","Call Ratio Backspread","Put Ratio Backspread","Call Broken Wing","Inverse Call Broken Wing","Put Broken Wing","Inverse Put Broken Wing",
+  "── Condor Ladders ──",
+  "Short Call Condor","Short Put Condor","Bull Call Ladder","Bear Call Ladder","Bull Put Ladder","Bear Put Ladder",
+  "── Synthetic / Exotic ──",
+  "Long Synthetic Future","Short Synthetic Future","Synthetic Put","Long Combo","Short Combo","Strip","Strap","Guts","Short Guts","Double Diagonal","Jade Lizard","Reverse Jade Lizard","LEAPS",
+  "── Stock ──",
+  "Stock Long","Stock Short",
+  "Other"
+];
 const DTE_BUCKETS = ["0–1 DTE","2–7 DTE","8–15 DTE","16–30 DTE","31–45 DTE","45+ DTE"];
 
 // ── Seed data ─────────────────────────────────────────────────────────────────
@@ -337,6 +399,8 @@ let STATE = {
   nextId: 19,
   quotes: {}, candles: {}, earnings: {},
   srLevels: {}, // { TICKER: { s1,s2,s3,r1,r2,r3 } }
+  priceHistory: {}, // { tradeId: { 'YYYY-MM-DD': price } }
+  sectors: {}, // { TICKER: sectorString }
   tgBot: "", tgChat: "", alertIVRank: 60, alertStrikeProx: 5,
   accountBalance: 38788, ytdDeposits: 10118
 };
@@ -472,7 +536,7 @@ function dbg(msg, type="info") {
   const el = document.getElementById("debug-log");
   if (!el) return;
   const ts = new Date().toLocaleTimeString();
-  el.innerHTML += `<div style="color:${colors[type]||colors.info};margin-bottom:2px;word-break:break-all"><span style="color:#2d4a60">${ts} </span>${msg}</div>`;
+  el.innerHTML += `<div style="color:${colors[type]||colors.info};margin-bottom:2px;word-break:break-all"><span style="color:#6a8fa8">${ts} </span>${msg}</div>`;
   el.scrollTop = el.scrollHeight;
 }
 function toggleDebug() {
@@ -500,6 +564,7 @@ async function refreshAll() {
   results.forEach(r => { if (r.status==="fulfilled" && r.value.q) STATE.quotes[r.value.t] = r.value.q; });
 
   checkAlerts();
+  trackDailyPrices();
   renderAll();
   btn.textContent = "↻"; btn.disabled = false;
 
@@ -533,7 +598,7 @@ function checkAlerts() {
 }
 
 // ── Render helpers ─────────────────────────────────────────────────────────────
-function renderAll() { renderKPIs(); renderWatchlist(); renderPositions(); renderTrades(); renderStats(); if (currentDiaryId) renderDiary(); }
+function renderAll() { renderKPIs(); renderWatchlist(); renderPositions(); renderTrades(); renderStats(); if (currentDiaryId) renderDiary(); renderIncompleteBanner(); }
 
 function renderKPIs() {
   const closed = STATE.trades.filter(t=>t.status!=="Open");
@@ -593,11 +658,12 @@ function renderWatchlist() {
         <div style="display:flex;align-items:center;gap:10px">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:${hasPos?"#00e5aa":"#a8c4d8"}">${ticker}</div>
           ${hasPos?`<span style="font-size:9px;color:#00e5aa;border:1px solid #00e5aa33;padding:1px 5px;border-radius:2px">LIVE</span>`:""}
-          ${earnDays!==null&&earnDays<=45?`<span style="font-size:9px;color:#f59e0b;border:1px solid #f59e0b33;padding:1px 5px;border-radius:2px">EARN ${earnDays}d</span>`:""}
+          ${earnDays!==null?`<span style="font-size:9px;color:#f59e0b;border:1px solid #f59e0b33;padding:1px 5px;border-radius:2px">EARN ${earnDays}d</span>`:""}
+          ${(()=>{const sec=getSector(ticker);return sec?`<span style="font-size:9px;color:#6a8fa8;border:1px solid #1a2d42;padding:1px 5px;border-radius:2px;cursor:pointer" onclick="openSectorModal('${ticker}')">${sec}</span>`:`<span style="font-size:9px;color:#4d7a9a;cursor:pointer" onclick="openSectorModal('${ticker}')">+ sector</span>`})()}
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span class="iv-pill" style="color:${ivrColor};background:${ivrBg}">${ivr!==null?"IV "+ivr:"IV —"}</span>
-          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:#2d4a60;font-size:16px;line-height:1">×</button>
+          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:#6a8fa8;font-size:16px;line-height:1">×</button>
         </div>
       </div>
       ${q ? `
@@ -615,7 +681,7 @@ function renderWatchlist() {
                     const pct = ((parseFloat(lvl)-q.price)/q.price*100);
                     const color = pct < 2 ? "#f43f5e" : pct < 5 ? "#f59e0b" : "#00e5aa";
                     return `<div style="display:flex;justify-content:space-between;align-items:center;background:#060a10;border:1px solid #142030;border-radius:3px;padding:5px 10px">
-                      <span style="font-size:9px;color:#2d4a60;letter-spacing:.06em">R${i+1}</span>
+                      <span style="font-size:9px;color:#6a8fa8;letter-spacing:.06em">R${i+1}</span>
                       <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a8c4d8">$${parseFloat(lvl).toFixed(2)}</span>
                       <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${color}">+${pct.toFixed(1)}%</span>
                     </div>`;
@@ -630,7 +696,7 @@ function renderWatchlist() {
                     const pct = ((q.price-parseFloat(lvl))/q.price*100);
                     const color = pct < 2 ? "#f43f5e" : pct < 5 ? "#f59e0b" : "#00e5aa";
                     return `<div style="display:flex;justify-content:space-between;align-items:center;background:#060a10;border:1px solid #142030;border-radius:3px;padding:5px 10px">
-                      <span style="font-size:9px;color:#2d4a60;letter-spacing:.06em">S${i+1}</span>
+                      <span style="font-size:9px;color:#6a8fa8;letter-spacing:.06em">S${i+1}</span>
                       <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a8c4d8">$${parseFloat(lvl).toFixed(2)}</span>
                       <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${color}">-${pct.toFixed(1)}%</span>
                     </div>`;
@@ -644,7 +710,7 @@ function renderWatchlist() {
             ${[[21,d21],[63,d63],[252,d252]].map(([days,dist])=>{
               const price = actualLow(days);
               return `<div style="background:#060a10;border:1px solid #142030;border-radius:3px;padding:5px 7px">
-                <div style="font-size:9px;color:#2d4a60;margin-bottom:2px">${days}D LOW</div>
+                <div style="font-size:9px;color:#6a8fa8;margin-bottom:2px">${days}D LOW</div>
                 <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6a8fa8">${price!==null?"$"+price.toFixed(2):"—"}</div>
                 <div style="font-size:10px;color:${lowColor(dist)};margin-top:1px">${dist!==null?"+"+dist.toFixed(1)+"%":"—"}</div>
               </div>`;
@@ -654,27 +720,106 @@ function renderWatchlist() {
             ${[[21,h21],[63,h63],[252,h252]].map(([days,dist])=>{
               const price = actualHigh(days);
               return `<div style="background:#060a10;border:1px solid #142030;border-radius:3px;padding:5px 7px">
-                <div style="font-size:9px;color:#2d4a60;margin-bottom:2px">${days}D HIGH</div>
+                <div style="font-size:9px;color:#6a8fa8;margin-bottom:2px">${days}D HIGH</div>
                 <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6a8fa8">${price!==null?"$"+price.toFixed(2):"—"}</div>
                 <div style="font-size:10px;color:${highColor(dist)};margin-top:1px">${dist!==null?"-"+dist.toFixed(1)+"%":"—"}</div>
               </div>`;
             }).join("")}
           </div>
-        </div>` : `<div style="font-size:10px;color:#2d4a60;border-top:1px solid #0f1e2e;padding-top:8px">Loading candles...</div>`}
+        </div>` : `<div style="font-size:10px;color:#6a8fa8;border-top:1px solid #0f1e2e;padding-top:8px">Loading candles...</div>`}
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-          <div style="font-size:9px;color:#2d4a60">${q?q.ts:""}</div>
-          <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:#2d4a60;font-size:10px;font-family:'IBM Plex Mono',monospace;cursor:pointer">${(supports.length||resistances.length)?"EDIT S/R":"+ SET S/R"}</button>
+          <div style="font-size:9px;color:#6a8fa8">${q?q.ts:""}</div>
+          <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:#6a8fa8;font-size:10px;font-family:'IBM Plex Mono',monospace;cursor:pointer">${(supports.length||resistances.length)?"EDIT S/R":"+ SET S/R"}</button>
         </div>
-      ` : `<div style="font-size:11px;color:#2d4a60">Loading...</div>`}
+      ` : `<div style="font-size:11px;color:#6a8fa8">Loading...</div>`}
     </div>`;
   }).join("");
+}
+
+
+const SECTORS = ["Technology","Financials","Energy","Healthcare","Consumer Discretionary","Consumer Staples","Industrials","Materials","Utilities","Real Estate","Communication Services","Crypto","ETF","Commodities","Other"];
+
+// Known sector lookup for common tickers
+const SECTOR_LOOKUP = {
+  AAPL:"Technology",MSFT:"Technology",NVDA:"Technology",AMD:"Technology",TSLA:"Technology",
+  GOOGL:"Technology",GOOG:"Technology",META:"Technology",AMZN:"Consumer Discretionary",
+  NFLX:"Communication Services",CRM:"Technology",ORCL:"Technology",ADBE:"Technology",
+  QCOM:"Technology",INTC:"Technology",MU:"Technology",AVGO:"Technology",TSM:"Technology",
+  JPM:"Financials",BAC:"Financials",GS:"Financials",MS:"Financials",C:"Financials",
+  WFC:"Financials",V:"Financials",MA:"Financials",PYPL:"Financials",HOOD:"Financials",
+  XOM:"Energy",CVX:"Energy",OXY:"Energy",USO:"ETF",
+  JNJ:"Healthcare",PFE:"Healthcare",MRNA:"Healthcare",ABBV:"Healthcare",UNH:"Healthcare",
+  KO:"Consumer Staples",PEP:"Consumer Staples",WMT:"Consumer Staples",COST:"Consumer Discretionary",
+  NKE:"Consumer Discretionary",MCD:"Consumer Discretionary",
+  CAT:"Industrials",BA:"Industrials",GE:"Industrials",
+  PLTR:"Technology",YINN:"ETF",SPY:"ETF",QQQ:"ETF",VIX:"ETF",
+};
+
+function getSector(ticker) {
+  return STATE.sectors?.[ticker] || SECTOR_LOOKUP[ticker] || "";
+}
+
+function renderIncompleteBanner() {
+  const el = document.getElementById("incomplete-banner");
+  if (!el) return;
+  const open = STATE.trades.filter(t => t.status === "Open");
+  const incomplete = open.filter(t => !t.tpPrice || !t.slPrice || !t.thesisInvalidation);
+  if (!incomplete.length) { el.innerHTML = ""; return; }
+
+  el.innerHTML = `<div style="background:#f59e0b11;border:1px solid #f59e0b44;border-radius:4px;padding:10px 14px;margin-bottom:12px">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#f59e0b;letter-spacing:.1em;margin-bottom:8px">⚠ ${incomplete.length} TRADE${incomplete.length>1?"S":""} MISSING EXIT RULES</div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      ${incomplete.map(t => {
+        const missing = [];
+        if (!t.tpPrice) missing.push("Profit Target");
+        if (!t.slPrice) missing.push("Hard Stop");
+        if (!t.thesisInvalidation) missing.push("Thesis Invalidation");
+        return `<div style="display:flex;justify-content:space-between;align-items:center;background:#060a10;border-radius:3px;padding:6px 10px">
+          <div>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a8c4d8">${t.ticker}</span>
+            <span style="font-size:10px;color:#f59e0b;margin-left:8px">missing: ${missing.join(", ")}</span>
+          </div>
+          <button onclick="openTradeModal(${t.id})" class="btn btn-warn" style="padding:4px 10px;font-size:10px">SET</button>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+// Track today's underlying price for all open trades (for MAE tracking)
+function trackDailyPrices() {
+  const today = new Date().toISOString().slice(0,10);
+  const open = STATE.trades.filter(t => t.status === "Open");
+  let changed = false;
+  open.forEach(t => {
+    const q = STATE.quotes[t.ticker];
+    if (!q) return;
+    if (!STATE.priceHistory[t.id]) STATE.priceHistory[t.id] = {};
+    if (!STATE.priceHistory[t.id][today]) {
+      STATE.priceHistory[t.id][today] = q.price;
+      changed = true;
+    }
+  });
+  if (changed) save();
+}
+
+// Calculate MAE proxy from price history (lowest price seen vs entry price)
+function calcPriceMAE(trade) {
+  const hist = STATE.priceHistory?.[trade.id];
+  if (!hist || !Object.keys(hist).length) return null;
+  const prices = Object.values(hist);
+  const lowestPrice = Math.min(...prices);
+  // Entry price approximation: use first recorded price or short strike as reference
+  const firstPrice = hist[Object.keys(hist).sort()[0]];
+  if (!firstPrice) return null;
+  return ((firstPrice - lowestPrice) / firstPrice * 100); // % drop from first recorded price
 }
 
 function renderPositions() {
   const open = STATE.trades.filter(t=>t.status==="Open");
   const el = document.getElementById("positions-cards");
-  if (!open.length) { el.innerHTML = `<div style="text-align:center;padding:40px;color:#2d4a60;font-family:'IBM Plex Mono',monospace;font-size:11px">NO OPEN POSITIONS<br><br><button class="btn btn-p" onclick="openTradeModal()">+ LOG FIRST TRADE</button></div>`; return; }
+  if (!open.length) { el.innerHTML = `<div style="text-align:center;padding:40px;color:#6a8fa8;font-family:'IBM Plex Mono',monospace;font-size:11px">NO OPEN POSITIONS<br><br><button class="btn btn-p" onclick="openTradeModal()">+ LOG FIRST TRADE</button></div>`; return; }
 
   el.innerHTML = open.map(t => {
     const q = STATE.quotes[t.ticker];
@@ -704,15 +849,15 @@ function renderPositions() {
           <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#a8c4d8">${t.ticker}</div>
             ${q ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">$${q.price.toFixed(2)}</div>
-            <div style="font-size:10px;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>` : `<div style="font-size:10px;color:#2d4a60">loading...</div>`}
+            <div style="font-size:10px;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>` : `<div style="font-size:10px;color:#6a8fa8">loading...</div>`}
           </div>
-          <div style="font-size:10px;color:#2d4a60;margin-top:3px">${t.tradeType||"Spread"} · ${t.longStrike}/${t.shortStrike} · ${t.contracts}x · exp ${t.expiry}</div>
+          <div style="font-size:10px;color:#a8c4d8;margin-top:3px">${t.tradeType||"Spread"} · ${t.longStrike}/${t.shortStrike} · ${t.contracts}x · exp ${t.expiry}${(()=>{const sec=getSector(t.ticker);return sec?` · <span style="color:#6a8fa8">${sec}</span>`:""})()}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#00e5aa;font-weight:600">+$${(t.premiumCollected||0).toFixed(0)}</div>
           <div style="font-size:9px;color:${dteColor(dl)};margin-top:2px;font-family:'IBM Plex Mono',monospace">${dl}d DTE</div>
-          ${t.pop?`<div style="font-size:9px;color:#2d4a60;margin-top:1px">POP ${t.pop}%</div>`:""}
-          ${t.deltaEntry?`<div style="font-size:9px;color:#2d4a60;margin-top:1px">Δ ${t.deltaEntry}</div>`:""}
+          ${t.pop?`<div style="font-size:9px;color:#6a8fa8;margin-top:1px">POP ${t.pop}%</div>`:""}
+          ${t.deltaEntry?`<div style="font-size:9px;color:#6a8fa8;margin-top:1px">Δ ${t.deltaEntry}</div>`:""}
         </div>
       </div>
 
@@ -727,23 +872,32 @@ function renderPositions() {
       <!-- Price vs Short Strike bar -->
       ${q ? `<div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-          <span style="font-size:9px;color:#2d4a60;letter-spacing:.06em">PRICE vs SHORT STRIKE</span>
+          <span style="font-size:9px;color:#6a8fa8;letter-spacing:.06em">PRICE vs SHORT STRIKE</span>
           <span style="font-size:10px;color:${proxColor}">${prox!==null?prox.toFixed(1)+"%":"—"} above $${t.shortStrike}</span>
         </div>
         <div style="height:3px;background:#1a2d42;border-radius:2px"><div style="height:100%;width:${proxWidth}%;background:${proxColor};border-radius:2px;transition:width .3s"></div></div>
       </div>` : ""}
 
-      <!-- TP / SL -->
-      <div class="g2" style="margin-bottom:10px">
-        <div style="background:#060a10;border:1px solid ${t.tpPrice?"#00e5aa22":"#f59e0b22"};border-radius:3px;padding:8px 10px">
-          <div style="font-size:9px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">TAKE PROFIT</div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};font-weight:600">${t.tpPrice?"$"+t.tpPrice:"NOT SET"}</div>
-          ${t.tpPrice&&q?`<div style="font-size:10px;color:#2d4a60;margin-top:2px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
+      <!-- TP / SL / Thesis Invalidation -->
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+        <div style="display:flex;gap:6px">
+          <div style="flex:1;background:#060a10;border:1px solid ${t.tpPrice?"#00e5aa22":"#f59e0b22"};border-radius:3px;padding:8px 10px">
+            <div style="font-size:9px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">🎯 PROFIT TARGET</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};font-weight:600">${t.tpPrice?"$"+t.tpPrice:"NOT SET"}</div>
+            ${t.tpPrice&&q?`<div style="font-size:10px;color:#6a8fa8;margin-top:2px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
+          </div>
+          <div style="flex:1;background:#060a10;border:1px solid ${t.slPrice?"#f43f5e22":"#f59e0b22"};border-radius:3px;padding:8px 10px">
+            <div style="font-size:9px;color:${t.slPrice?"#f43f5e":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">🛑 HARD STOP</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.slPrice?"#f43f5e":"#f59e0b"};font-weight:600">${t.slPrice?"$"+t.slPrice:"NOT SET"}</div>
+            ${t.slPrice&&q?`<div style="font-size:10px;color:#6a8fa8;margin-top:2px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
+          </div>
         </div>
-        <div style="background:#060a10;border:1px solid ${t.slPrice?"#f43f5e22":"#f59e0b22"};border-radius:3px;padding:8px 10px">
-          <div style="font-size:9px;color:${t.slPrice?"#f43f5e":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">STOP LOSS</div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.slPrice?"#f43f5e":"#f59e0b"};font-weight:600">${t.slPrice?"$"+t.slPrice:"NOT SET"}</div>
-          ${t.slPrice&&q?`<div style="font-size:10px;color:#2d4a60;margin-top:2px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
+        <div style="background:#060a10;border:1px solid ${t.thesisInvalidation?"#8b5cf622":"#f59e0b22"};border-radius:3px;padding:8px 10px">
+          <div style="font-size:9px;color:${t.thesisInvalidation?"#8b5cf6":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">💀 THESIS INVALIDATION</div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.thesisInvalidation?"#8b5cf6":"#f59e0b"};font-weight:600">${t.thesisInvalidation?"$"+t.thesisInvalidation:"NOT SET"}</div>
+            ${t.thesisInvalidation&&q?`<div style="font-size:10px;color:${((q.price-parseFloat(t.thesisInvalidation))/q.price*100)<3?"#f43f5e":((q.price-parseFloat(t.thesisInvalidation))/q.price*100)<8?"#f59e0b":"#2d4a60"}">${((q.price-parseFloat(t.thesisInvalidation))/q.price*100).toFixed(1)}% away</div>`:""}
+          </div>
         </div>
       </div>
 
@@ -756,7 +910,7 @@ function renderPositions() {
               const pct = q ? ((parseFloat(lvl)-q.price)/q.price*100) : null;
               const c2 = pct===null?"#2d4a60":pct<2?"#f43f5e":pct<5?"#f59e0b":"#00e5aa";
               return `<div style="display:flex;justify-content:space-between;background:#060a10;border:1px solid #142030;border-radius:3px;padding:4px 10px">
-                <span style="font-size:9px;color:#2d4a60">R${i+1}</span>
+                <span style="font-size:9px;color:#6a8fa8">R${i+1}</span>
                 <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a8c4d8">$${parseFloat(lvl).toFixed(2)}</span>
                 <span style="font-size:10px;color:${c2}">${pct!==null?"+"+pct.toFixed(1)+"%":"—"}</span>
               </div>`;
@@ -770,7 +924,7 @@ function renderPositions() {
               const pct = q ? ((q.price-parseFloat(lvl))/q.price*100) : null;
               const c2 = pct===null?"#2d4a60":pct<2?"#f43f5e":pct<5?"#f59e0b":"#00e5aa";
               return `<div style="display:flex;justify-content:space-between;background:#060a10;border:1px solid #142030;border-radius:3px;padding:4px 10px">
-                <span style="font-size:9px;color:#2d4a60">S${i+1}</span>
+                <span style="font-size:9px;color:#6a8fa8">S${i+1}</span>
                 <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a8c4d8">$${parseFloat(lvl).toFixed(2)}</span>
                 <span style="font-size:10px;color:${c2}">${pct!==null?"-"+pct.toFixed(1)+"%":"—"}</span>
               </div>`;
@@ -780,18 +934,19 @@ function renderPositions() {
       </div>` : ""}
 
       <!-- Stats row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
         <div><div class="lbl">PREMIUM</div><div class="val">$${(t.premiumCollected||0).toFixed(0)}</div></div>
         <div><div class="lbl">MAX LOSS</div><div class="val" style="color:#f43f5e">-$${maxLoss.toFixed(0)}</div></div>
         <div><div class="lbl">ENTRY Δ</div><div class="val">${t.deltaEntry||"—"}</div></div>
+        <div><div class="lbl">PRICE MAE</div><div class="val" style="color:${(()=>{const m=calcPriceMAE(t);return m===null?"#6a8fa8":m>10?"#f43f5e":m>5?"#f59e0b":"#00e5aa"})()">${(()=>{const m=calcPriceMAE(t);return m===null?"—":"-"+m.toFixed(1)+"%"})()} </div></div>
       </div>
 
       <!-- Actions -->
       <div style="display:flex;gap:6px">
         <button class="btn btn-warn" style="flex:1;padding:7px" onclick="openExitModal(${t.id})">EXIT</button>
-        <button class="btn btn-g" style="flex:1;padding:7px" onclick="openRollModal(${t.id})">ROLL</button>
-        <button class="btn btn-g" style="flex:1;padding:7px" onclick="openDiary(${t.id})">DIARY</button>
-        <button class="btn btn-g" style="padding:7px 10px" onclick="openTradeModal(${t.id})">✎</button>
+        <button class="btn btn-g" style="flex:1;padding:7px;color:#6a8fa8;border-color:#1a2d42" onclick="openRollModal(${t.id})">ROLL</button>
+        <button class="btn btn-g" style="flex:1;padding:7px;color:#6a8fa8;border-color:#1a2d42" onclick="openDiary(${t.id})">DIARY</button>
+        <button class="btn btn-g" style="padding:7px 10px;color:#6a8fa8;border-color:#1a2d42" onclick="openTradeModal(${t.id})">✎</button>
       </div>
     </div>`;
   }).join("");
@@ -826,7 +981,7 @@ function renderDiary() {
 
   let html = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-      <button onclick="currentDiaryId=null;renderDiaryList()" style="background:none;border:none;color:#2d4a60;font-size:20px">←</button>
+      <button onclick="currentDiaryId=null;renderDiaryList()" style="background:none;border:none;color:#6a8fa8;font-size:20px">←</button>
       <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#a8c4d8;font-weight:600">${t.ticker} · ${t.longStrike}/${t.shortStrike}</div>
       <span class="badge" style="background:${statusColors[t.status]||"#374151"}22;color:${statusColors[t.status]||"#a8c4d8"}">${t.status}</span>
     </div>
@@ -855,7 +1010,7 @@ function renderDiary() {
 
     <!-- Strategy & Sentiment -->
     <div class="card" style="margin-bottom:10px">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:10px">STRATEGY & CONTEXT</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:10px">STRATEGY & CONTEXT</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div>
           <div class="lbl">Market Sentiment</div>
@@ -864,18 +1019,12 @@ function renderDiary() {
             ${["Bullish","Neutral","Bearish"].map(o=>`<option${t.sentiment===o?" selected":""}>${o}</option>`).join("")}
           </select>
         </div>
+
         <div>
-          <div class="lbl">Conviction (1–5)</div>
-          <select onchange="updateTradeField(${t.id},'conviction',this.value)" style="font-size:11px">
-            <option value="">—</option>
-            ${[1,2,3,4,5].map(o=>`<option${t.conviction==o?" selected":""}>${o}</option>`).join("")}
-          </select>
-        </div>
-        <div>
-          <div class="lbl">Strategy Type</div>
+          <div class="lbl">Setup Type</div>
           <select onchange="updateTradeField(${t.id},'strategyType',this.value)" style="font-size:11px">
             <option value="">—</option>
-            ${["IV Crush","Trend","Support Bounce","Earnings Play","Price Reversal","Momentum","Other"].map(o=>`<option${t.strategyType===o?" selected":""}>${o}</option>`).join("")}
+            ${["Trend / Momentum","Support Bounce","Resistance Fade","IV Crush — Earnings","IV Crush — Event","Oversold Reversal","Overbought Reversal","Range Bound / Theta","Sector Rotation","Breakout","Breakdown","News / Catalyst","Other"].map(o=>`<option${t.strategyType===o?" selected":""}>${o}</option>`).join("")}
           </select>
         </div>
         <div>
@@ -894,10 +1043,12 @@ function renderDiary() {
 
     <!-- Exit review (if closed) -->
     ${t.status!=="Open"?`<div class="card" style="margin-bottom:10px">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:10px">EXIT REVIEW</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:10px">EXIT REVIEW</div>
       <div class="g2" style="margin-bottom:10px">
         ${t.exitReason?`<div><div class="lbl">Exit Reason</div><div class="val">${t.exitReason}</div></div>`:""}
         ${t.thesisAccuracy?`<div><div class="lbl">Thesis Accuracy</div><div class="val">${t.thesisAccuracy}</div></div>`:""}
+        ${t.ruleAdherence?`<div style="grid-column:1/-1"><div class="lbl">Rule Adherence</div><div class="val" style="color:${t.ruleAdherence.startsWith("Yes")?"#00e5aa":t.ruleAdherence.startsWith("No")?"#f43f5e":"#f59e0b"}">${t.ruleAdherence}</div></div>`:""}
+        ${t.ruleBreak?`<div style="grid-column:1/-1"><div class="lbl">Why Deviated</div><div class="val" style="color:#f43f5e">${t.ruleBreak}</div></div>`:""}
       </div>
       <div class="frow" style="margin-bottom:0">
         <label>Lesson Learned</label>
@@ -907,11 +1058,11 @@ function renderDiary() {
 
     <!-- Roll history -->
     ${(t.rolls||[]).length?`<div class="card" style="margin-bottom:10px">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:10px">ROLL HISTORY</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:10px">ROLL HISTORY</div>
       ${t.rolls.map(r=>`<div style="border-left:2px solid #f59e0b;padding:8px 12px;margin-bottom:8px;background:#060a10;border-radius:0 3px 3px 0">
         <div style="font-size:10px;color:#f59e0b;margin-bottom:4px">${r.date}</div>
         <div style="font-size:11px;color:#a8c4d8">${r.newLong}/${r.newShort} → ${r.newExpiry} · ${r.creditDebit>=0?"+$":"-$"}${Math.abs(r.creditDebit||0).toFixed(0)}</div>
-        ${r.reason?`<div style="font-size:11px;color:#4d7a9a;margin-top:3px">${r.reason}</div>`:""}
+        ${r.reason?`<div style="font-size:11px;color:#6a8fa8;margin-top:3px">${r.reason}</div>`:""}
       </div>`).join("")}
     </div>`:""}
 
@@ -920,10 +1071,10 @@ function renderDiary() {
 
     <!-- Journal -->
     <div class="card" style="margin-bottom:10px">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:10px">JOURNAL NOTES</div>
-      ${(t.journal||[]).length===0?`<div style="font-size:11px;color:#2d4a60;margin-bottom:12px">No notes yet.</div>`:""}
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:10px">JOURNAL NOTES</div>
+      ${(t.journal||[]).length===0?`<div style="font-size:11px;color:#6a8fa8;margin-bottom:12px">No notes yet.</div>`:""}
       ${(t.journal||[]).map(j=>`<div style="border-bottom:1px solid #0f1e2e;padding:10px 0">
-        <div style="font-size:9px;color:#2d4a60;margin-bottom:4px">${new Date(j.date).toLocaleString()}</div>
+        <div style="font-size:9px;color:#6a8fa8;margin-bottom:4px">${new Date(j.date).toLocaleString()}</div>
         <div style="font-size:12px;color:#a8c4d8;line-height:1.6">${j.text}</div>
       </div>`).join("")}
       <div style="margin-top:12px">
@@ -943,20 +1094,20 @@ function renderDiary() {
 function renderDiaryList() {
   const sorted = [...STATE.trades].sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate));
   document.getElementById("diary-content").innerHTML = `
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:14px">SELECT TRADE TO VIEW DIARY</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:14px">SELECT TRADE TO VIEW DIARY</div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${sorted.map(t=>`<button onclick="openDiary(${t.id})" class="card" style="text-align:left;border:1px solid #142030;cursor:pointer;-webkit-tap-highlight-color:transparent">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div>
             <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#a8c4d8">${t.ticker}</span>
-            <span style="font-size:11px;color:#2d4a60;margin-left:8px">${t.longStrike}/${t.shortStrike}</span>
+            <span style="font-size:11px;color:#6a8fa8;margin-left:8px">${t.longStrike}/${t.shortStrike}</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             ${t.realizedPnl!==null?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${t.realizedPnl>=0?"#00e5aa":"#f43f5e"}">${t.realizedPnl>=0?"+$":"-$"}${Math.abs(t.realizedPnl).toFixed(0)}</span>`:""}
             <span class="badge" style="background:${t.status==="Open"?"#00e5aa22":"#37415122"};color:${t.status==="Open"?"#00e5aa":"#6b7280"}">${t.status}</span>
           </div>
         </div>
-        <div style="font-size:10px;color:#2d4a60;margin-top:4px">${t.entryDate} · ${t.expiry}</div>
+        <div style="font-size:10px;color:#6a8fa8;margin-top:4px">${t.entryDate} · ${t.expiry}</div>
       </button>`).join("")}
     </div>
   `;
@@ -995,7 +1146,7 @@ function renderStats() {
     const rows = Object.entries(map).sort((a,b)=>b[1].pnl-a[1].pnl);
     if (!rows.length) return "";
     return `
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin:16px 0 8px">${label}</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin:16px 0 8px">${label}</div>
       <div style="display:flex;flex-direction:column;gap:5px">
         ${rows.map(([k,v])=>{
           const bwr = v.count ? Math.round(v.wins/v.count*100) : 0;
@@ -1006,7 +1157,7 @@ function renderStats() {
               <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${v.pnl>=0?"#00e5aa":"#f43f5e"}">${v.pnl>=0?"+$":"-$"}${Math.abs(v.pnl).toFixed(0)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-              <span style="font-size:10px;color:#2d4a60">${v.wins}W / ${v.losses}L · ${v.count} trades</span>
+              <span style="font-size:10px;color:#6a8fa8">${v.wins}W / ${v.losses}L · ${v.count} trades</span>
               <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
             </div>
             <div style="height:2px;background:#1a2d42;border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
@@ -1025,11 +1176,11 @@ function renderStats() {
       <div class="card" style="padding:12px"><div class="lbl">Avg P&L/Trade</div><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${avgPnl>=0?"#00e5aa":"#f43f5e"}">${avgPnl>=0?"+$":"-$"}${Math.abs(avgPnl).toFixed(0)}</div></div>
     </div>
 
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:8px">BY DTE BUCKET</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:8px">BY DTE BUCKET</div>
     <div style="display:flex;flex-direction:column;gap:5px">
       ${DTE_BUCKETS.map(b=>{
         const bk = buckets[b];
-        if (!bk.count) return `<div class="card" style="padding:10px 14px;opacity:.3"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#2d4a60">${b} — no data</span></div>`;
+        if (!bk.count) return `<div class="card" style="padding:10px 14px;opacity:.3"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6a8fa8">${b} — no data</span></div>`;
         const bwr = Math.round(bk.wins/bk.count*100);
         const bc = bwr>=70?"#00e5aa":bwr>=50?"#f59e0b":"#f43f5e";
         return `<div class="card" style="padding:10px 14px">
@@ -1038,7 +1189,7 @@ function renderStats() {
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bk.pnl>=0?"#00e5aa":"#f43f5e"}">${bk.pnl>=0?"+$":"-$"}${Math.abs(bk.pnl).toFixed(0)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-            <span style="font-size:10px;color:#2d4a60">${bk.wins}W / ${bk.losses}L · ${bk.count} trades</span>
+            <span style="font-size:10px;color:#6a8fa8">${bk.wins}W / ${bk.losses}L · ${bk.count} trades</span>
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
           </div>
           <div style="height:2px;background:#1a2d42;border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
@@ -1047,13 +1198,72 @@ function renderStats() {
     </div>
 
     ${buildBreakdown(t=>t.ticker, "BY TICKER")}
-    ${buildBreakdown(t=>t.strategyType, "BY STRATEGY TYPE")}
+    ${buildBreakdown(t=>t.strategyType||t.tradeType?.replace('⭐ ',''), "BY STRATEGY / TRADE TYPE")}
     ${buildBreakdown(t=>t.entryType, "BY ENTRY TYPE")}
+
+    ${(()=>{
+      const withAdherence = closed.filter(t=>t.ruleAdherence);
+      if (!withAdherence.length) return `
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin:16px 0 8px">RULE ADHERENCE</div>
+        <div class="card" style="padding:12px;opacity:.5;font-size:11px;color:#6a8fa8">No adherence data yet — fill in when closing trades.</div>`;
+
+      const yes = withAdherence.filter(t=>t.ruleAdherence.startsWith("Yes"));
+      const partial = withAdherence.filter(t=>t.ruleAdherence.startsWith("Partial"));
+      const no = withAdherence.filter(t=>t.ruleAdherence.startsWith("No"));
+      const adherencePct = Math.round(yes.length / withAdherence.length * 100);
+
+      const yesPnl = yes.reduce((s,t)=>s+(t.realizedPnl||0),0);
+      const noPnl = no.reduce((s,t)=>s+(t.realizedPnl||0),0);
+      const partialPnl = partial.reduce((s,t)=>s+(t.realizedPnl||0),0);
+
+      // Rule break reasons breakdown
+      const breakReasons = {};
+      no.forEach(t=>{ if(t.ruleBreak) { breakReasons[t.ruleBreak] = (breakReasons[t.ruleBreak]||0)+1; }});
+      const breakRows = Object.entries(breakReasons).sort((a,b)=>b[1]-a[1]);
+
+      return `
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin:16px 0 8px">RULE ADHERENCE</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">
+          <div class="card" style="padding:10px;border-left:3px solid #00e5aa">
+            <div style="font-size:9px;color:#6a8fa8;margin-bottom:4px">FOLLOWED RULES</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:#00e5aa">${yes.length}</div>
+            <div style="font-size:10px;color:${yesPnl>=0?"#00e5aa":"#f43f5e"};margin-top:2px">${yesPnl>=0?"+$":"-$"}${Math.abs(yesPnl).toFixed(0)}</div>
+          </div>
+          <div class="card" style="padding:10px;border-left:3px solid #f59e0b">
+            <div style="font-size:9px;color:#6a8fa8;margin-bottom:4px">PARTIAL</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:#f59e0b">${partial.length}</div>
+            <div style="font-size:10px;color:${partialPnl>=0?"#00e5aa":"#f43f5e"};margin-top:2px">${partialPnl>=0?"+$":"-$"}${Math.abs(partialPnl).toFixed(0)}</div>
+          </div>
+          <div class="card" style="padding:10px;border-left:3px solid #f43f5e">
+            <div style="font-size:9px;color:#6a8fa8;margin-bottom:4px">DEVIATED</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:#f43f5e">${no.length}</div>
+            <div style="font-size:10px;color:${noPnl>=0?"#00e5aa":"#f43f5e"};margin-top:2px">${noPnl>=0?"+$":"-$"}${Math.abs(noPnl).toFixed(0)}</div>
+          </div>
+        </div>
+        <div class="card" style="padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:10px;color:#6a8fa8">ADHERENCE RATE</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${adherencePct>=70?"#00e5aa":adherencePct>=50?"#f59e0b":"#f43f5e"}">${adherencePct}%</span>
+          </div>
+          <div style="height:4px;background:#1a2d42;border-radius:2px"><div style="height:100%;width:${adherencePct}%;background:${adherencePct>=70?"#00e5aa":adherencePct>=50?"#f59e0b":"#f43f5e"};border-radius:2px"></div></div>
+          <div style="font-size:10px;color:#6a8fa8;margin-top:6px">P&L when rules followed: <span style="font-family:'IBM Plex Mono',monospace;color:${yesPnl>=0?"#00e5aa":"#f43f5e"}">${yesPnl>=0?"+$":"-$"}${Math.abs(yesPnl).toFixed(0)}</span> vs deviated: <span style="font-family:'IBM Plex Mono',monospace;color:${noPnl>=0?"#00e5aa":"#f43f5e"}">${noPnl>=0?"+$":"-$"}${Math.abs(noPnl).toFixed(0)}</span></div>
+        </div>
+        ${breakRows.length ? `
+        <div style="font-size:10px;color:#6a8fa8;margin-bottom:6px;letter-spacing:.06em">TOP DEVIATION REASONS</div>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+          ${breakRows.map(([reason, count])=>`
+            <div class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:#a8c4d8">${reason}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#f43f5e">${count}x</span>
+            </div>`).join("")}
+        </div>` : ""}
+      `;
+    })()}
 
     ${(() => {
       const withMAE = closed.filter(t=>t.mae!==null&&t.mae!==undefined);
       const withMFE = closed.filter(t=>t.mfe!==null&&t.mfe!==undefined);
-      if (!withMAE.length && !withMFE.length) return `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin:16px 0 8px">MAE / MFE ANALYSIS</div><div class="card" style="padding:12px;opacity:.5;font-size:11px;color:#2d4a60">No MAE/MFE data yet — fill in when closing trades via OptionStrat Price History.</div>`;
+      if (!withMAE.length && !withMFE.length) return `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin:16px 0 8px">MAE / MFE ANALYSIS</div><div class="card" style="padding:12px;opacity:.5;font-size:11px;color:#6a8fa8">No MAE/MFE data yet — fill in when closing trades via OptionStrat Price History.</div>`;
 
       const winners = closed.filter(t=>(t.realizedPnl||0)>0);
       const losers = closed.filter(t=>(t.realizedPnl||0)<=0);
@@ -1069,30 +1279,30 @@ function renderStats() {
       const avgMfeEff = mfeEff.length ? mfeEff.reduce((a,b)=>a+b,0)/mfeEff.length : null;
 
       return `
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin:16px 0 8px">MAE / MFE ANALYSIS</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin:16px 0 8px">MAE / MFE ANALYSIS</div>
         <div class="g2" style="margin-bottom:8px">
           <div class="card" style="padding:12px">
             <div class="lbl">Avg MAE — Winners</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:#00e5aa">${avgMAE(winners)!==null?"$"+avgMAE(winners).toFixed(0):"—"}</div>
-            <div style="font-size:9px;color:#2d4a60;margin-top:3px">Worst spread seen on winning trades</div>
+            <div style="font-size:9px;color:#6a8fa8;margin-top:3px">Worst spread seen on winning trades</div>
           </div>
           <div class="card" style="padding:12px">
             <div class="lbl">Avg MAE — Losers</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:#f43f5e">${avgMAE(losers)!==null?"$"+avgMAE(losers).toFixed(0):"—"}</div>
-            <div style="font-size:9px;color:#2d4a60;margin-top:3px">Worst spread seen on losing trades</div>
+            <div style="font-size:9px;color:#6a8fa8;margin-top:3px">Worst spread seen on losing trades</div>
           </div>
           <div class="card" style="padding:12px">
             <div class="lbl">Avg MFE</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:#a8c4d8">${avgMFE(closed)!==null?"$"+avgMFE(closed).toFixed(0):"—"}</div>
-            <div style="font-size:9px;color:#2d4a60;margin-top:3px">Best spread seen across all trades</div>
+            <div style="font-size:9px;color:#6a8fa8;margin-top:3px">Best spread seen across all trades</div>
           </div>
           <div class="card" style="padding:12px">
             <div class="lbl">MFE Efficiency</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:${avgMfeEff!==null&&avgMfeEff<50?"#f59e0b":"#00e5aa"}">${avgMfeEff!==null?avgMfeEff.toFixed(0)+"%":"—"}</div>
-            <div style="font-size:9px;color:#2d4a60;margin-top:3px">% of max possible profit captured</div>
+            <div style="font-size:9px;color:#6a8fa8;margin-top:3px">% of max possible profit captured</div>
           </div>
         </div>
-        <div style="font-size:10px;color:#2d4a60;line-height:1.7;font-style:italic">MFE efficiency below 50% suggests you may be closing too early. High MAE on winners means you're holding through drawdowns that eventually recover.</div>
+        <div style="font-size:10px;color:#6a8fa8;line-height:1.7;font-style:italic">MFE efficiency below 50% suggests you may be closing too early. High MAE on winners means you're holding through drawdowns that eventually recover.</div>
       `;
     })()}
   `;
@@ -1100,16 +1310,32 @@ function renderStats() {
 
 function renderForecast() {
   const base = (STATE.accountBalance||0) + (STATE.ytdDeposits||0);
-  const cutoff = new Date(Date.now() - 90*24*60*60*1000);
-  const recent = STATE.trades.filter(t => t.status!=="Open" && t.exitDate && new Date(t.exitDate) >= cutoff);
-  const recentPnl = recent.reduce((s,t)=>s+(t.realizedPnl||0),0);
-  // 90 days ≈ 3 months → monthly rate
-  const autoMonthly = base > 0 ? (recentPnl / base / 3) * 100 : 0;
+
+  // Find earliest trade date
+  const allClosed = STATE.trades.filter(t => t.status!=="Open" && t.exitDate);
+  const firstTradeDate = allClosed.length ? new Date(allClosed.reduce((a,b) => a.exitDate < b.exitDate ? a : b).exitDate) : new Date();
+  const daysSinceFirst = Math.max(1, (Date.now() - firstTradeDate) / (24*60*60*1000));
+
+  function periodRate(days) {
+    const cutoff = new Date(Date.now() - days*24*60*60*1000);
+    // Use actual elapsed time — don't divide by more days than we have data for
+    const effectiveCutoff = days === 99999 ? firstTradeDate : cutoff;
+    const effectiveDays = days === 99999 ? daysSinceFirst : Math.min(days, daysSinceFirst);
+    const trades = STATE.trades.filter(t => t.status!=="Open" && t.exitDate && new Date(t.exitDate) >= effectiveCutoff);
+    const pnl = trades.reduce((s,t)=>s+(t.realizedPnl||0),0);
+    const months = effectiveDays / 30;
+    const rate = base > 0 && months > 0 ? (pnl / base / months) * 100 : 0;
+    return { rate, pnl, count: trades.length, cutoff: effectiveCutoff };
+  }
+
+  const p30  = periodRate(30);
+  const p90  = periodRate(90);
+  const pAll = periodRate(99999);
 
   const scenarios = [
-    { label: "Last 90d Rate", rate: autoMonthly, color: "#00e5aa" },
-    { label: "Conservative (½)", rate: autoMonthly / 2, color: "#f59e0b" },
-    { label: "Target (7%/mo)", rate: 7, color: "#8b5cf6" },
+    { label: "Last 30d",  period: "30 days",  ...p30,  color: "#00e5aa" },
+    { label: "Last 90d",  period: "90 days",  ...p90,  color: "#f59e0b" },
+    { label: "All Time",  period: `${Math.round(daysSinceFirst)}d`, ...pAll, color: "#8b5cf6" },
   ];
 
   const years = [1,2,3,5,10,15];
@@ -1118,43 +1344,54 @@ function renderForecast() {
     return principal * Math.pow(1 + monthlyPct/100, years*12);
   }
 
+  function fmt(n) { return n>=1e6?(n/1e6).toFixed(2)+"M":n.toLocaleString(undefined,{maximumFractionDigits:0}); }
+
+  // Trend indicator
+  const trend = p30.rate > p90.rate && p90.rate > p365.rate ? { text:"▲ Improving", color:"#00e5aa" }
+              : p30.rate < p90.rate && p90.rate < p365.rate ? { text:"▼ Declining", color:"#f43f5e" }
+              : { text:"◆ Mixed", color:"#f59e0b" };
+
   document.getElementById("forecast-content").innerHTML = `
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2d4a60;letter-spacing:.1em;margin-bottom:14px">COMPOUND GROWTH FORECAST</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em">COMPOUND GROWTH FORECAST</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${trend.color}">${trend.text}</div>
+    </div>
 
     <!-- Rate cards -->
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px">
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
       ${scenarios.map(s=>`<div class="card" style="padding:10px 14px;border-left:3px solid ${s.color}">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:10px;color:#2d4a60;letter-spacing:.06em">${s.label}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+          <span style="font-size:11px;color:#a8c4d8;font-family:'IBM Plex Mono',monospace">${s.label}</span>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:${s.color}">${s.rate.toFixed(2)}% / mo</span>
         </div>
-        <div style="font-size:10px;color:#2d4a60;margin-top:3px">
-          ${s.label==="Last 90d Rate" ? `Based on $${recentPnl>=0?"+":""}${recentPnl.toFixed(0)} P&L over last 90 days · ${recent.length} trades` : s.label==="Conservative (½)" ? "Half your recent rate — accounts for drawdown periods" : "Your original 7%/mo target"}
+        <div style="display:flex;justify-content:space-between">
+          <span style="font-size:10px;color:#a8c4d8">${s.count} trades · ${s.period}</span>
+          <span style="font-size:10px;color:${s.pnl>=0?"#00e5aa":"#f43f5e"};font-family:'IBM Plex Mono',monospace">${s.pnl>=0?"+$":"-$"}${Math.abs(s.pnl).toFixed(0)} P&L</span>
         </div>
       </div>`).join("")}
     </div>
 
     <!-- Starting balance -->
-    <div style="font-size:10px;color:#2d4a60;margin-bottom:14px">Starting balance: <span style="color:#a8c4d8;font-family:'IBM Plex Mono',monospace">$${base.toLocaleString()}</span></div>
+    <div style="font-size:10px;color:#6a8fa8;margin-bottom:14px">Starting balance: <span style="color:#a8c4d8;font-family:'IBM Plex Mono',monospace">$${base.toLocaleString()}</span></div>
 
     <!-- Projection table -->
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table style="width:100%;border-collapse:collapse">
         <thead>
           <tr style="border-bottom:1px solid #142030">
-            <th style="text-align:left;padding:8px 10px;font-size:10px;color:#2d4a60;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace">YEAR</th>
-            ${scenarios.map(s=>`<th style="text-align:right;padding:8px 10px;font-size:10px;color:${s.color};letter-spacing:.06em;font-family:'IBM Plex Mono',monospace;white-space:nowrap">${s.label.split(" ")[0]+" "+s.label.split(" ")[1]||s.label}</th>`).join("")}
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:#6a8fa8;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace">YEAR</th>
+            ${scenarios.map(s=>`<th style="text-align:right;padding:8px 10px;font-size:10px;color:${s.color};letter-spacing:.06em;font-family:'IBM Plex Mono',monospace">${s.label}</th>`).join("")}
           </tr>
         </thead>
         <tbody>
           ${years.map(y=>`<tr style="border-bottom:1px solid #0a1420">
-            <td style="padding:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#2d4a60">Yr ${y}</td>
+            <td style="padding:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6a8fa8">Yr ${y}</td>
             ${scenarios.map(s=>{
               const val = compound(base, s.rate, y);
               const gain = val - base;
               return `<td style="padding:10px;text-align:right">
-                <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${s.color}">$${val>=1e6?(val/1e6).toFixed(2)+"M":val.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-                <div style="font-size:9px;color:#2d4a60">+$${gain>=1e6?(gain/1e6).toFixed(1)+"M":gain.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${s.color}">$${fmt(val)}</div>
+                <div style="font-size:9px;color:#6a8fa8">+$${fmt(gain)}</div>
               </td>`;
             }).join("")}
           </tr>`).join("")}
@@ -1162,10 +1399,184 @@ function renderForecast() {
       </table>
     </div>
 
-    <div style="margin-top:16px;font-size:10px;color:#2d4a60;line-height:1.7;font-style:italic">
-      Assumes monthly compounding with no withdrawals. Past performance does not guarantee future results. The 90-day rate is based on ${recent.length} closed trade${recent.length!==1?"s":""} since ${cutoff.toLocaleDateString()}.
+    <div style="margin-top:16px;font-size:10px;color:#6a8fa8;line-height:1.7;font-style:italic">
+      Assumes monthly compounding with no withdrawals. Rates derived from closed trade P&L divided by account balance over each period.
+    </div>
+
+    <!-- Benchmark chart placeholder - populated async below -->
+    <div id="benchmark-chart-container" style="margin-top:20px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:8px">VS BENCHMARK</div>
+      <div id="benchmark-chart" style="background:#0b1622;border:1px solid #142030;border-radius:4px;padding:12px;min-height:180px;display:flex;align-items:center;justify-content:center">
+        <span style="font-size:10px;color:#6a8fa8">Loading benchmark data...</span>
+      </div>
     </div>
   `;
+
+  // Async: fetch SPY + QQQ candles and draw chart
+  renderBenchmarkChart(firstTradeDate, base, allClosed);
+}
+
+async function renderBenchmarkChart(firstTradeDate, base, closedTrades) {
+  const el = document.getElementById("benchmark-chart");
+  if (!el) return;
+
+  try {
+    const from = firstTradeDate.toISOString().slice(0,10);
+    const to   = new Date().toISOString().slice(0,10);
+
+    // Fetch SPY and QQQ candles in parallel
+    const [spyData, qqqData] = await Promise.all([
+      fetchCandles("SPY", from, to),
+      fetchCandles("QQQ", from, to),
+    ]);
+
+    if (!spyData || !qqqData) {
+      el.innerHTML = `<span style="font-size:10px;color:#6a8fa8">Benchmark data unavailable</span>`;
+      return;
+    }
+
+    // Build your equity curve: cumulative P&L % by exit date
+    const sorted = [...closedTrades].sort((a,b)=>new Date(a.exitDate)-new Date(b.exitDate));
+    let cumPnl = 0;
+    const yourPoints = sorted.map(t => {
+      cumPnl += (t.realizedPnl||0);
+      return { date: t.exitDate, pct: (cumPnl / base) * 100 };
+    });
+
+    // Build SPY % return from first candle
+    const spyBase = spyData.c[0];
+    const spyPoints = spyData.t.map((ts,i) => ({
+      date: new Date(ts*1000).toISOString().slice(0,10),
+      pct: ((spyData.c[i] - spyBase) / spyBase) * 100
+    }));
+
+    const qqqBase = qqqData.c[0];
+    const qqqPoints = qqqData.t.map((ts,i) => ({
+      date: new Date(ts*1000).toISOString().slice(0,10),
+      pct: ((qqqData.c[i] - qqqBase) / qqqBase) * 100
+    }));
+
+    // Chart dimensions
+    const W = 340, H = 160, PAD = { t:10, r:10, b:24, l:42 };
+    const cW = W - PAD.l - PAD.r;
+    const cH = H - PAD.t - PAD.b;
+
+    // All points for scale
+    const allPcts = [...yourPoints.map(p=>p.pct), ...spyPoints.map(p=>p.pct), ...qqqPoints.map(p=>p.pct), 0];
+    const minP = Math.min(...allPcts), maxP = Math.max(...allPcts);
+    const range = maxP - minP || 1;
+
+    // Date range
+    const dateStrings = [...new Set([...spyPoints.map(p=>p.date), ...yourPoints.map(p=>p.date)])].sort();
+    const d0 = new Date(dateStrings[0]).getTime();
+    const d1 = new Date(dateStrings[dateStrings.length-1]).getTime();
+    const dRange = d1 - d0 || 1;
+
+    function xOf(dateStr) {
+      return PAD.l + ((new Date(dateStr).getTime() - d0) / dRange) * cW;
+    }
+    function yOf(pct) {
+      return PAD.t + cH - ((pct - minP) / range) * cH;
+    }
+
+    function makePath(points) {
+      if (!points.length) return "";
+      return points.map((p,i) => `${i===0?"M":"L"}${xOf(p.date).toFixed(1)},${yOf(p.pct).toFixed(1)}`).join(" ");
+    }
+
+    // Zero line y
+    const zeroY = yOf(0).toFixed(1);
+
+    // Y axis labels
+    const yTicks = [minP, 0, maxP].map(v => ({
+      y: yOf(v).toFixed(1),
+      label: (v>=0?"+":"")+v.toFixed(1)+"%"
+    }));
+
+    // Final values for legend
+    const yourFinal = yourPoints.length ? yourPoints[yourPoints.length-1].pct : 0;
+    const spyFinal  = spyPoints.length  ? spyPoints[spyPoints.length-1].pct   : 0;
+    const qqqFinal  = qqqPoints.length  ? qqqPoints[qqqPoints.length-1].pct   : 0;
+
+    function legendColor(pct) { return pct >= 0 ? "" : "color:#f43f5e"; }
+
+    el.innerHTML = `
+      <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:5px">
+          <div style="width:16px;height:2px;background:#00e5aa;border-radius:1px"></div>
+          <span style="font-size:10px;color:#a8c4d8">You</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${yourFinal>=0?"#00e5aa":"#f43f5e"}">${yourFinal>=0?"+":""}${yourFinal.toFixed(2)}%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px">
+          <div style="width:16px;height:2px;background:#f59e0b;border-radius:1px"></div>
+          <span style="font-size:10px;color:#a8c4d8">SPY</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${spyFinal>=0?"#00e5aa":"#f43f5e"}">${spyFinal>=0?"+":""}${spyFinal.toFixed(2)}%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px">
+          <div style="width:16px;height:2px;background:#8b5cf6;border-radius:1px"></div>
+          <span style="font-size:10px;color:#a8c4d8">QQQ</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${qqqFinal>=0?"#00e5aa":"#f43f5e"}">${qqqFinal>=0?"+":""}${qqqFinal.toFixed(2)}%</span>
+        </div>
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+        <!-- Zero line -->
+        <line x1="${PAD.l}" y1="${zeroY}" x2="${W-PAD.r}" y2="${zeroY}" stroke="#1a2d42" stroke-width="1" stroke-dasharray="3,3"/>
+        <!-- Y axis labels -->
+        ${yTicks.map(t=>`
+          <text x="${PAD.l-4}" y="${parseFloat(t.y)+3}" text-anchor="end" font-size="8" fill="#6a8fa8" font-family="IBM Plex Mono,monospace">${t.label}</text>
+        `).join("")}
+        <!-- SPY line -->
+        <path d="${makePath(spyPoints)}" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- QQQ line -->
+        <path d="${makePath(qqqPoints)}" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- Your equity curve -->
+        <path d="${makePath(yourPoints)}" fill="none" stroke="#00e5aa" stroke-width="2" stroke-linejoin="round"/>
+        <!-- End dots -->
+        ${yourPoints.length ? `<circle cx="${xOf(yourPoints[yourPoints.length-1].date).toFixed(1)}" cy="${yOf(yourPoints[yourPoints.length-1].pct).toFixed(1)}" r="3" fill="#00e5aa"/>` : ""}
+        ${spyPoints.length  ? `<circle cx="${xOf(spyPoints[spyPoints.length-1].date).toFixed(1)}"  cy="${yOf(spyPoints[spyPoints.length-1].pct).toFixed(1)}"  r="2.5" fill="#f59e0b"/>` : ""}
+        ${qqqPoints.length  ? `<circle cx="${xOf(qqqPoints[qqqPoints.length-1].date).toFixed(1)}"  cy="${yOf(qqqPoints[qqqPoints.length-1].pct).toFixed(1)}"  r="2.5" fill="#8b5cf6"/>` : ""}
+        <!-- X axis labels: start, mid, end -->
+        ${(()=>{
+          const xDates = [dateStrings[0], dateStrings[Math.floor(dateStrings.length/2)], dateStrings[dateStrings.length-1]];
+          return xDates.map(d => {
+            const x = xOf(d).toFixed(1);
+            const label = d.slice(5); // MM-DD
+            return `<text x="${x}" y="${H-4}" text-anchor="middle" font-size="8" fill="#6a8fa8" font-family="IBM Plex Mono,monospace">${label}</text>`;
+          }).join("");
+        })()}
+        <!-- X axis baseline -->
+        <line x1="${PAD.l}" y1="${H-PAD.b}" x2="${W-PAD.r}" y2="${H-PAD.b}" stroke="#1a2d42" stroke-width="1"/>
+      </svg>
+      <div style="font-size:9px;color:#6a8fa8;margin-top:6px;font-style:italic">Cumulative % return since first trade · ${from} to ${to}</div>
+    `;
+
+  } catch(e) {
+    if (document.getElementById("benchmark-chart"))
+      document.getElementById("benchmark-chart").innerHTML = `<span style="font-size:10px;color:#6a8fa8">Could not load benchmark data</span>`;
+  }
+}
+
+
+// ── Sector modal ──────────────────────────────────────────────────────────────
+let sectorModalTicker = null;
+function openSectorModal(ticker) {
+  sectorModalTicker = ticker;
+  document.getElementById("sector-modal-title").textContent = "SET SECTOR — " + ticker;
+  const current = getSector(ticker);
+  const sel = document.getElementById("sector-select");
+  sel.innerHTML = `<option value="">Select...</option>` + SECTORS.map(s=>`<option${s===current?" selected":""}>${s}</option>`).join("") + `<option${!SECTORS.includes(current)&&current?" selected":""}>Custom...</option>`;
+  document.getElementById("sector-custom").style.display = (!SECTORS.includes(current) && current) ? "block" : "none";
+  document.getElementById("sector-custom-input").value = (!SECTORS.includes(current) && current) ? current : "";
+  document.getElementById("sector-modal").style.display = "flex";
+}
+function closeSectorModal() { document.getElementById("sector-modal").style.display = "none"; }
+function saveSector() {
+  let val = document.getElementById("sector-select").value;
+  if (val === "Custom...") val = document.getElementById("sector-custom-input").value.trim();
+  if (!val) { closeSectorModal(); return; }
+  if (!STATE.sectors) STATE.sectors = {};
+  STATE.sectors[sectorModalTicker] = val;
+  save(); closeSectorModal(); renderWatchlist(); renderPositions();
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -1208,7 +1619,10 @@ function openTradeModal(id=null) {
 
   // Populate selects
   const ttSel = document.getElementById("tf-tradeType");
-  ttSel.innerHTML = TRADE_TYPES.map(x=>`<option${t&&t.tradeType===x?" selected":""}>${x}</option>`).join("");
+  ttSel.innerHTML = TRADE_TYPES.map(x=>{
+    if (x.startsWith("──")) return `<option disabled style="color:#2d4a60">${x}</option>`;
+    return `<option${t&&t.tradeType===x?" selected":""}>${x}</option>`;
+  }).join("");
   const etSel = document.getElementById("tf-entryType");
   etSel.innerHTML = `<option value="">Select...</option>`+ENTRY_TYPES.map(x=>`<option${t&&t.entryType===x?" selected":""}>${x}</option>`).join("");
 
@@ -1224,12 +1638,10 @@ function openTradeModal(id=null) {
   document.getElementById("tf-status").value = t?.status||"Open";
   document.getElementById("tf-tpPrice").value = t?.tpPrice||"";
   document.getElementById("tf-slPrice").value = t?.slPrice||"";
+  document.getElementById("tf-thesisInvalidation").value = t?.thesisInvalidation||"";
   document.getElementById("tf-deltaEntry").value = t?.deltaEntry||"";
   document.getElementById("tf-pop").value = t?.pop||"";
   document.getElementById("tf-thesis").value = t?.thesis||"";
-  document.getElementById("tf-entryTrigger").value = t?.entryTrigger||"";
-  document.getElementById("tf-stopLogic").value = t?.stopLogic||"";
-  document.getElementById("tf-targetLogic").value = t?.targetLogic||"";
   document.getElementById("tf-chartLink").value = t?.chartLink||"";
   document.getElementById("trade-modal").style.display = "flex";
 }
@@ -1238,6 +1650,24 @@ function closeTradeModal() { document.getElementById("trade-modal").style.displa
 function saveTrade() {
   const ticker = document.getElementById("tf-ticker").value.trim().toUpperCase();
   if (!ticker) return;
+
+  const tpPrice = document.getElementById("tf-tpPrice").value;
+  const slPrice = document.getElementById("tf-slPrice").value;
+  const thesisInvalidation = document.getElementById("tf-thesisInvalidation").value;
+  const status = document.getElementById("tf-status").value;
+
+  // Require exit rules for new open trades
+  if (status === "Open" && !editingTradeId) {
+    const missing = [];
+    if (!tpPrice) missing.push("Profit Target");
+    if (!slPrice) missing.push("Hard Stop");
+    if (!thesisInvalidation) missing.push("Thesis Invalidation Level");
+    if (missing.length) {
+      alert("⚠ Exit rules required before entering:\n\n• " + missing.join("\n• ") + "\n\nDefine these before you enter the trade.");
+      return;
+    }
+  }
+
   const newTrade = {
     ticker, id: editingTradeId,
     tradeType: document.getElementById("tf-tradeType").value,
@@ -1247,16 +1677,14 @@ function saveTrade() {
     entryDate: document.getElementById("tf-entryDate").value,
     expiry: document.getElementById("tf-expiry").value,
     premiumCollected: parseFloat(document.getElementById("tf-premium").value)||0,
-    status: document.getElementById("tf-status").value,
-    tpPrice: document.getElementById("tf-tpPrice").value,
-    slPrice: document.getElementById("tf-slPrice").value,
+    status,
+    tpPrice,
+    slPrice,
+    thesisInvalidation,
     deltaEntry: document.getElementById("tf-deltaEntry").value,
     pop: document.getElementById("tf-pop").value,
     entryType: document.getElementById("tf-entryType").value,
     thesis: document.getElementById("tf-thesis").value,
-    entryTrigger: document.getElementById("tf-entryTrigger").value,
-    stopLogic: document.getElementById("tf-stopLogic").value,
-    targetLogic: document.getElementById("tf-targetLogic").value,
     chartLink: document.getElementById("tf-chartLink").value,
   };
   if (editingTradeId) {
@@ -1264,9 +1692,10 @@ function saveTrade() {
     newTrade.rolls = prev.rolls||[]; newTrade.journal = prev.journal||[];
     newTrade.dteAtEntry = prev.dteAtEntry; newTrade.realizedPnl = prev.realizedPnl; newTrade.exitDate = prev.exitDate;
     newTrade.exitReason = prev.exitReason; newTrade.thesisAccuracy = prev.thesisAccuracy; newTrade.lessonLearned = prev.lessonLearned;
-    // Fire TP/SL alerts if changed
-    if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Take Profit set at $${newTrade.tpPrice}\nSpread: ${newTrade.longStrike}/${newTrade.shortStrike} x${newTrade.contracts}`);
-    if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Stop Loss set at $${newTrade.slPrice}\nSpread: ${newTrade.longStrike}/${newTrade.shortStrike} x${newTrade.contracts}`);
+    newTrade.strategyType = prev.strategyType; newTrade.sentiment = prev.sentiment; newTrade.earningsFlag = prev.earningsFlag;
+    newTrade.mae = prev.mae; newTrade.mfe = prev.mfe; newTrade.deltaClose = prev.deltaClose;
+    if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Take Profit set at $${newTrade.tpPrice}`);
+    if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Stop Loss set at $${newTrade.slPrice}`);
     STATE.trades = STATE.trades.map(x=>x.id===editingTradeId?newTrade:x);
   } else {
     const entryD = new Date(newTrade.entryDate), expiryD = new Date(newTrade.expiry);
@@ -1281,13 +1710,23 @@ function saveTrade() {
 }
 
 // ── Exit modal ────────────────────────────────────────────────────────────────
+function toggleRuleBreakdown(val) {
+  document.getElementById("ef-rule-breakdown").style.display = (val === "No — deviated from the plan") ? "block" : "none";
+}
+
 function openExitModal(id) {
   exitingTradeId = id;
   const t = STATE.trades.find(x=>x.id===id);
   document.getElementById("exit-modal-title").textContent = "CLOSE — "+t.ticker+" "+t.longStrike+"/"+t.shortStrike;
   document.getElementById("ef-exitDate").value = new Date().toISOString().slice(0,10);
   document.getElementById("ef-pnl").value = "";
+  document.getElementById("ef-deltaClose").value = "";
+  document.getElementById("ef-mae").value = "";
+  document.getElementById("ef-mfe").value = "";
   document.getElementById("ef-lesson").value = "";
+  document.getElementById("ef-ruleAdherence").value = "";
+  document.getElementById("ef-ruleBreak").value = "";
+  document.getElementById("ef-rule-breakdown").style.display = "none";
   const rSel = document.getElementById("ef-reason");
   rSel.innerHTML = `<option value="">Select...</option>`+EXIT_REASONS.map(r=>`<option>${r}</option>`).join("");
   document.getElementById("exit-modal").style.display="flex";
@@ -1304,6 +1743,8 @@ function confirmExit() {
     mfe: parseFloat(document.getElementById("ef-mfe").value)||null,
     exitReason: document.getElementById("ef-reason").value,
     thesisAccuracy: document.getElementById("ef-accuracy").value,
+    ruleAdherence: document.getElementById("ef-ruleAdherence").value,
+    ruleBreak: document.getElementById("ef-ruleBreak").value,
     lessonLearned: document.getElementById("ef-lesson").value,
   } : t);
   save(); closeExitModal(); renderAll();
@@ -1475,5 +1916,45 @@ function importData() {
   pollTimer = setInterval(refreshAll, POLL_INTERVAL);
 })();
 </script>
+
+<!-- SECTOR MODAL -->
+<div id="sector-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:380px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div id="sector-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#00e5aa;letter-spacing:.1em">SET SECTOR</div>
+      <button onclick="closeSectorModal()" style="background:none;border:none;color:#6a8fa8;font-size:22px">×</button>
+    </div>
+    <div class="frow">
+      <label>Sector</label>
+      <select id="sector-select" onchange="document.getElementById('sector-custom').style.display=this.value==='Custom...'?'block':'none'">
+        <option value="">Select...</option>
+        <option>Technology</option>
+        <option>Financials</option>
+        <option>Energy</option>
+        <option>Healthcare</option>
+        <option>Consumer Discretionary</option>
+        <option>Consumer Staples</option>
+        <option>Industrials</option>
+        <option>Materials</option>
+        <option>Utilities</option>
+        <option>Real Estate</option>
+        <option>Communication Services</option>
+        <option>Crypto</option>
+        <option>ETF</option>
+        <option>Commodities</option>
+        <option>Other</option>
+        <option>Custom...</option>
+      </select>
+    </div>
+    <div id="sector-custom" style="display:none" class="frow">
+      <label>Custom Sector Name</label>
+      <input id="sector-custom-input" placeholder="e.g. Semiconductors">
+    </div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-g" onclick="closeSectorModal()" style="flex:1">CANCEL</button>
+      <button class="btn btn-p" onclick="saveSector()" style="flex:1">SAVE</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
