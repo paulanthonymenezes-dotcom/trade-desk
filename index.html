@@ -203,7 +203,7 @@ table{width:100%;border-collapse:collapse}
     </div>
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-g" onclick="closeTradeModal()" style="flex:1">CANCEL</button>
-      <button class="btn btn-p" onclick="saveTrade()" style="flex:1">SAVE TRADE</button>
+      <button class="btn btn-p" onclick="handleSaveTrade()" style="flex:1">SAVE TRADE</button>
     </div>
   </div>
 </div>
@@ -1867,6 +1867,30 @@ function openTradeModal(id=null) {
 }
 function closeTradeModal() { document.getElementById("trade-modal").style.display="none"; }
 
+async function handleSaveTrade() {
+  if (pendingChartDataUrl) {
+    const saveBtn = document.querySelector('[onclick="handleSaveTrade()"]');
+    if (saveBtn) { saveBtn.textContent = "UPLOADING..."; saveBtn.disabled = true; }
+    try {
+      const tempId = editingTradeId || Date.now();
+      dbg("Uploading chart for trade " + tempId, "info");
+      const url = await uploadChartToSupabase(tempId, pendingChartDataUrl);
+      window._uploadedChartUrl = url;
+      pendingChartDataUrl = null;
+      dbg("Chart uploaded: " + url, "success");
+    } catch(e) {
+      dbg("Chart upload error: " + e.message, "error");
+      alert("Chart upload failed: " + e.message + "\n\nMake sure you created a public 'charts' bucket in Supabase Storage.");
+      const saveBtn2 = document.querySelector('[onclick="handleSaveTrade()"]');
+      if (saveBtn2) { saveBtn2.textContent = "SAVE TRADE"; saveBtn2.disabled = false; }
+      return;
+    }
+    const saveBtn3 = document.querySelector('[onclick="handleSaveTrade()"]');
+    if (saveBtn3) { saveBtn3.textContent = "SAVE TRADE"; saveBtn3.disabled = false; }
+  }
+  saveTrade();
+}
+
 function saveTrade() {
   const ticker = document.getElementById("tf-ticker").value.trim().toUpperCase();
   if (!ticker) return;
@@ -1926,6 +1950,7 @@ function saveTrade() {
     STATE.trades.push(newTrade);
     if (!STATE.watchlist.includes(ticker)) STATE.watchlist.push(ticker);
   }
+  window._uploadedChartUrl = null;
   save(); closeTradeModal(); renderAll();
 }
 
