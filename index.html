@@ -1853,7 +1853,7 @@ function openTradeModal(id=null) {
   document.getElementById("tf-thesis").value = t?.thesis||"";
   // Show existing chart if any
   pendingChartDataUrl = null;
-  window._pendingChartUrl = null;
+  window._uploadedChartUrl = null;
   const existingChart = t?.chartLink||'';
   if (existingChart) {
     document.getElementById('tf-chartImg').src = existingChart;
@@ -1905,7 +1905,7 @@ function saveTrade() {
     pop: document.getElementById("tf-pop").value,
     entryType: document.getElementById("tf-entryType").value,
     thesis: document.getElementById("tf-thesis").value,
-    chartLink: window._pendingChartUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : ''), _pendingChartUrl_consumed: (window._pendingChartUrl = null),
+    chartLink: window._uploadedChartUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : ''),
   };
   if (editingTradeId) {
     const prev = STATE.trades.find(x=>x.id===editingTradeId);
