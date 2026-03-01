@@ -189,7 +189,18 @@ table{width:100%;border-collapse:collapse}
     </div>
 
     <div class="frow"><label>Thesis — why are you in this trade?</label><textarea id="tf-thesis" style="height:60px" placeholder="What's the setup? What needs to happen for this to work?"></textarea></div>
-    <div class="frow"><label>Chart Link (URL)</label><input id="tf-chartLink" type="url" placeholder="https://..."></div>
+    <div class="frow">
+      <label>Entry Chart</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="file" id="tf-chartFile" accept="image/*" style="display:none" onchange="previewChartUpload(this)">
+        <button type="button" class="btn btn-g" style="flex:1;padding:8px" onclick="document.getElementById('tf-chartFile').click()">📷 UPLOAD CHART</button>
+        <button type="button" class="btn btn-g" style="padding:8px 10px;color:#f43f5e;border-color:#f43f5e33" id="tf-chartClear" onclick="clearChartUpload()" style="display:none">✕</button>
+      </div>
+      <div id="tf-chartPreview" style="margin-top:8px;display:none">
+        <img id="tf-chartImg" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:180px;object-fit:cover">
+        <div id="tf-chartStatus" style="font-size:10px;color:#6a8fa8;margin-top:4px"></div>
+      </div>
+    </div>
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-g" onclick="closeTradeModal()" style="flex:1">CANCEL</button>
       <button class="btn btn-p" onclick="saveTrade()" style="flex:1">SAVE TRADE</button>
@@ -1069,6 +1080,7 @@ function renderPositions() {
         <button class="btn btn-g" style="flex:1;padding:7px;color:#6a8fa8;border-color:#1a2d42" onclick="openDiary(${t.id})">DIARY</button>
         <button class="btn btn-g" style="padding:7px 10px;color:#6a8fa8;border-color:#1a2d42" onclick="openTradeModal(${t.id})">✎</button>
       </div>
+      ${t.chartLink?`<img src="${t.chartLink}" style="width:100%;margin-top:10px;border-radius:4px;border:1px solid #1a2d42;max-height:200px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open('${t.chartLink}','_blank')" onerror="this.style.display='none'">`:``}
     </div>`;
   }).join("");
 }
@@ -1700,6 +1712,82 @@ function saveSector() {
   save(); closeSectorModal(); renderWatchlist(); renderPositions();
 }
 
+
+// ── Chart Image Storage ───────────────────────────────────────────────────────
+let pendingChartDataUrl = null; // base64 of selected image, uploaded on save
+
+function previewChartUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    // Compress image before storing
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', 0.75);
+      pendingChartDataUrl = compressed;
+      document.getElementById('tf-chartImg').src = compressed;
+      document.getElementById('tf-chartPreview').style.display = 'block';
+      document.getElementById('tf-chartClear').style.display = 'block';
+      const kb = Math.round(compressed.length * 0.75 / 1024);
+      document.getElementById('tf-chartStatus').textContent = `${w}×${h}px · ~${kb}KB · will upload on save`;
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearChartUpload() {
+  pendingChartDataUrl = null;
+  document.getElementById('tf-chartFile').value = '';
+  document.getElementById('tf-chartPreview').style.display = 'none';
+  document.getElementById('tf-chartClear').style.display = 'none';
+}
+
+async function uploadChartToSupabase(tradeId, dataUrl) {
+  // Convert base64 to blob
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const filename = "chart_" + tradeId + "_" + Date.now() + ".jpg";
+  
+  const r = await fetch(SUPABASE_URL + "/storage/v1/object/charts/" + filename, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": "Bearer " + SUPABASE_KEY,
+      "Content-Type": "image/jpeg",
+      "x-upsert": "true"
+    },
+    body: blob
+  });
+  
+  if (!r.ok) {
+    const err = await r.text();
+    throw new Error("Upload failed: " + err);
+  }
+  
+  // Return public URL
+  return SUPABASE_URL + "/storage/v1/object/public/charts/" + filename;
+}
+
+async function deleteChartFromSupabase(url) {
+  if (!url || !url.includes('/storage/v1/object/public/charts/')) return;
+  const filename = url.split('/charts/')[1];
+  try {
+    await fetch(SUPABASE_URL + "/storage/v1/object/charts/" + filename, {
+      method: "DELETE",
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+  } catch {}
+}
+
+
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(name, btn) {
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
@@ -1763,7 +1851,18 @@ function openTradeModal(id=null) {
   document.getElementById("tf-deltaEntry").value = t?.deltaEntry||"";
   document.getElementById("tf-pop").value = t?.pop||"";
   document.getElementById("tf-thesis").value = t?.thesis||"";
-  document.getElementById("tf-chartLink").value = t?.chartLink||"";
+  // Show existing chart if any
+  pendingChartDataUrl = null;
+  window._pendingChartUrl = null;
+  const existingChart = t?.chartLink||'';
+  if (existingChart) {
+    document.getElementById('tf-chartImg').src = existingChart;
+    document.getElementById('tf-chartPreview').style.display = 'block';
+    document.getElementById('tf-chartClear').style.display = 'block';
+    document.getElementById('tf-chartStatus').textContent = 'Existing chart — upload new to replace';
+  } else {
+    clearChartUpload();
+  }
   document.getElementById("trade-modal").style.display = "flex";
 }
 function closeTradeModal() { document.getElementById("trade-modal").style.display="none"; }
@@ -1806,7 +1905,7 @@ function saveTrade() {
     pop: document.getElementById("tf-pop").value,
     entryType: document.getElementById("tf-entryType").value,
     thesis: document.getElementById("tf-thesis").value,
-    chartLink: document.getElementById("tf-chartLink").value,
+    chartLink: window._pendingChartUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : ''), _pendingChartUrl_consumed: (window._pendingChartUrl = null),
   };
   if (editingTradeId) {
     const prev = STATE.trades.find(x=>x.id===editingTradeId);
