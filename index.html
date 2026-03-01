@@ -76,14 +76,6 @@ table{width:100%;border-collapse:collapse}
       </div>
     </div>
 
-    <div id="debug-panel" style="display:none;background:#000;border:1px solid #f59e0b;border-radius:4px;padding:10px;margin-bottom:12px;font-family:'IBM Plex Mono',monospace">
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-        <span style="font-size:10px;color:#f59e0b;letter-spacing:.1em">DEBUG LOG</span>
-        <button onclick="document.getElementById('debug-log').innerHTML=''" style="background:none;border:none;color:#6a8fa8;font-size:11px">CLEAR</button>
-      </div>
-      <div id="debug-log" style="max-height:180px;overflow-y:auto;font-size:10px;line-height:1.7"></div>
-    </div>
-
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <input id="watch-input" placeholder="ADD TICKER..." style="flex:1;font-size:13px" onkeydown="addTicker(event)">
     </div>
@@ -2084,6 +2076,18 @@ function importData() {
       <button class="btn btn-p" onclick="saveSector()" style="flex:1">SAVE</button>
     </div>
   </div>
+</div>
+
+<!-- DEBUG OVERLAY — accessible from any tab -->
+<div id="debug-panel" style="display:none;position:fixed;bottom:60px;left:0;right:0;z-index:999;background:#000e1a;border-top:1px solid #f59e0b;padding:10px 14px;font-family:'IBM Plex Mono',monospace;max-height:240px;overflow-y:auto">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <span style="font-size:10px;color:#f59e0b;letter-spacing:.1em">DEBUG LOG</span>
+    <div style="display:flex;gap:10px">
+      <button onclick="document.getElementById('debug-log').innerHTML=''" style="background:none;border:none;color:#6a8fa8;font-size:11px">CLEAR</button>
+      <button onclick="toggleDebug()" style="background:none;border:none;color:#6a8fa8;font-size:16px">×</button>
+    </div>
+  </div>
+  <div id="debug-log" style="font-size:10px;line-height:1.8"></div>
 </div>
 </body>
 </html>
