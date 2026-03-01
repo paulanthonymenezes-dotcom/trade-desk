@@ -477,19 +477,19 @@ async function fetchCandles(ticker, from, to) {
 
 
 async function fetchATMiv(ticker) {
-  // Fetch ATM put IV using delta=0.50 filter, nearest expiry, put side
-  // This costs ~1 credit per ticker
+  // Fetch ATM put IV using delta filter, 30-45 DTE range
   try {
-    const d = await mdaFetch("/options/chain/" + ticker + "/?delta=0.50&side=put&dte=30&limit=1");
-    if (d.s !== "ok" || !d.iv || !d.iv[0]) return null;
-    return d.iv[0]; // decimal e.g. 0.42 = 42%
-  } catch { return null; }
+    const d = await mdaFetch("/options/chain/" + ticker + "/?delta=0.50&side=put&mindte=20&maxdte=50&limit=1");
+    if (d.s !== "ok") { dbg("IV fetch " + ticker + ": " + (d.errmsg||d.s), "warn"); return null; }
+    if (!d.iv || !d.iv[0]) { dbg("IV fetch " + ticker + ": no IV in response", "warn"); return null; }
+    dbg("✓ IV " + ticker + " = " + (d.iv[0]*100).toFixed(1) + "%", "success");
+    return d.iv[0];
+  } catch(e) { dbg("IV fetch " + ticker + " error: " + e.message, "error"); return null; }
 }
 
 async function fetchHistoricalIV(ticker, date) {
-  // Fetch ATM IV on a specific past date
   try {
-    const d = await mdaFetch("/options/chain/" + ticker + "/?delta=0.50&side=put&dte=30&limit=1&date=" + date);
+    const d = await mdaFetch("/options/chain/" + ticker + "/?delta=0.50&side=put&mindte=20&maxdte=50&limit=1&date=" + date);
     if (d.s !== "ok" || !d.iv || !d.iv[0]) return null;
     return d.iv[0];
   } catch { return null; }
