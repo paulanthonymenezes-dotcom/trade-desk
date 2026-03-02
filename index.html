@@ -420,18 +420,28 @@ const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyanBzd3JpcnN6ZXJocGJvamdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzMzgyOTQsImV4cCI6MjA4NzkxNDI5NH0.aLCb5xP8WbeQuMpLJ3uoGFYebENCWQ-WBbtQZLvtYuA";
 
 async function save() {
-  const body = JSON.stringify({ data: STATE });
+  const body = JSON.stringify({ id: "main", data: STATE });
   try {
-    // Try update first
-    const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Prefer": "return=minimal" },
+    // Upsert — inserts if row missing, updates if exists. Reliable vs PATCH-only.
+    const r = await fetch(SUPABASE_URL + "/rest/v1/state", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY,
+        "Prefer": "resolution=merge-duplicates,return=minimal"
+      },
       body
     });
-    if (!r.ok) throw new Error("patch failed");
-  } catch {
-    // Fallback to localStorage
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(e) {}
+    if (!r.ok) {
+      const err = await r.text();
+      dbg("Supabase save failed: " + err, "error");
+      throw new Error(err);
+    }
+    dbg("✓ Saved to Supabase", "success");
+  } catch(e) {
+    dbg("Save fallback to localStorage: " + e.message, "warn");
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(err) {}
   }
 }
 
@@ -465,7 +475,7 @@ async function mdaFetch(path) {
 
 async function fetchQuote(ticker) {
   try {
-    const d = await mdaFetch("/stocks/quotes/" + ticker + "/");
+    const d = await mdaFetch("/stocks/quotes/" + ticker + "/?feed=live");
     if (d.s !== "ok") return null;
     return { price: d.last[0], change: d.change[0], changePct: d.changepct[0] * 100, volume: d.volume[0], ts: new Date().toLocaleTimeString() };
   } catch { return null; }
@@ -656,7 +666,18 @@ async function refreshAll() {
     dbg(q ? "✓ "+t+" = $"+q.price.toFixed(2) : "✗ "+t+" failed", q?"success":"error");
     return {t, q};
   }));
-  results.forEach(r => { if (r.status==="fulfilled" && r.value.q) STATE.quotes[r.value.t] = r.value.q; });
+  results.forEach(r => {
+    if (r.status==="fulfilled" && r.value.q) {
+      const existing = STATE.quotes[r.value.t];
+      // Only update if price changed or no existing quote
+      if (!existing || r.value.q.price !== existing.price) {
+        STATE.quotes[r.value.t] = r.value.q;
+      } else {
+        // Keep existing but update timestamp
+        STATE.quotes[r.value.t] = {...existing, ts: r.value.q.ts};
+      }
+    }
+  });
 
   checkAlerts();
   trackDailyPrices();
@@ -926,8 +947,8 @@ function trackDailyPrices() {
 }
 
 // MAE display helpers
-function maePriceColor(m) { return m===null?"#6a8fa8":m>10?"#f43f5e":m>5?"#f59e0b":"#00e5aa"; }
-function maePriceLabel(m) { return m===null?"—":"-"+m.toFixed(1)+"%"; }
+function maePriceColor(m) { if (m===null) return "#6a8fa8"; const rounded = parseFloat(m.toFixed(1)); return rounded <= 0 ? "#6a8fa8" : m>10?"#f43f5e":m>5?"#f59e0b":"#00e5aa"; }
+function maePriceLabel(m) { if (m===null) return "—"; const rounded = parseFloat(m.toFixed(1)); return rounded <= 0 ? "—" : "-"+rounded.toFixed(1)+"%"; }
 
 // Calculate MAE proxy from price history (lowest price seen vs entry price)
 function calcPriceMAE(trade) {
@@ -987,11 +1008,10 @@ function renderPositions() {
       </div>
 
       <!-- Warnings -->
-      ${warnings.length ? `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-        ${warnings.map(w=>`<div onclick="${w==="S/R"?`openSRModal('${t.ticker}')`:`openTradeModal(${t.id})`}" style="display:flex;align-items:center;gap:4px;background:#f59e0b11;border:1px solid #f59e0b44;border-radius:3px;padding:4px 8px;cursor:pointer">
-          <span style="color:#f59e0b;font-size:10px">⚠</span>
-          <span style="font-size:9px;color:#f59e0b;font-family:'IBM Plex Mono',monospace;letter-spacing:.06em">SET ${w}</span>
-        </div>`).join("")}
+      ${warnings.length ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;background:#f59e0b08;border:1px solid #f59e0b33;border-radius:3px;padding:5px 10px">
+        <span style="font-size:10px;color:#f59e0b">⚠</span>
+        <span style="font-size:9px;color:#f59e0b;font-family:'IBM Plex Mono',monospace;flex:1">missing: ${warnings.join(", ")}</span>
+        <button onclick="openTradeModal(${t.id})" class="btn btn-warn" style="padding:3px 8px;font-size:9px">SET</button>
       </div>` : ""}
 
       <!-- Price vs Short Strike bar -->
@@ -1938,6 +1958,8 @@ function saveTrade() {
     newTrade.exitReason = prev.exitReason; newTrade.thesisAccuracy = prev.thesisAccuracy; newTrade.lessonLearned = prev.lessonLearned;
     newTrade.strategyType = prev.strategyType; newTrade.sentiment = prev.sentiment; newTrade.earningsFlag = prev.earningsFlag;
     newTrade.mae = prev.mae; newTrade.mfe = prev.mfe; newTrade.deltaClose = prev.deltaClose;
+    // Always preserve existing chartLink unless a new one was uploaded
+    if (!window._uploadedChartUrl && prev.chartLink) newTrade.chartLink = prev.chartLink;
     if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Take Profit set at $${newTrade.tpPrice}`);
     if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Stop Loss set at $${newTrade.slPrice}`);
     STATE.trades = STATE.trades.map(x=>x.id===editingTradeId?newTrade:x);
