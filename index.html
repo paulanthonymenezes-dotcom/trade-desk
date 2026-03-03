@@ -2681,11 +2681,18 @@ function parseFlexCSVTrades(csvText) {
 }
 
 async function syncIBKR() {
-  const token = STATE.ibkrToken || document.getElementById("s-ibkr-token").value.trim();
-  const queryId = STATE.ibkrQueryId || document.getElementById("s-ibkr-query").value.trim();
+  // Always prefer current input value — user may have updated token without saving
+  const tokenField = document.getElementById("s-ibkr-token");
+  const queryField = document.getElementById("s-ibkr-query");
+  const token = (tokenField && tokenField.value.trim()) || STATE.ibkrToken;
+  const queryId = (queryField && queryField.value.trim()) || STATE.ibkrQueryId;
   if (!token || !queryId) {
     alert("Enter your IBKR Flex Query token and Query ID in Settings first.\n\nTo set up:\n1. Log into IBKR Account Management\n2. Go to Reports → Flex Queries\n3. Create an Activity Flex Query for Trades\n4. Copy the Token and Query ID here");
     return;
+  }
+  // Auto-save to state so it persists
+  if (token !== STATE.ibkrToken || queryId !== STATE.ibkrQueryId) {
+    STATE.ibkrToken = token; STATE.ibkrQueryId = queryId; save();
   }
 
   showSyncStatus("Requesting Flex Query from IBKR...", "info");
