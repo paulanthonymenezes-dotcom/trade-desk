@@ -87,7 +87,10 @@ table{width:100%;border-collapse:collapse}
   <div id="tab-positions" class="section active">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em">OPEN POSITIONS</div>
-      <button class="btn btn-p" style="padding:7px 14px" onclick="openTradeModal()">+ NEW TRADE</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-g" style="padding:7px 10px;font-size:10px" onclick="quickSync()" title="Sync from IBKR">⚡ SYNC</button>
+        <button class="btn btn-p" style="padding:7px 14px" onclick="openTradeModal()">+ NEW TRADE</button>
+      </div>
     </div>
     <div id="incomplete-banner"></div>
     <div id="positions-cards" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -313,10 +316,18 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Strike Proximity % Alert</label><input id="s-strikeprox" type="number" placeholder="5"></div>
     </div>
     <button class="btn btn-g" style="width:100%;margin-bottom:16px" onclick="testTelegram()">TEST TELEGRAM</button>
-    <div class="st">Import IBKR Trades</div>
-    <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Upload an IBKR Activity Statement CSV to import new trades. Duplicates are automatically skipped.</div>
-    <input type="file" id="ibkr-file" accept=".csv" style="display:none" onchange="handleIBKRImport(this)">
-    <button class="btn btn-g" style="width:100%;margin-bottom:8px" onclick="document.getElementById('ibkr-file').click()">📂 IMPORT IBKR CSV</button>
+    <div class="st">IBKR Trade Sync</div>
+    <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Auto-sync trades from IBKR via Flex Query, or upload a CSV manually.</div>
+    <div class="g2" style="margin-bottom:10px">
+      <div class="frow"><label>Flex Query Token</label><input id="s-ibkr-token" placeholder="Paste token..."></div>
+      <div class="frow"><label>Flex Query ID</label><input id="s-ibkr-query" placeholder="Query ID..."></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn btn-p" style="flex:1" onclick="syncIBKR()">⚡ SYNC IBKR</button>
+      <input type="file" id="ibkr-file" accept=".csv" style="display:none" onchange="handleIBKRImport(this)">
+      <button class="btn btn-g" style="flex:1" onclick="document.getElementById('ibkr-file').click()">📂 CSV IMPORT</button>
+    </div>
+    <div id="ibkr-sync-status" style="display:none;margin-bottom:8px"></div>
     <div id="ibkr-preview" style="display:none;margin-bottom:16px"></div>
     <div class="st">Sync Between Devices</div>
     <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Export your data on one device, paste it into the other to sync trades, journal, and settings.</div>
@@ -412,7 +423,8 @@ let STATE = {
   ivHistory: {}, // { TICKER: { 'YYYY-MM-DD': iv_decimal } }
   sectors: {}, // { TICKER: sectorString }
   tgBot: "", tgChat: "", alertIVRank: 60, alertStrikeProx: 5,
-  accountBalance: 38788, ytdDeposits: 10118
+  accountBalance: 38788, ytdDeposits: 10118,
+  ibkrToken: "", ibkrQueryId: ""
 };
 let editingTradeId = null;
 let exitingTradeId = null;
@@ -2333,6 +2345,8 @@ function openSettings() {
   document.getElementById("s-tgchat").value = STATE.tgChat||"";
   document.getElementById("s-ivrank").value = STATE.alertIVRank||60;
   document.getElementById("s-strikeprox").value = STATE.alertStrikeProx||5;
+  document.getElementById("s-ibkr-token").value = STATE.ibkrToken||"";
+  document.getElementById("s-ibkr-query").value = STATE.ibkrQueryId||"";
   document.getElementById("settings-modal").style.display="flex";
 }
 function closeSettings() { document.getElementById("settings-modal").style.display="none"; }
@@ -2343,6 +2357,8 @@ function saveSettings() {
   STATE.tgChat = document.getElementById("s-tgchat").value.trim();
   STATE.alertIVRank = parseFloat(document.getElementById("s-ivrank").value)||60;
   STATE.alertStrikeProx = parseFloat(document.getElementById("s-strikeprox").value)||5;
+  STATE.ibkrToken = document.getElementById("s-ibkr-token").value.trim();
+  STATE.ibkrQueryId = document.getElementById("s-ibkr-query").value.trim();
   save(); closeSettings(); renderKPIs();
 }
 async function testTelegram() {
@@ -2425,6 +2441,210 @@ function importData() {
   } catch(e) {
     alert("❌ Import failed: "+e.message+"\nMake sure you pasted the full exported text.");
   }
+}
+
+// ── IBKR Flex Query Sync ────────────────────────────────────────────────────
+async function ibkrProxy(url) {
+  const resp = await fetch("/api/ibkr?url=" + encodeURIComponent(url));
+  if (!resp.ok) throw new Error("Proxy error: " + resp.status);
+  return resp.text();
+}
+
+function showSyncStatus(msg, type) {
+  const el = document.getElementById("ibkr-sync-status");
+  el.style.display = "block";
+  el.innerHTML = '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;padding:8px 10px;border-radius:3px;background:' +
+    (type === "error" ? "#1a0a0a;color:#f43f5e;border:1px solid #3a1a1a" :
+     type === "success" ? "#0a1a0f;color:#00e5aa;border:1px solid #1a3a2a" :
+     "#0a0f1a;color:#6a8fa8;border:1px solid #1a2d42") + '">' + msg + '</div>';
+}
+
+function parseFlexXMLTrades(xmlText) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "text/xml");
+
+  // Check for errors
+  const errNode = doc.querySelector("FlexStatementResponse");
+  if (errNode && errNode.getAttribute("Status") === "Warn") {
+    throw new Error(errNode.getAttribute("ErrorMessage") || "IBKR returned a warning — data may not be ready yet. Try again in a few seconds.");
+  }
+  const codeNode = doc.querySelector("ErrorCode");
+  if (codeNode) throw new Error("IBKR error " + codeNode.textContent + ": " + (doc.querySelector("ErrorMessage")?.textContent || ""));
+
+  const trades = doc.querySelectorAll("Trade");
+  if (!trades.length) {
+    // Maybe it's a status response, not data yet
+    if (xmlText.includes("FlexStatementResponse")) throw new Error("Flex Query not ready yet. Try again in a few seconds.");
+    throw new Error("No trades found in Flex Query response.");
+  }
+
+  const optionTrades = [];
+  trades.forEach(t => {
+    const cat = t.getAttribute("assetCategory");
+    if (cat !== "OPT") return;
+
+    const ticker = t.getAttribute("underlyingSymbol") || t.getAttribute("symbol")?.split(/\s/)[0];
+    const expiry = t.getAttribute("expiry"); // YYYYMMDD or YYYY-MM-DD
+    const strike = parseFloat(t.getAttribute("strike"));
+    const side = t.getAttribute("putCall"); // P or C
+    const qty = parseInt(t.getAttribute("quantity"));
+    const price = parseFloat(t.getAttribute("tradePrice"));
+    const proceeds = parseFloat(t.getAttribute("proceeds") || "0");
+    const commission = parseFloat(t.getAttribute("ibCommission") || "0");
+    const realizedPnl = parseFloat(t.getAttribute("fifoPnlRealized") || "0");
+    const code = t.getAttribute("openCloseIndicator") || "";
+    const rawDt = t.getAttribute("dateTime") || t.getAttribute("tradeDate") || "";
+
+    // Normalize expiry: YYYYMMDD → YYYY-MM-DD
+    let expiryFmt = expiry;
+    if (expiry && !expiry.includes("-")) {
+      expiryFmt = expiry.slice(0,4) + "-" + expiry.slice(4,6) + "-" + expiry.slice(6,8);
+    }
+
+    // Normalize datetime for grouping
+    const dateOnly = rawDt.split(/[;T]/)[0].replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+    const datetime = rawDt.replace(";", ", ");
+
+    if (!ticker || !expiryFmt || isNaN(strike) || isNaN(qty)) return;
+
+    optionTrades.push({
+      ticker, expiry: expiryFmt, strike, side,
+      datetime, qty, price, proceeds, commission, realizedPnl, code,
+      dateOnly,
+      isOpen: code === "O",
+      isClose: code === "C" || code === "" && qty !== 0,
+    });
+  });
+
+  return optionTrades;
+}
+
+async function syncIBKR() {
+  const token = STATE.ibkrToken || document.getElementById("s-ibkr-token").value.trim();
+  const queryId = STATE.ibkrQueryId || document.getElementById("s-ibkr-query").value.trim();
+  if (!token || !queryId) {
+    alert("Enter your IBKR Flex Query token and Query ID in Settings first.\n\nTo set up:\n1. Log into IBKR Account Management\n2. Go to Reports → Flex Queries\n3. Create an Activity Flex Query for Trades\n4. Copy the Token and Query ID here");
+    return;
+  }
+
+  showSyncStatus("Requesting Flex Query from IBKR...", "info");
+
+  try {
+    // Step 1: Request the report
+    const reqUrl = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" + token + "&q=" + queryId + "&v=3";
+    const reqResp = await ibkrProxy(reqUrl);
+
+    const refMatch = reqResp.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/);
+    if (!refMatch) {
+      const errMsg = reqResp.match(/<ErrorMessage>([^<]+)<\/ErrorMessage>/);
+      throw new Error(errMsg ? errMsg[1] : "Failed to get reference code from IBKR");
+    }
+    const refCode = refMatch[1];
+
+    showSyncStatus("Got reference " + refCode + " — waiting for IBKR to generate report...", "info");
+
+    // Step 2: Poll for the report (IBKR needs a few seconds)
+    let data = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
+      showSyncStatus("Fetching report (attempt " + (attempt + 1) + "/5)...", "info");
+
+      const fetchUrl = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=" + refCode + "&t=" + token + "&v=3";
+      const fetchResp = await ibkrProxy(fetchUrl);
+
+      // Check if still generating
+      if (fetchResp.includes("Statement generation in progress")) continue;
+      if (fetchResp.includes("FlexStatementResponse") && fetchResp.includes("Warn")) continue;
+
+      data = fetchResp;
+      break;
+    }
+
+    if (!data) throw new Error("IBKR took too long to generate the report. Try again in a minute.");
+
+    // Step 3: Parse the XML
+    const optionTrades = parseFlexXMLTrades(data);
+    if (!optionTrades.length) throw new Error("No option trades found in the Flex Query response.");
+
+    // Step 4: Pair into spreads (reuse existing logic)
+    const spreads = pairIntoSpreads(optionTrades);
+    if (!spreads.length) {
+      showSyncStatus("Found " + optionTrades.length + " option legs but no spreads detected.", "error");
+      return;
+    }
+
+    // Step 5: Dedup
+    const newSpreads = spreads.filter(s =>
+      !STATE.trades.some(t => isDuplicateTrade(t, s))
+    );
+
+    const dupes = spreads.length - newSpreads.length;
+
+    if (newSpreads.length === 0) {
+      // Check for status updates (open → closed)
+      let updated = 0;
+      for (const s of spreads) {
+        if (s.status !== "Closed") continue;
+        const existing = STATE.trades.find(t =>
+          t.ticker === s.ticker && t.expiry === s.expiry &&
+          t.shortStrike === s.shortStrike && t.longStrike === s.longStrike &&
+          t.status === "Open"
+        );
+        if (existing) {
+          existing.status = "Closed";
+          existing.exitDate = s.exitDate;
+          existing.realizedPnl = s.realizedPnl;
+          updated++;
+        }
+      }
+      if (updated) {
+        save(); renderAll();
+        showSyncStatus("All trades already imported. Updated " + updated + " trade(s) to Closed.", "success");
+      } else {
+        showSyncStatus("All " + spreads.length + " trades already exist — nothing new.", "success");
+      }
+      return;
+    }
+
+    // Show preview using the same UI as CSV import
+    const preview = document.getElementById("ibkr-preview");
+    const openCount = newSpreads.filter(s => s.status === "Open").length;
+    const closedCount = newSpreads.filter(s => s.status === "Closed").length;
+    preview.style.display = "block";
+    preview.innerHTML = `
+      <div class="card" style="padding:12px;margin-bottom:8px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a8c4d8;margin-bottom:8px">
+          Flex Query: <span style="color:#00e5aa;font-weight:600">${spreads.length}</span> spreads from ${optionTrades.length} legs
+        </div>
+        <div style="font-size:11px;color:#6a8fa8;margin-bottom:4px">
+          ${openCount} open · ${closedCount} closed${dupes ? " · " + dupes + " duplicates skipped" : ""}
+        </div>
+        <div style="max-height:200px;overflow-y:auto;margin-top:8px">
+          ${newSpreads.map(s => '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;padding:4px 0;border-bottom:1px solid #142030;color:' + (s.status==='Open'?'#00e5aa':'#6a8fa8') + '">' +
+            s.ticker + ' ' + s.longStrike + '/' + s.shortStrike + ' ' + s.expiry + ' · ' + s.contracts + 'x · $' + s.premiumCollected + ' · ' + s.status +
+          '</div>').join("")}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-p" style="flex:1" onclick="confirmIBKRImport()">IMPORT ${newSpreads.length} TRADES</button>
+          <button class="btn btn-g" style="flex:1" onclick="document.getElementById('ibkr-preview').style.display='none'">CANCEL</button>
+        </div>
+      </div>`;
+
+    window._ibkrPending = newSpreads;
+    showSyncStatus("Ready to import " + newSpreads.length + " new trades.", "success");
+
+  } catch (e) {
+    showSyncStatus("Sync failed: " + e.message, "error");
+    dbg("IBKR sync error: " + e.message, "error");
+  }
+}
+
+function quickSync() {
+  if (!STATE.ibkrToken || !STATE.ibkrQueryId) {
+    alert("Set up IBKR Flex Query first:\n\n1. Open Settings (⚙)\n2. Enter your Flex Query Token and Query ID\n3. Then tap SYNC here or in Settings");
+    return;
+  }
+  syncIBKR();
 }
 
 // ── IBKR CSV Import ─────────────────────────────────────────────────────────
