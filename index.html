@@ -491,7 +491,7 @@ async function mdaFetch(path, retries=2) {
 
 async function fetchQuote(ticker) {
   try {
-    const d = await mdaFetch("/stocks/quotes/" + ticker + "/?feed=live");
+    const d = await mdaFetch("/stocks/quotes/" + ticker + "/");
     if (d.s !== "ok") { dbg("Quote " + ticker + ": " + (d.errmsg||d.s), "warn"); return null; }
     return { price: d.last[0], change: d.change[0], changePct: d.changepct[0] * 100, volume: d.volume[0], ts: new Date().toLocaleTimeString() };
   } catch(e) { dbg("Quote " + ticker + " error: " + e.message, "error"); return null; }
