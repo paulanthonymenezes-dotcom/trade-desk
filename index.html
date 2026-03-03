@@ -333,6 +333,23 @@ table{width:100%;border-collapse:collapse}
     </div>
     <div id="ibkr-sync-status" style="display:none;margin-bottom:8px"></div>
     <div id="ibkr-preview" style="display:none;margin-bottom:16px"></div>
+    <div class="st">Auto-Exit (IBKR Gateway)</div>
+    <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Automatically close positions when TP/SL levels are hit. Requires IBKR Client Portal Gateway running on a VPS.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="s-autoexit-enabled" style="accent-color:#00e5aa">
+        <span style="font-size:12px;color:#a8c4d8;font-weight:500">Enable Auto-Exit</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="s-autoexit-paper" style="accent-color:#f59e0b" checked>
+        <span style="font-size:12px;color:#f59e0b;font-weight:500">Paper Mode</span>
+      </label>
+    </div>
+    <div class="g2" style="margin-bottom:10px">
+      <div class="frow"><label>Gateway URL</label><input id="s-autoexit-gateway" placeholder="https://your-vps:443/v1/api"></div>
+      <div class="frow"><label>Auth Token</label><input id="s-autoexit-auth" type="password" placeholder="Shared secret..."></div>
+    </div>
+    <div id="autoexit-log" style="margin-bottom:16px"></div>
     <div class="st">Sync Between Devices</div>
     <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Export your data on one device, paste it into the other to sync trades, journal, and settings.</div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -428,7 +445,13 @@ let STATE = {
   sectors: {}, // { TICKER: sectorString }
   tgBot: "", tgChat: "", alertIVRank: 60, alertStrikeProx: 5,
   accountBalance: 38788, ytdDeposits: 10118,
-  ibkrToken: "", ibkrQueryId: ""
+  ibkrToken: "", ibkrQueryId: "",
+  // Auto-exit settings
+  autoExitEnabled: false,
+  autoExitGateway: "", // VPS URL e.g. https://your-vps:443/v1/api
+  autoExitAuthToken: "", // shared secret with VPS
+  autoExitPaper: true, // paper trading mode (safety default)
+  autoExitLog: [] // { tradeId, ticker, reason, price, timestamp, result }
 };
 let editingTradeId = null;
 let exitingTradeId = null;
@@ -886,19 +909,139 @@ async function refreshAll() {
   }
 }
 
-// ── Alert checking ─────────────────────────────────────────────────────────────
+// ── Alert checking + Auto-exit ────────────────────────────────────────────────
+const _alertedThisCycle = new Set(); // prevent duplicate alerts per refresh
+
 function checkAlerts() {
   STATE.trades.filter(t=>t.status==="Open").forEach(t => {
     const q = STATE.quotes[t.ticker];
     if (!q) return;
     const prox = ((q.price - t.shortStrike)/q.price)*100;
     const dl = daysLeft(t.expiry);
-    if (prox < STATE.alertStrikeProx && prox >= 0) sendTelegram(`⚠️ <b>${t.ticker}</b> — $${q.price.toFixed(2)} only ${prox.toFixed(1)}% above short strike $${t.shortStrike}\nDTE: ${dl}`);
-    if (q.price < t.shortStrike) sendTelegram(`🔴 <b>${t.ticker} BREACHED SHORT STRIKE</b>\n$${q.price.toFixed(2)} < $${t.shortStrike} | DTE: ${dl}`);
-    if (t.tpPrice && q.price >= parseFloat(t.tpPrice)) sendTelegram(`✅ <b>${t.ticker} TAKE PROFIT HIT</b>\n$${q.price.toFixed(2)} ≥ TP $${t.tpPrice}`);
-    if (t.slPrice && q.price <= parseFloat(t.slPrice)) sendTelegram(`🛑 <b>${t.ticker} STOP LOSS HIT</b>\n$${q.price.toFixed(2)} ≤ SL $${t.slPrice}`);
-    if (dl === 1) sendTelegram(`⏰ <b>${t.ticker}</b> expires TOMORROW — ${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+    const key = t.id + "-";
+
+    // Strike proximity warning
+    if (prox < STATE.alertStrikeProx && prox >= 0 && !_alertedThisCycle.has(key+"prox")) {
+      _alertedThisCycle.add(key+"prox");
+      sendTelegram(`⚠️ <b>${t.ticker}</b> — $${q.price.toFixed(2)} only ${prox.toFixed(1)}% above short strike $${t.shortStrike}\nDTE: ${dl}`);
+    }
+
+    // Short strike breach
+    if (q.price < t.shortStrike && !_alertedThisCycle.has(key+"breach")) {
+      _alertedThisCycle.add(key+"breach");
+      sendTelegram(`🔴 <b>${t.ticker} BREACHED SHORT STRIKE</b>\n$${q.price.toFixed(2)} < $${t.shortStrike} | DTE: ${dl}`);
+    }
+
+    // TP HIT — alert + auto-exit
+    if (t.tpPrice && q.price >= parseFloat(t.tpPrice) && !_alertedThisCycle.has(key+"tp")) {
+      _alertedThisCycle.add(key+"tp");
+      const tpLbl = getSRLabel(t.ticker, t.tpPrice);
+      sendTelegram(`✅ <b>${t.ticker} TAKE PROFIT HIT</b>${tpLbl?" ("+tpLbl+")":""}\n$${q.price.toFixed(2)} ≥ TP $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+      if (STATE.autoExitEnabled) triggerAutoExit(t, "tp", q.price);
+    }
+
+    // SL HIT — alert + auto-exit
+    if (t.slPrice && q.price <= parseFloat(t.slPrice) && !_alertedThisCycle.has(key+"sl")) {
+      _alertedThisCycle.add(key+"sl");
+      const slLbl = getSRLabel(t.ticker, t.slPrice);
+      sendTelegram(`🛑 <b>${t.ticker} STOP LOSS HIT</b>${slLbl?" ("+slLbl+")":""}\n$${q.price.toFixed(2)} ≤ SL $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+      if (STATE.autoExitEnabled) triggerAutoExit(t, "sl", q.price);
+    }
+
+    // Expiry warning
+    if (dl === 1 && !_alertedThisCycle.has(key+"exp")) {
+      _alertedThisCycle.add(key+"exp");
+      sendTelegram(`⏰ <b>${t.ticker}</b> expires TOMORROW — ${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+    }
   });
+}
+
+// ── Auto-exit execution ──────────────────────────────────────────────────────
+async function triggerAutoExit(trade, reason, currentPrice) {
+  const gateway = STATE.autoExitGateway;
+  const authToken = STATE.autoExitAuthToken;
+
+  if (!gateway || !authToken) {
+    dbg("Auto-exit skipped — gateway not configured", "warn");
+    sendTelegram(`⚠️ <b>AUTO-EXIT SKIPPED</b> — Gateway not configured\n${trade.ticker} ${trade.longStrike}/${trade.shortStrike}`);
+    return;
+  }
+
+  // Prevent double-firing
+  if (trade._autoExitFired) return;
+  trade._autoExitFired = true;
+
+  const isPut = (trade.tradeType||"").toLowerCase().includes("put");
+  const side = isPut ? "P" : "C";
+
+  const payload = {
+    action: "close",
+    ticker: trade.ticker,
+    expiry: trade.expiry,
+    shortStrike: trade.shortStrike,
+    longStrike: trade.longStrike,
+    contracts: trade.contracts,
+    side,
+    tradeId: trade.id,
+    reason: reason === "tp" ? "Take Profit Hit" : "Stop Loss Hit"
+  };
+
+  dbg("🤖 AUTO-EXIT: " + trade.ticker + " " + trade.longStrike + "/" + trade.shortStrike + " — " + payload.reason, "warn");
+
+  try {
+    const resp = await fetch("/api/trade", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trade-Auth": authToken
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await resp.json();
+
+    if (data.success) {
+      // Log the exit
+      if (!STATE.autoExitLog) STATE.autoExitLog = [];
+      STATE.autoExitLog.push({
+        tradeId: trade.id, ticker: trade.ticker,
+        reason: payload.reason, price: currentPrice,
+        timestamp: new Date().toISOString(), result: "success"
+      });
+
+      sendTelegram(
+        `🤖 <b>AUTO-EXIT EXECUTED</b>\n` +
+        `${trade.ticker} ${trade.longStrike}/${trade.shortStrike} x${trade.contracts}\n` +
+        `Reason: ${payload.reason}\n` +
+        `Stock: $${currentPrice.toFixed(2)}\n` +
+        `Premium collected: $${trade.premiumCollected}`
+      );
+
+      dbg("✓ Auto-exit order placed for " + trade.ticker, "success");
+      save();
+    } else {
+      throw new Error(data.error || "Order failed");
+    }
+  } catch (e) {
+    dbg("✗ Auto-exit FAILED: " + e.message, "error");
+
+    if (!STATE.autoExitLog) STATE.autoExitLog = [];
+    STATE.autoExitLog.push({
+      tradeId: trade.id, ticker: trade.ticker,
+      reason: payload.reason, price: currentPrice,
+      timestamp: new Date().toISOString(), result: "FAILED: " + e.message
+    });
+
+    sendTelegram(
+      `❌ <b>AUTO-EXIT FAILED</b>\n` +
+      `${trade.ticker} ${trade.longStrike}/${trade.shortStrike}\n` +
+      `Error: ${e.message}\n` +
+      `⚠️ MANUAL EXIT REQUIRED`
+    );
+
+    save();
+    trade._autoExitFired = false; // allow retry
+  }
 }
 
 // ── Render helpers ─────────────────────────────────────────────────────────────
@@ -2463,6 +2606,18 @@ function openSettings() {
   document.getElementById("s-strikeprox").value = STATE.alertStrikeProx||5;
   document.getElementById("s-ibkr-token").value = STATE.ibkrToken||"";
   document.getElementById("s-ibkr-query").value = STATE.ibkrQueryId||"";
+  document.getElementById("s-autoexit-enabled").checked = STATE.autoExitEnabled||false;
+  document.getElementById("s-autoexit-paper").checked = STATE.autoExitPaper!==false;
+  document.getElementById("s-autoexit-gateway").value = STATE.autoExitGateway||"";
+  document.getElementById("s-autoexit-auth").value = STATE.autoExitAuthToken||"";
+  // Show auto-exit log
+  const logEl = document.getElementById("autoexit-log");
+  const log = (STATE.autoExitLog||[]).slice(-5).reverse();
+  logEl.innerHTML = log.length ? `<div style="font-size:10px;color:#6a8fa8;margin-bottom:6px">Recent auto-exits:</div>` +
+    log.map(l => `<div style="font-size:10px;padding:4px 8px;background:#060a10;border:1px solid ${l.result==="success"?"#00e5aa22":"#f43f5e22"};border-radius:3px;margin-bottom:3px">
+      <span style="color:${l.result==="success"?"#00e5aa":"#f43f5e"}">${l.result==="success"?"✓":"✗"}</span>
+      <span style="color:#a8c4d8">${l.ticker}</span> — ${l.reason} @ $${l.price?.toFixed(2)||"?"} — <span style="color:#6a8fa8">${new Date(l.timestamp).toLocaleString()}</span>
+    </div>`).join("") : "";
   document.getElementById("settings-modal").style.display="flex";
 }
 function closeSettings() { document.getElementById("settings-modal").style.display="none"; }
@@ -2475,6 +2630,10 @@ function saveSettings() {
   STATE.alertStrikeProx = parseFloat(document.getElementById("s-strikeprox").value)||5;
   STATE.ibkrToken = document.getElementById("s-ibkr-token").value.trim();
   STATE.ibkrQueryId = document.getElementById("s-ibkr-query").value.trim();
+  STATE.autoExitEnabled = document.getElementById("s-autoexit-enabled").checked;
+  STATE.autoExitPaper = document.getElementById("s-autoexit-paper").checked;
+  STATE.autoExitGateway = document.getElementById("s-autoexit-gateway").value.trim();
+  STATE.autoExitAuthToken = document.getElementById("s-autoexit-auth").value.trim();
   save(); closeSettings(); renderKPIs();
 }
 async function testTelegram() {

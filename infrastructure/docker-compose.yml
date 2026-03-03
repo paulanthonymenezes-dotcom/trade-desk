@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  ibeam:
+    image: voyz/ibeam:latest
+    container_name: ibkr-gateway
+    environment:
+      IBEAM_ACCOUNT: ${IBKR_USERNAME}
+      IBEAM_PASSWORD: ${IBKR_PASSWORD}
+      IBEAM_GATEWAY_BASE_URL: https://localhost:5000
+      IBEAM_LOG_TO_FILE: "true"
+      IBEAM_REQUEST_RETRIES: 10
+      IBEAM_PAGE_LOAD_TIMEOUT: 60
+      # For paper trading, uncomment:
+      # IBEAM_GATEWAY_BASE_URL: https://localhost:5000
+      # and use your paper trading credentials
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./logs:/srv/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://localhost:5000/v1/api/iserver/auth/status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Nginx reverse proxy with HTTPS + auth token
+  nginx:
+    image: nginx:alpine
+    container_name: ibkr-proxy
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - ibeam
+    restart: unless-stopped
