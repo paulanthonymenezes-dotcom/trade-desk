@@ -151,7 +151,7 @@ table{width:100%;border-collapse:collapse}
       <button onclick="closeTradeModal()" style="background:none;border:none;color:#6a8fa8;font-size:22px">×</button>
     </div>
     <div class="g2">
-      <div class="frow"><label>Ticker</label><input id="tf-ticker" placeholder="NVDA" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="frow"><label>Ticker</label><input id="tf-ticker" placeholder="NVDA" oninput="this.value=this.value.toUpperCase();updateSRPicks(this.value)"></div>
       <div class="frow"><label>Trade Type</label><select id="tf-tradeType"></select></div>
     </div>
     <div class="g3">
@@ -176,18 +176,16 @@ table{width:100%;border-collapse:collapse}
     <!-- REQUIRED EXIT RULES -->
     <div style="background:#060a10;border:1px solid #00e5aa33;border-radius:4px;padding:14px;margin-bottom:12px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#00e5aa;letter-spacing:.12em;margin-bottom:4px">EXIT RULES — REQUIRED</div>
-      <div style="font-size:10px;color:#6a8fa8;margin-bottom:12px">Define these before entering. No exceptions.</div>
+      <div style="font-size:10px;color:#6a8fa8;margin-bottom:12px">Pick from your watchlist S/R levels, or enter a custom price.</div>
       <div class="frow">
-        <label>🎯 Profit Target — underlying price ($) <span style="color:#f43f5e">*</span></label>
-        <input id="tf-tpPrice" type="number" placeholder="e.g. 195.00 — the price at which you take profit">
-      </div>
-      <div class="frow">
-        <label>🛑 Hard Stop — underlying price ($) <span style="color:#f43f5e">*</span></label>
-        <input id="tf-slPrice" type="number" placeholder="e.g. 178.00 — the price at which you exit no matter what">
+        <label>🎯 Profit Target — stock hits this level, take profit <span style="color:#f43f5e">*</span></label>
+        <input id="tf-tpPrice" type="number" placeholder="e.g. 195.00">
+        <div id="tf-tp-picks" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
       </div>
       <div class="frow" style="margin-bottom:0">
-        <label>💀 Thesis Invalidation — price level ($) <span style="color:#f43f5e">*</span></label>
-        <input id="tf-thesisInvalidation" type="number" placeholder="e.g. 180.00 — if price breaks this, your reason for being in is gone">
+        <label>🛑 Stop Loss — stock breaks this level, exit <span style="color:#f43f5e">*</span></label>
+        <input id="tf-slPrice" type="number" placeholder="e.g. 178.00">
+        <div id="tf-sl-picks" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
       </div>
     </div>
 
@@ -507,12 +505,42 @@ async function mdaFetch(path, retries=2) {
   }
 }
 
-async function fetchQuote(ticker) {
+// Batch fetch quotes from Yahoo Finance via Vercel proxy (real-time)
+async function fetchQuotesYahoo(tickers) {
+  try {
+    const resp = await fetch("/api/quote?symbols=" + tickers.join(","));
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    if (data.s !== "ok") throw new Error(data.error || "Bad response");
+    const results = {};
+    for (const [ticker, q] of Object.entries(data.quotes)) {
+      results[ticker] = {
+        price: q.price, change: q.change, changePct: q.changePct,
+        volume: q.volume, ts: new Date().toLocaleTimeString(),
+        updated: q.updated, source: "yahoo"
+      };
+    }
+    return results;
+  } catch(e) {
+    dbg("Yahoo batch error: " + e.message + " — falling back to MarketData", "warn");
+    return null;
+  }
+}
+
+// Fallback: single quote from MarketData.app (24h delayed on free/trial)
+async function fetchQuoteMDA(ticker) {
   try {
     const d = await mdaFetch("/stocks/quotes/" + ticker + "/");
     if (d.s !== "ok") { dbg("Quote " + ticker + ": " + (d.errmsg||d.s), "warn"); return null; }
-    return { price: d.last[0], change: d.change[0], changePct: d.changepct[0] * 100, volume: d.volume[0], ts: new Date().toLocaleTimeString() };
+    return { price: d.last[0], change: d.change[0], changePct: d.changepct[0] * 100, volume: d.volume[0], ts: new Date().toLocaleTimeString(), updated: d.updated?.[0]||0, source: "mda-delayed" };
   } catch(e) { dbg("Quote " + ticker + " error: " + e.message, "error"); return null; }
+}
+
+// Primary: try Yahoo, fallback to MDA
+async function fetchQuote(ticker) {
+  const yq = await fetchQuotesYahoo([ticker]);
+  if (yq && yq[ticker]) return yq[ticker];
+  return fetchQuoteMDA(ticker);
 }
 
 async function fetchCandles(ticker, from, to) {
@@ -742,26 +770,44 @@ async function refreshAll() {
 
   dbg("Fetching: " + tickers.join(", "));
 
-  // Fetch quotes in small batches to avoid rate limits
-  const BATCH_SIZE = 4;
-  for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-    const batch = tickers.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(batch.map(async t => {
-      const q = await fetchQuote(t);
-      dbg(q ? "✓ "+t+" = $"+q.price.toFixed(2) : "✗ "+t+" failed", q?"success":"error");
-      return {t, q};
-    }));
-    results.forEach(r => {
-      if (r.status==="fulfilled" && r.value.q) {
-        const existing = STATE.quotes[r.value.t];
-        if (!existing || r.value.q.price !== existing.price) {
-          STATE.quotes[r.value.t] = r.value.q;
-        } else {
-          STATE.quotes[r.value.t] = {...existing, ts: r.value.q.ts};
-        }
+  // Fetch all quotes in one batch via Yahoo Finance (real-time)
+  let yahooQuotes = await fetchQuotesYahoo(tickers);
+  if (yahooQuotes) {
+    dbg("✓ Yahoo Finance: " + Object.keys(yahooQuotes).length + "/" + tickers.length + " quotes (real-time)", "success");
+    for (const [t, q] of Object.entries(yahooQuotes)) {
+      const existing = STATE.quotes[t];
+      if (!existing || q.price !== existing.price) {
+        STATE.quotes[t] = q;
+      } else {
+        STATE.quotes[t] = {...existing, ts: q.ts, source: q.source};
       }
-    });
-    if (i + BATCH_SIZE < tickers.length) await new Promise(r => setTimeout(r, 500));
+    }
+    // Fallback: fetch any missing tickers from MarketData.app
+    const missing = tickers.filter(t => !yahooQuotes[t]);
+    if (missing.length) {
+      dbg("Fetching " + missing.length + " missing from MarketData.app...", "warn");
+      for (const t of missing) {
+        const q = await fetchQuoteMDA(t);
+        if (q) { STATE.quotes[t] = q; dbg("✓ " + t + " = $" + q.price.toFixed(2) + " (delayed)", "warn"); }
+        else dbg("✗ " + t + " failed", "error");
+      }
+    }
+  } else {
+    // Full fallback to MarketData.app
+    dbg("Yahoo unavailable — using MarketData.app (24h delayed)", "warn");
+    const BATCH_SIZE = 4;
+    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+      const batch = tickers.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(batch.map(async t => {
+        const q = await fetchQuoteMDA(t);
+        dbg(q ? "✓ "+t+" = $"+q.price.toFixed(2)+" (delayed)" : "✗ "+t+" failed", q?"warn":"error");
+        return {t, q};
+      }));
+      results.forEach(r => {
+        if (r.status==="fulfilled" && r.value.q) STATE.quotes[r.value.t] = r.value.q;
+      });
+      if (i + BATCH_SIZE < tickers.length) await new Promise(r => setTimeout(r, 500));
+    }
   }
 
   checkAlerts();
@@ -911,7 +957,10 @@ function renderWatchlist() {
       </div>
       ${q ? `
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:#a8c4d8">$${q.price.toFixed(2)}</div>
+          <div style="display:flex;align-items:baseline;gap:6px">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:#a8c4d8">$${q.price.toFixed(2)}</div>
+            ${q.source==="mda-delayed"?`<span style="font-size:8px;color:#f59e0b;border:1px solid #f59e0b44;padding:1px 4px;border-radius:2px">DELAYED</span>`:""}
+          </div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>
         </div>
         ${(supports.length || resistances.length) && q ? `
@@ -1014,7 +1063,7 @@ function renderIncompleteBanner() {
   const el = document.getElementById("incomplete-banner");
   if (!el) return;
   const open = STATE.trades.filter(t => t.status === "Open");
-  const incomplete = open.filter(t => !t.tpPrice || !t.slPrice || !t.thesisInvalidation);
+  const incomplete = open.filter(t => !t.tpPrice || !t.slPrice);
   if (!incomplete.length) { el.innerHTML = ""; return; }
 
   el.innerHTML = `<div style="background:#f59e0b11;border:1px solid #f59e0b44;border-radius:4px;padding:10px 14px;margin-bottom:12px">
@@ -1022,9 +1071,8 @@ function renderIncompleteBanner() {
     <div style="display:flex;flex-direction:column;gap:5px">
       ${incomplete.map(t => {
         const missing = [];
-        if (!t.tpPrice) missing.push("Profit Target");
-        if (!t.slPrice) missing.push("Hard Stop");
-        if (!t.thesisInvalidation) missing.push("Thesis Invalidation");
+        if (!t.tpPrice) missing.push("Take Profit");
+        if (!t.slPrice) missing.push("Stop Loss");
         return `<div style="display:flex;justify-content:space-between;align-items:center;background:#060a10;border-radius:3px;padding:6px 10px">
           <div>
             <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a8c4d8">${t.ticker}</span>
@@ -1221,7 +1269,7 @@ function renderPositions() {
           <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#a8c4d8">${t.ticker}</div>
             ${q ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">$${q.price.toFixed(2)}</div>
-            <div style="font-size:10px;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>` : `<div style="font-size:10px;color:#6a8fa8">loading...</div>`}
+            <div style="font-size:10px;color:${q.changePct>=0?"#00e5aa":"#f43f5e"}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>${q.source==="mda-delayed"?`<span style="font-size:8px;color:#f59e0b;border:1px solid #f59e0b44;padding:1px 4px;border-radius:2px">DELAYED</span>`:""}` : `<div style="font-size:10px;color:#6a8fa8">loading...</div>`}
           </div>
           <div style="font-size:10px;color:#a8c4d8;margin-top:3px">${t.tradeType||"Spread"} · ${t.longStrike}/${t.shortStrike} · ${t.contracts}x · exp ${t.expiry}${getSector(t.ticker)?" · "+getSector(t.ticker):""}</div>
         </div>
@@ -1249,27 +1297,23 @@ function renderPositions() {
         <div style="height:3px;background:#1a2d42;border-radius:2px"><div style="height:100%;width:${proxWidth}%;background:${proxColor};border-radius:2px;transition:width .3s"></div></div>
       </div>` : ""}
 
-      <!-- TP / SL / Thesis Invalidation -->
-      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
-        <div style="display:flex;gap:6px">
+      <!-- TP / SL -->
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        ${(()=>{
+          const tpLbl = getSRLabel(t.ticker, t.tpPrice);
+          const slLbl = getSRLabel(t.ticker, t.slPrice);
+          return `
           <div style="flex:1;background:#060a10;border:1px solid ${t.tpPrice?"#00e5aa22":"#f59e0b22"};border-radius:3px;padding:8px 10px">
-            <div style="font-size:9px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">🎯 PROFIT TARGET</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};font-weight:600">${t.tpPrice?"$"+t.tpPrice:"NOT SET"}</div>
+            <div style="font-size:9px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">🎯 TAKE PROFIT${tpLbl?" · "+tpLbl:""}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.tpPrice?"#00e5aa":"#f59e0b"};font-weight:600">${t.tpPrice?"$"+parseFloat(t.tpPrice).toFixed(2):"NOT SET"}</div>
             ${t.tpPrice&&q?`<div style="font-size:10px;color:#6a8fa8;margin-top:2px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
           </div>
           <div style="flex:1;background:#060a10;border:1px solid ${t.slPrice?"#f43f5e22":"#f59e0b22"};border-radius:3px;padding:8px 10px">
-            <div style="font-size:9px;color:${t.slPrice?"#f43f5e":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">🛑 HARD STOP</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.slPrice?"#f43f5e":"#f59e0b"};font-weight:600">${t.slPrice?"$"+t.slPrice:"NOT SET"}</div>
+            <div style="font-size:9px;color:${t.slPrice?"#f43f5e":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">🛑 STOP LOSS${slLbl?" · "+slLbl:""}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.slPrice?"#f43f5e":"#f59e0b"};font-weight:600">${t.slPrice?"$"+parseFloat(t.slPrice).toFixed(2):"NOT SET"}</div>
             ${t.slPrice&&q?`<div style="font-size:10px;color:#6a8fa8;margin-top:2px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
-          </div>
-        </div>
-        <div style="background:#060a10;border:1px solid ${t.thesisInvalidation?"#8b5cf622":"#f59e0b22"};border-radius:3px;padding:8px 10px">
-          <div style="font-size:9px;color:${t.thesisInvalidation?"#8b5cf6":"#f59e0b"};letter-spacing:.08em;margin-bottom:3px">💀 THESIS INVALIDATION</div>
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.thesisInvalidation?"#8b5cf6":"#f59e0b"};font-weight:600">${t.thesisInvalidation?"$"+t.thesisInvalidation:"NOT SET"}</div>
-            ${t.thesisInvalidation&&q?`<div style="font-size:10px;color:${((q.price-parseFloat(t.thesisInvalidation))/q.price*100)<3?"#f43f5e":((q.price-parseFloat(t.thesisInvalidation))/q.price*100)<8?"#f59e0b":"#2d4a60"}">${((q.price-parseFloat(t.thesisInvalidation))/q.price*100).toFixed(1)}% away</div>`:""}
-          </div>
-        </div>
+          </div>`;
+        })()}
       </div>
 
       <!-- S/R Levels -->
@@ -2125,6 +2169,50 @@ function setFilter(f, btn) {
   renderTrades();
 }
 
+// ── S/R Quick Pick for TP/SL ──────────────────────────────────────────────────
+function updateSRPicks(ticker) {
+  const tpBox = document.getElementById("tf-tp-picks");
+  const slBox = document.getElementById("tf-sl-picks");
+  if (!tpBox || !slBox) return;
+  tpBox.innerHTML = ""; slBox.innerHTML = "";
+  const sr = STATE.srLevels?.[ticker] || {};
+  const resistances = [["R1",sr.r1],["R2",sr.r2],["R3",sr.r3]].filter(x=>x[1]);
+  const supports = [["S1",sr.s1],["S2",sr.s2],["S3",sr.s3]].filter(x=>x[1]);
+  if (!resistances.length && !supports.length) {
+    tpBox.innerHTML = `<span style="font-size:10px;color:#2d4a60">No S/R levels set for ${ticker||"—"} on watchlist</span>`;
+    slBox.innerHTML = `<span style="font-size:10px;color:#2d4a60">Add levels on the WATCH tab first</span>`;
+    return;
+  }
+  const mkBtn = (label, price, target, color) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label + " $" + parseFloat(price).toFixed(0);
+    b.style.cssText = "background:none;border:1px solid " + color + "44;color:" + color + ";font-size:10px;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace";
+    b.onclick = () => { document.getElementById(target).value = parseFloat(price).toFixed(2); };
+    return b;
+  };
+  resistances.forEach(([lbl,val]) => tpBox.appendChild(mkBtn(lbl, val, "tf-tpPrice", "#00e5aa")));
+  supports.forEach(([lbl,val]) => slBox.appendChild(mkBtn(lbl, val, "tf-slPrice", "#f43f5e")));
+  // Also offer supports as TP and resistances as SL for different strategies
+  if (supports.length) { const d = document.createElement("span"); d.style.cssText="color:#2d4a60;font-size:10px;padding:0 2px"; d.textContent="·"; tpBox.appendChild(d); }
+  supports.forEach(([lbl,val]) => tpBox.appendChild(mkBtn(lbl, val, "tf-tpPrice", "#6a8fa8")));
+  if (resistances.length) { const d = document.createElement("span"); d.style.cssText="color:#2d4a60;font-size:10px;padding:0 2px"; d.textContent="·"; slBox.appendChild(d); }
+  resistances.forEach(([lbl,val]) => slBox.appendChild(mkBtn(lbl, val, "tf-slPrice", "#6a8fa8")));
+}
+
+function getSRLabel(ticker, price) {
+  if (!price || !ticker) return null;
+  const sr = STATE.srLevels?.[ticker] || {};
+  const p = parseFloat(price);
+  if (sr.r1 && Math.abs(parseFloat(sr.r1)-p)<0.01) return "R1";
+  if (sr.r2 && Math.abs(parseFloat(sr.r2)-p)<0.01) return "R2";
+  if (sr.r3 && Math.abs(parseFloat(sr.r3)-p)<0.01) return "R3";
+  if (sr.s1 && Math.abs(parseFloat(sr.s1)-p)<0.01) return "S1";
+  if (sr.s2 && Math.abs(parseFloat(sr.s2)-p)<0.01) return "S2";
+  if (sr.s3 && Math.abs(parseFloat(sr.s3)-p)<0.01) return "S3";
+  return null;
+}
+
 // ── Trade modal ───────────────────────────────────────────────────────────────
 function openTradeModal(id=null) {
   editingTradeId = id;
@@ -2151,8 +2239,8 @@ function openTradeModal(id=null) {
   document.getElementById("tf-status").value = t?.status||"Open";
   document.getElementById("tf-tpPrice").value = t?.tpPrice||"";
   document.getElementById("tf-slPrice").value = t?.slPrice||"";
-  document.getElementById("tf-thesisInvalidation").value = t?.thesisInvalidation||"";
   document.getElementById("tf-deltaEntry").value = t?.deltaEntry||"";
+  updateSRPicks(t?.ticker||"");
   document.getElementById("tf-pop").value = t?.pop||"";
   document.getElementById("tf-thesis").value = t?.thesis||"";
   // Show existing chart if any
@@ -2180,15 +2268,13 @@ function saveTrade() {
 
   const tpPrice = document.getElementById("tf-tpPrice").value;
   const slPrice = document.getElementById("tf-slPrice").value;
-  const thesisInvalidation = document.getElementById("tf-thesisInvalidation").value;
   const status = document.getElementById("tf-status").value;
 
   // Require exit rules for new open trades
   if (status === "Open" && !editingTradeId) {
     const missing = [];
     if (!tpPrice) missing.push("Profit Target");
-    if (!slPrice) missing.push("Hard Stop");
-    if (!thesisInvalidation) missing.push("Thesis Invalidation Level");
+    if (!slPrice) missing.push("Stop Loss");
     if (missing.length) {
       alert("⚠ Exit rules required before entering:\n\n• " + missing.join("\n• ") + "\n\nDefine these before you enter the trade.");
       return;
@@ -2207,7 +2293,8 @@ function saveTrade() {
     status,
     tpPrice,
     slPrice,
-    thesisInvalidation,
+    tpLevel: getSRLabel(ticker, tpPrice) || "custom",
+    slLevel: getSRLabel(ticker, slPrice) || "custom",
     deltaEntry: document.getElementById("tf-deltaEntry").value,
     pop: document.getElementById("tf-pop").value,
     entryType: document.getElementById("tf-entryType").value,
