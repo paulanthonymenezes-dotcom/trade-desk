@@ -143,6 +143,12 @@ table{width:100%;border-collapse:collapse}
   <button class="nav-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span>FORECAST</button>
 </nav>
 
+<!-- CHART LIGHTBOX -->
+<div id="chart-lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;cursor:pointer;align-items:center;justify-content:center;padding:20px" onclick="this.style.display='none'">
+  <img id="chart-lightbox-img" style="max-width:100%;max-height:90vh;object-fit:contain;border-radius:6px;border:1px solid #1a2d42">
+  <div style="position:absolute;top:16px;right:20px;color:#6a8fa8;font-size:28px;font-family:'IBM Plex Mono',monospace">×</div>
+</div>
+
 <!-- TRADE MODAL -->
 <div id="trade-modal" class="overlay" style="display:none">
   <div class="modal" style="max-width:680px">
@@ -1477,7 +1483,7 @@ function renderPositions() {
         <button class="btn btn-g" style="padding:7px 10px;color:#6a8fa8;border-color:#1a2d42" onclick="openTradeModal(${t.id})">✎</button>
       </div>
       ${t.chartLink?`<div style="margin-top:10px;position:relative">
-        <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:200px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open(this.src,'_blank')" onerror="this.parentElement.innerHTML='<div style=\\'padding:8px;font-size:10px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">
+        <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:200px;object-fit:contain;background:#060a10;cursor:pointer" onclick="openLightbox(this.src)" onerror="this.parentElement.innerHTML='<div style=\\'padding:8px;font-size:10px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">
         <button onclick="quickChartUpload(${t.id})" style="position:absolute;top:6px;right:6px;background:#060a10cc;border:1px solid #1a2d42;color:#6a8fa8;font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace">REPLACE</button>
       </div>`:``}
     </div>`;
@@ -1601,7 +1607,7 @@ function renderDiary() {
     <!-- Entry Chart -->
     ${t.chartLink?`<div class="card" style="margin-bottom:10px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:10px">ENTRY CHART</div>
-      <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:300px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open('${t.chartLink}','_blank')" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load — may need to re-upload</div>'">
+      <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:300px;object-fit:contain;background:#060a10;cursor:pointer" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load — may need to re-upload</div>'">
     </div>`:""}
 
     <!-- Journal -->
@@ -2151,6 +2157,13 @@ function clearChartUpload() {
   document.getElementById('tf-chartClear').style.display = 'none';
 }
 
+
+// ── Chart lightbox ────────────────────────────────────────────────────────────
+function openLightbox(src) {
+  const lb = document.getElementById("chart-lightbox");
+  document.getElementById("chart-lightbox-img").src = src;
+  lb.style.display = "flex";
+}
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(name, btn) {
