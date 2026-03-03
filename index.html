@@ -506,6 +506,53 @@ async function fetchCandles(ticker, from, to) {
 }
 
 
+// Fetch live spread value for a trade (both legs)
+async function fetchSpreadValue(trade) {
+  try {
+    const expiry = trade.expiry; // YYYY-MM-DD
+    const ticker = trade.ticker;
+    const shortStrike = trade.shortStrike;
+    const longStrike = trade.longStrike;
+    const tradeType = (trade.tradeType||"").toLowerCase();
+
+    // Determine option side from trade type
+    const isPut = tradeType.includes("put") || tradeType.includes("bull put");
+    const side = isPut ? "put" : "call";
+
+    // Fetch both legs
+    const [shortData, longData] = await Promise.all([
+      mdaFetch("/options/chain/" + ticker + "/?expiration=" + expiry + "&side=" + side + "&strike=" + shortStrike, 1),
+      mdaFetch("/options/chain/" + ticker + "/?expiration=" + expiry + "&side=" + side + "&strike=" + longStrike, 1)
+    ]);
+
+    if (shortData.s !== "ok" || longData.s !== "ok") {
+      dbg("Spread fetch " + ticker + ": leg missing", "warn");
+      return null;
+    }
+
+    const shortMid = shortData.mid[0];
+    const longMid = longData.mid[0];
+    // For credit spreads: spread debit = short leg - long leg (cost to close)
+    const spreadValue = Math.abs(shortMid - longMid);
+    const spreadHigh = Math.abs((shortData.ask?.[0]||shortMid) - (longData.bid?.[0]||longMid));
+    const spreadLow = Math.abs((shortData.bid?.[0]||shortMid) - (longData.ask?.[0]||longMid));
+
+    dbg("✓ Spread " + ticker + " " + longStrike + "/" + shortStrike + " = $" + spreadValue.toFixed(2) + " (high $" + spreadHigh.toFixed(2) + " / low $" + spreadLow.toFixed(2) + ")", "success");
+
+    return {
+      mid: spreadValue,
+      high: Math.max(spreadHigh, spreadLow, spreadValue),
+      low: Math.min(spreadHigh, spreadLow, spreadValue),
+      shortMid, longMid,
+      shortDelta: shortData.delta?.[0] || null,
+      ts: new Date().toLocaleTimeString()
+    };
+  } catch(e) {
+    dbg("Spread fetch " + trade.ticker + " error: " + e.message, "error");
+    return null;
+  }
+}
+
 async function fetchATMiv(ticker) {
   // Fetch ATM put IV using delta filter, 30-45 DTE range
   try {
@@ -720,10 +767,31 @@ async function refreshAll() {
     }
   }
 
-  // Background: fetch real IV for watchlist tickers (once per day per ticker)
+  // Background: auto-fetch spread values for open trades
   const todayStr = new Date().toISOString().slice(0,10);
+  for (const trade of openTrades) {
+    try {
+      const sv = await fetchSpreadValue(trade);
+      if (sv) {
+        if (!STATE.spreadHistory) STATE.spreadHistory = {};
+        if (!STATE.spreadHistory[trade.id]) STATE.spreadHistory[trade.id] = {};
+        const existing = STATE.spreadHistory[trade.id][todayStr] || {};
+        // Auto-update: keep the worst high and best low seen today
+        STATE.spreadHistory[trade.id][todayStr] = {
+          high: Math.max(sv.high, existing.high || 0),
+          low: existing.low ? Math.min(sv.low, existing.low) : sv.low,
+          mid: sv.mid,
+          delta: sv.shortDelta,
+          auto: true
+        };
+        save(); renderPositions();
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Background: fetch real IV for watchlist tickers (once per day per ticker)
   for (const ticker of STATE.watchlist) {
-    // Skip if already fetched today
     if (STATE.ivHistory?.[ticker]?.[todayStr]) continue;
     try {
       await fetchAndStoreIV(ticker);
