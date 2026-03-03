@@ -2741,45 +2741,89 @@ async function syncIBKR() {
 
     // Step 4: Pair into spreads (reuse existing logic)
     const spreads = pairIntoSpreads(optionTrades);
-    if (!spreads.length) {
-      showSyncStatus("Found " + optionTrades.length + " option legs but no spreads detected.", "error");
-      return;
+    dbg("Paired " + spreads.length + " spreads (" + spreads.filter(s=>s.status==="Open").length + " open, " + spreads.filter(s=>s.status==="Closed").length + " closed)", "info");
+
+    // Step 4b: Find orphaned closing legs that match existing OPEN trades
+    // This catches trades opened before the Flex Query period but closed within it
+    const closes = optionTrades.filter(t => t.isClose);
+    let closedExisting = 0;
+    for (const openTrade of STATE.trades.filter(t => t.status === "Open")) {
+      // Find closing legs matching this open trade's short and long strikes
+      const isPut = (openTrade.tradeType || "").toLowerCase().includes("put");
+      const side = isPut ? "P" : "C";
+      const shortCloses = closes.filter(c =>
+        c.ticker === openTrade.ticker && c.expiry === openTrade.expiry &&
+        c.strike === openTrade.shortStrike && c.side === side
+      );
+      const longCloses = closes.filter(c =>
+        c.ticker === openTrade.ticker && c.expiry === openTrade.expiry &&
+        c.strike === openTrade.longStrike && c.side === side
+      );
+
+      if (shortCloses.length > 0 && longCloses.length > 0) {
+        // Both legs were closed
+        const lastClose = shortCloses[shortCloses.length - 1];
+        const exitDate = lastClose.dateOnly;
+        // Calculate close cost
+        const shortCloseProceeds = shortCloses.reduce((s, c) => s + c.proceeds, 0);
+        const longCloseProceeds = longCloses.reduce((s, c) => s + c.proceeds, 0);
+        const closeComm = shortCloses.reduce((s, c) => s + Math.abs(c.commission), 0) +
+                          longCloses.reduce((s, c) => s + Math.abs(c.commission), 0);
+        const closeCost = Math.abs(shortCloseProceeds + longCloseProceeds);
+        const pnl = Math.round(((openTrade.premiumCollected || 0) - closeCost - closeComm) * 100) / 100;
+
+        dbg("Closing " + openTrade.ticker + " " + openTrade.longStrike + "/" + openTrade.shortStrike +
+            " — exit " + exitDate + " PnL $" + pnl, "success");
+
+        openTrade.status = "Closed";
+        openTrade.exitDate = exitDate;
+        openTrade.realizedPnl = pnl;
+        closedExisting++;
+      }
     }
 
-    // Step 5: Dedup
+    // Also check spreads detected as closed that match existing open trades
+    for (const s of spreads) {
+      if (s.status !== "Closed") continue;
+      const existing = STATE.trades.find(t =>
+        t.ticker === s.ticker && t.expiry === s.expiry &&
+        t.shortStrike === s.shortStrike && t.longStrike === s.longStrike &&
+        t.status === "Open"
+      );
+      if (existing) {
+        existing.status = "Closed";
+        existing.exitDate = s.exitDate;
+        existing.realizedPnl = s.realizedPnl;
+        closedExisting++;
+      }
+    }
+
+    if (closedExisting > 0) {
+      save(); renderAll();
+      dbg("Updated " + closedExisting + " existing trades to Closed", "success");
+    }
+
+    // Step 5: Dedup new spreads
     const newSpreads = spreads.filter(s =>
       !STATE.trades.some(t => isDuplicateTrade(t, s))
     );
 
     const dupes = spreads.length - newSpreads.length;
 
-    if (newSpreads.length === 0) {
-      // Check for status updates (open → closed)
-      let updated = 0;
-      for (const s of spreads) {
-        if (s.status !== "Closed") continue;
-        const existing = STATE.trades.find(t =>
-          t.ticker === s.ticker && t.expiry === s.expiry &&
-          t.shortStrike === s.shortStrike && t.longStrike === s.longStrike &&
-          t.status === "Open"
-        );
-        if (existing) {
-          existing.status = "Closed";
-          existing.exitDate = s.exitDate;
-          existing.realizedPnl = s.realizedPnl;
-          updated++;
-        }
-      }
-      if (updated) {
-        save(); renderAll();
-        showSyncStatus("All trades already imported. Updated " + updated + " trade(s) to Closed.", "success");
-      } else {
-        showSyncStatus("All " + spreads.length + " trades already exist — nothing new.", "success");
-      }
+    if (newSpreads.length === 0 && closedExisting === 0 && spreads.length === 0) {
+      showSyncStatus("Found " + optionTrades.length + " option legs but no spreads detected.", "error");
       return;
     }
 
-    // Show preview using the same UI as CSV import
+    if (newSpreads.length === 0) {
+      const msg = closedExisting > 0
+        ? "Updated " + closedExisting + " trade(s) to Closed. " + dupes + " existing trades unchanged."
+        : "All " + spreads.length + " trades already exist — nothing new.";
+      showSyncStatus(msg, closedExisting > 0 ? "success" : "info");
+      return;
+    }
+
+    // Show preview
     const preview = document.getElementById("ibkr-preview");
     const openCount = newSpreads.filter(s => s.status === "Open").length;
     const closedCount = newSpreads.filter(s => s.status === "Closed").length;
@@ -2788,9 +2832,10 @@ async function syncIBKR() {
       <div class="card" style="padding:12px;margin-bottom:8px">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a8c4d8;margin-bottom:8px">
           Flex Query: <span style="color:#00e5aa;font-weight:600">${spreads.length}</span> spreads from ${optionTrades.length} legs
+          ${closedExisting ? '<span style="color:#f59e0b"> · ' + closedExisting + ' existing closed</span>' : ''}
         </div>
         <div style="font-size:11px;color:#6a8fa8;margin-bottom:4px">
-          ${openCount} open · ${closedCount} closed${dupes ? " · " + dupes + " duplicates skipped" : ""}
+          ${openCount} new open · ${closedCount} new closed${dupes ? " · " + dupes + " duplicates skipped" : ""}
         </div>
         <div style="max-height:200px;overflow-y:auto;margin-top:8px">
           ${newSpreads.map(s => '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;padding:4px 0;border-bottom:1px solid #142030;color:' + (s.status==='Open'?'#00e5aa':'#6a8fa8') + '">' +
