@@ -972,16 +972,56 @@ function trackDailyPrices() {
 function maePriceColor(m) { if (m===null) return "#6a8fa8"; const rounded = parseFloat(m.toFixed(1)); return rounded <= 0 ? "#6a8fa8" : m>10?"#f43f5e":m>5?"#f59e0b":"#00e5aa"; }
 function maePriceLabel(m) { if (m===null) return "—"; const rounded = parseFloat(m.toFixed(1)); return rounded <= 0 ? "—" : "-"+rounded.toFixed(1)+"%"; }
 
-// Calculate MAE proxy from price history (lowest price seen vs entry price)
+// Calculate MAE proxy from price history (lowest price seen vs entry price — worst drawdown)
 function calcPriceMAE(trade) {
   const hist = STATE.priceHistory?.[trade.id];
   if (!hist || !Object.keys(hist).length) return null;
   const prices = Object.values(hist);
   const lowestPrice = Math.min(...prices);
-  // Entry price approximation: use first recorded price or short strike as reference
   const firstPrice = hist[Object.keys(hist).sort()[0]];
   if (!firstPrice) return null;
-  return ((firstPrice - lowestPrice) / firstPrice * 100); // % drop from first recorded price
+  return ((firstPrice - lowestPrice) / firstPrice * 100);
+}
+
+// Calculate MFE proxy from price history (highest price seen vs entry — best the position got)
+function calcPriceMFE(trade) {
+  const hist = STATE.priceHistory?.[trade.id];
+  if (!hist || !Object.keys(hist).length) return null;
+  const prices = Object.values(hist);
+  const highestPrice = Math.max(...prices);
+  const firstPrice = hist[Object.keys(hist).sort()[0]];
+  if (!firstPrice) return null;
+  return ((highestPrice - firstPrice) / firstPrice * 100);
+}
+function mfePriceColor(m) { if (m===null) return "#6a8fa8"; return m>5?"#00e5aa":m>2?"#f59e0b":"#6a8fa8"; }
+function mfePriceLabel(m) { if (m===null) return "—"; return m<=0?"—":"+"+m.toFixed(1)+"%"; }
+
+// Quick chart upload from position card
+function quickChartUpload(tradeId) {
+  const input = document.getElementById('quick-chart-'+tradeId);
+  if (input) input.click();
+}
+function handleQuickChart(input, tradeId) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 800;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', 0.6);
+      STATE.trades = STATE.trades.map(t => t.id===tradeId ? {...t, chartLink: compressed} : t);
+      save(); renderPositions();
+      dbg("Chart saved for trade " + tradeId, "success");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 function renderPositions() {
@@ -1101,11 +1141,14 @@ function renderPositions() {
       </div>` : ""}
 
       <!-- Stats row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">
         <div><div class="lbl">PREMIUM</div><div class="val">$${(t.premiumCollected||0).toFixed(0)}</div></div>
         <div><div class="lbl">MAX LOSS</div><div class="val" style="color:#f43f5e">-$${maxLoss.toFixed(0)}</div></div>
         <div><div class="lbl">ENTRY Δ</div><div class="val">${t.deltaEntry||"—"}</div></div>
-        <div><div class="lbl">PRICE MAE</div><div class="val" style="color:${maePriceColor(calcPriceMAE(t))}">${maePriceLabel(calcPriceMAE(t))}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div><div class="lbl">PRICE MAE ▼</div><div class="val" style="color:${maePriceColor(calcPriceMAE(t))}">${maePriceLabel(calcPriceMAE(t))}</div><div style="font-size:9px;color:#4d7a9a">worst drawdown</div></div>
+        <div><div class="lbl">PRICE MFE ▲</div><div class="val" style="color:${mfePriceColor(calcPriceMFE(t))}">${mfePriceLabel(calcPriceMFE(t))}</div><div style="font-size:9px;color:#4d7a9a">best it got</div></div>
         ${(()=>{
           const ivd = calcIVRankFromHistory(t.ticker);
           const posIvr = ivd.ivr;
@@ -1120,10 +1163,13 @@ function renderPositions() {
         <button class="btn btn-warn" style="flex:1;padding:7px" onclick="openExitModal(${t.id})">EXIT</button>
         <button class="btn btn-g" style="flex:1;padding:7px;color:#6a8fa8;border-color:#1a2d42" onclick="openRollModal(${t.id})">ROLL</button>
         <button class="btn btn-g" style="flex:1;padding:7px;color:#6a8fa8;border-color:#1a2d42" onclick="openDiary(${t.id})">DIARY</button>
+        <input type="file" id="quick-chart-${t.id}" accept="image/*" style="display:none" onchange="handleQuickChart(this,${t.id})">
+        <button class="btn btn-g" style="padding:7px 10px;color:#6a8fa8;border-color:#1a2d42" onclick="quickChartUpload(${t.id})">📷</button>
         <button class="btn btn-g" style="padding:7px 10px;color:#6a8fa8;border-color:#1a2d42" onclick="openTradeModal(${t.id})">✎</button>
       </div>
-      ${t.chartLink?`<div style="margin-top:10px">
-        <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:200px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open('${t.chartLink}','_blank')" onerror="this.parentElement.innerHTML='<div style=\\'padding:8px;font-size:10px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load — may need to re-upload</div>'">
+      ${t.chartLink?`<div style="margin-top:10px;position:relative">
+        <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:200px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open(this.src,'_blank')" onerror="this.parentElement.innerHTML='<div style=\\'padding:8px;font-size:10px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">
+        <button onclick="quickChartUpload(${t.id})" style="position:absolute;top:6px;right:6px;background:#060a10cc;border:1px solid #1a2d42;color:#6a8fa8;font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace">REPLACE</button>
       </div>`:``}
     </div>`;
   }).join("");
