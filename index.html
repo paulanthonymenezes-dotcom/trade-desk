@@ -313,6 +313,11 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Strike Proximity % Alert</label><input id="s-strikeprox" type="number" placeholder="5"></div>
     </div>
     <button class="btn btn-g" style="width:100%;margin-bottom:16px" onclick="testTelegram()">TEST TELEGRAM</button>
+    <div class="st">Import IBKR Trades</div>
+    <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Upload an IBKR Activity Statement CSV to import new trades. Duplicates are automatically skipped.</div>
+    <input type="file" id="ibkr-file" accept=".csv" style="display:none" onchange="handleIBKRImport(this)">
+    <button class="btn btn-g" style="width:100%;margin-bottom:8px" onclick="document.getElementById('ibkr-file').click()">📂 IMPORT IBKR CSV</button>
+    <div id="ibkr-preview" style="display:none;margin-bottom:16px"></div>
     <div class="st">Sync Between Devices</div>
     <div style="font-size:11px;color:#6a8fa8;margin-bottom:10px">Export your data on one device, paste it into the other to sync trades, journal, and settings.</div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -2420,6 +2425,253 @@ function importData() {
   } catch(e) {
     alert("❌ Import failed: "+e.message+"\nMake sure you pasted the full exported text.");
   }
+}
+
+// ── IBKR CSV Import ─────────────────────────────────────────────────────────
+function parseCSVLine(line) {
+  const fields = []; let cur = ""; let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQuote = !inQuote; continue; }
+    if (c === ',' && !inQuote) { fields.push(cur.trim()); cur = ""; continue; }
+    cur += c;
+  }
+  fields.push(cur.trim());
+  return fields;
+}
+
+function parseIBKROptionSymbol(sym) {
+  // "CAT 20MAR26 710 P" → { ticker, expiry, strike, side }
+  const parts = sym.trim().split(/\s+/);
+  if (parts.length < 4) return null;
+  const ticker = parts[0];
+  const rawExp = parts[1]; // 20MAR26
+  const strike = parseFloat(parts[2]);
+  const side = parts[3]; // P or C
+  const months = {JAN:"01",FEB:"02",MAR:"03",APR:"04",MAY:"05",JUN:"06",JUL:"07",AUG:"08",SEP:"09",OCT:"10",NOV:"11",DEC:"12"};
+  const day = rawExp.slice(0,2);
+  const mon = months[rawExp.slice(2,5)];
+  const yr = "20" + rawExp.slice(5,7);
+  if (!mon) return null;
+  const expiry = yr + "-" + mon + "-" + day;
+  return { ticker, expiry, strike, side };
+}
+
+function parseIBKRTrades(csvText) {
+  const lines = csvText.split(/\r?\n/);
+  const optionTrades = [];
+  let inTrades = false;
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const fields = parseCSVLine(line);
+    if (fields[0] !== "Trades") { if (inTrades) break; continue; }
+    inTrades = true;
+    if (fields[1] !== "Data" || fields[2] !== "Order") continue;
+    if (fields[3] !== "Equity and Index Options") continue;
+
+    const sym = fields[5];
+    const parsed = parseIBKROptionSymbol(sym);
+    if (!parsed) continue;
+
+    const datetime = fields[6]; // "2026-02-18, 12:30:55"
+    const qty = parseInt(fields[7].replace(/,/g, ""));
+    const price = parseFloat(fields[8]);
+    const proceeds = parseFloat(fields[10]);
+    const commission = parseFloat(fields[11]);
+    const realizedPnl = parseFloat(fields[13]);
+    const code = fields[15] || "";
+
+    optionTrades.push({
+      ...parsed,
+      datetime, qty, price, proceeds, commission, realizedPnl, code,
+      dateOnly: datetime.split(",")[0].trim(),
+      isOpen: code.includes("O"),
+      isClose: code.includes("C") || code.includes("Ep"),
+    });
+  }
+  return optionTrades;
+}
+
+function pairIntoSpreads(optionTrades) {
+  // Group opening trades by ticker + expiry + datetime
+  const opens = optionTrades.filter(t => t.isOpen);
+  const closes = optionTrades.filter(t => t.isClose);
+
+  // Group opens by key: ticker|expiry|datetime
+  const groups = {};
+  for (const t of opens) {
+    const key = t.ticker + "|" + t.expiry + "|" + t.datetime;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  }
+
+  const spreads = [];
+
+  for (const [key, legs] of Object.entries(groups)) {
+    if (legs.length !== 2) continue; // Only pair 2-leg spreads
+    const shortLeg = legs.find(l => l.qty < 0);
+    const longLeg = legs.find(l => l.qty > 0);
+    if (!shortLeg || !longLeg) continue;
+    if (shortLeg.side !== longLeg.side) continue; // Must be same type
+    if (Math.abs(shortLeg.qty) !== Math.abs(longLeg.qty)) continue;
+
+    const contracts = Math.abs(shortLeg.qty);
+    const isPut = shortLeg.side === "P";
+    const shortStrike = shortLeg.strike;
+    const longStrike = longLeg.strike;
+    const premium = Math.round(Math.abs(shortLeg.price - longLeg.price) * contracts * 100);
+    const entryDate = shortLeg.dateOnly;
+
+    // Determine trade type
+    let tradeType;
+    if (isPut && shortStrike > longStrike) tradeType = "Bull Put Spread";
+    else if (isPut && shortStrike < longStrike) tradeType = "Bear Put Spread";
+    else if (!isPut && shortStrike < longStrike) tradeType = "Bull Call Spread";
+    else tradeType = "Bear Call Spread";
+
+    // Find matching close trades
+    const closeKey = shortLeg.ticker + "|" + shortLeg.expiry;
+    const matchingCloses = closes.filter(c =>
+      c.ticker === shortLeg.ticker && c.expiry === shortLeg.expiry &&
+      (c.strike === shortStrike || c.strike === longStrike)
+    );
+
+    let exitDate = null;
+    let status = "Open";
+    let realizedPnl = null;
+    let totalComm = Math.abs(shortLeg.commission) + Math.abs(longLeg.commission);
+
+    // Check if both legs are closed
+    const shortCloses = matchingCloses.filter(c => c.strike === shortStrike);
+    const longCloses = matchingCloses.filter(c => c.strike === longStrike);
+
+    if (shortCloses.length > 0 && longCloses.length > 0) {
+      status = "Closed";
+      const lastClose = shortCloses[shortCloses.length - 1];
+      exitDate = lastClose.dateOnly;
+      // Calculate realized PnL from close prices
+      const closeCost = Math.abs(shortCloses.reduce((s, c) => s + c.proceeds, 0) +
+                                  longCloses.reduce((s, c) => s + c.proceeds, 0));
+      const closeComm = shortCloses.reduce((s, c) => s + Math.abs(c.commission), 0) +
+                        longCloses.reduce((s, c) => s + Math.abs(c.commission), 0);
+      totalComm += closeComm;
+      realizedPnl = Math.round((premium - closeCost - totalComm) * 100) / 100;
+    }
+
+    // Calculate DTE at entry
+    const entryD = new Date(entryDate);
+    const expD = new Date(shortLeg.expiry);
+    const dte = Math.round((expD - entryD) / 86400000);
+
+    spreads.push({
+      ticker: shortLeg.ticker,
+      tradeType, status, entryDate,
+      expiry: shortLeg.expiry,
+      shortStrike, longStrike,
+      premiumCollected: premium,
+      contracts, realizedPnl, exitDate,
+      dteAtEntry: dte,
+      entryType: "", thesis: "", exitReason: "",
+      thesisAccuracy: "", lessonLearned: "",
+      chartLink: "", tpPrice: "", slPrice: "",
+      rolls: [], journal: []
+    });
+  }
+
+  return spreads.sort((a, b) => a.entryDate.localeCompare(b.entryDate));
+}
+
+function isDuplicateTrade(existing, newTrade) {
+  return existing.ticker === newTrade.ticker &&
+    existing.expiry === newTrade.expiry &&
+    existing.shortStrike === newTrade.shortStrike &&
+    existing.longStrike === newTrade.longStrike &&
+    existing.entryDate === newTrade.entryDate;
+}
+
+function handleIBKRImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const csv = e.target.result;
+      const optionTrades = parseIBKRTrades(csv);
+      if (!optionTrades.length) { alert("No option trades found in CSV."); return; }
+
+      const spreads = pairIntoSpreads(optionTrades);
+      if (!spreads.length) { alert("No spreads detected. Found " + optionTrades.length + " individual option legs but couldn't pair them."); return; }
+
+      // Dedup
+      const newSpreads = spreads.filter(s =>
+        !STATE.trades.some(t => isDuplicateTrade(t, s))
+      );
+
+      const dupes = spreads.length - newSpreads.length;
+      const openCount = newSpreads.filter(s => s.status === "Open").length;
+      const closedCount = newSpreads.filter(s => s.status === "Closed").length;
+
+      // Show preview
+      const preview = document.getElementById("ibkr-preview");
+      preview.style.display = "block";
+      preview.innerHTML = `
+        <div class="card" style="padding:12px;margin-bottom:8px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a8c4d8;margin-bottom:8px">
+            Found <span style="color:#00e5aa;font-weight:600">${spreads.length}</span> spreads from ${optionTrades.length} option legs
+          </div>
+          <div style="font-size:11px;color:#6a8fa8;margin-bottom:4px">
+            ${openCount} open · ${closedCount} closed${dupes ? " · " + dupes + " duplicates skipped" : ""}
+          </div>
+          ${newSpreads.length === 0 ? '<div style="color:#f59e0b;font-size:11px">All trades already exist — nothing new to import.</div>' :
+          '<div style="max-height:200px;overflow-y:auto;margin-top:8px">' +
+            newSpreads.map(s => `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;padding:4px 0;border-bottom:1px solid #142030;color:${s.status==='Open'?'#00e5aa':'#6a8fa8'}">` +
+              `${s.ticker} ${s.longStrike}/${s.shortStrike} ${s.expiry} · ${s.contracts}x · $${s.premiumCollected} · ${s.status}` +
+            `</div>`).join("") +
+          '</div>' +
+          `<div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-p" style="flex:1" onclick="confirmIBKRImport()">IMPORT ${newSpreads.length} TRADES</button>
+            <button class="btn btn-g" style="flex:1" onclick="document.getElementById('ibkr-preview').style.display='none'">CANCEL</button>
+          </div>`}
+        </div>`;
+
+      // Stash for confirm
+      window._ibkrPending = newSpreads;
+    } catch(err) {
+      alert("Import error: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+  input.value = "";
+}
+
+function confirmIBKRImport() {
+  const newSpreads = window._ibkrPending;
+  if (!newSpreads || !newSpreads.length) return;
+
+  // Check for closed trades that update existing open ones
+  for (const ns of newSpreads) {
+    const existing = STATE.trades.find(t =>
+      t.ticker === ns.ticker && t.expiry === ns.expiry &&
+      t.shortStrike === ns.shortStrike && t.longStrike === ns.longStrike &&
+      t.status === "Open" && ns.status === "Closed"
+    );
+    if (existing) {
+      existing.status = "Closed";
+      existing.exitDate = ns.exitDate;
+      existing.realizedPnl = ns.realizedPnl;
+      continue;
+    }
+    ns.id = STATE.nextId++;
+    STATE.trades.push(ns);
+  }
+
+  save();
+  document.getElementById("ibkr-preview").style.display = "none";
+  window._ibkrPending = null;
+  closeSettings();
+  renderAll();
+  alert("✅ Imported " + newSpreads.length + " trades!");
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
