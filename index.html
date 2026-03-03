@@ -2572,6 +2572,114 @@ function parseFlexXMLTrades(xmlText) {
   return optionTrades;
 }
 
+function parseFlexCSVTrades(csvText) {
+  const lines = csvText.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) throw new Error("CSV has no data rows.");
+
+  dbg("Flex CSV: " + lines.length + " lines", "info");
+  dbg("Flex CSV header: " + lines[0].substring(0, 300), "info");
+
+  // Parse header to get column indices
+  const header = parseCSVLine(lines[0]);
+  const col = (names) => {
+    for (const name of names) {
+      const idx = header.findIndex(h => h.toLowerCase().replace(/[\s_\/]/g, "") === name.toLowerCase().replace(/[\s_\/]/g, ""));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+
+  const iCat = col(["AssetCategory", "AssetClass", "SecurityType", "SecType"]);
+  const iSymbol = col(["Symbol", "Description"]);
+  const iUnderlying = col(["UnderlyingSymbol", "Underlying", "UnderlyingTicker"]);
+  const iExpiry = col(["Expiry", "Expiration", "ExpirationDate", "LastTradeDateOrContractMonth"]);
+  const iStrike = col(["Strike", "StrikePrice"]);
+  const iPutCall = col(["Put/Call", "PutCall", "Right", "Put_Call"]);
+  const iQty = col(["Quantity", "TradeQuantity", "FilledQuantity"]);
+  const iPrice = col(["TradePrice", "Price", "T.Price", "AvgPrice", "FillPrice"]);
+  const iProceeds = col(["Proceeds", "NetCash"]);
+  const iComm = col(["IBCommission", "Commission", "Comm/Fee", "CommissionAndFees"]);
+  const iPnl = col(["FifoPnlRealized", "RealizedPnL", "RealizedP/L", "Realized P/L"]);
+  const iCode = col(["Open/CloseIndicator", "OpenClose", "OpenCloseIndicator", "Code"]);
+  const iDate = col(["DateTime", "Date/Time", "TradeDate", "Date"]);
+  const iTime = col(["TradeTime", "Time"]);
+
+  dbg("Flex CSV columns found — cat:" + iCat + " sym:" + iSymbol + " und:" + iUnderlying +
+    " exp:" + iExpiry + " strike:" + iStrike + " pc:" + iPutCall +
+    " qty:" + iQty + " price:" + iPrice + " code:" + iCode + " date:" + iDate, "info");
+
+  // If we can't find key columns, this might be an Activity Statement format
+  if (iStrike < 0 && iExpiry < 0) {
+    dbg("No strike/expiry columns — checking if Activity Statement format", "warn");
+    // Check if this is the multi-section Activity Statement format
+    if (csvText.includes("Trades,Header,") || csvText.includes("Trades,Data,")) {
+      dbg("Detected Activity Statement format — using existing parser", "info");
+      return parseIBKRTrades(csvText);
+    }
+    throw new Error("CSV columns not recognized. Header: " + lines[0].substring(0, 300));
+  }
+
+  const optionTrades = [];
+  for (let i = 1; i < lines.length; i++) {
+    const fields = parseCSVLine(lines[i]);
+    if (fields.length < 5) continue;
+
+    // Filter for options only
+    const cat = iCat >= 0 ? fields[iCat] : "";
+    if (cat && !cat.includes("OPT") && !cat.includes("Option") && cat !== "FOP") {
+      // If no category column, try to detect by presence of strike
+      if (iCat >= 0) continue;
+    }
+
+    const symbol = iSymbol >= 0 ? fields[iSymbol] : "";
+    const ticker = (iUnderlying >= 0 ? fields[iUnderlying] : "") || symbol.split(/\s/)[0];
+    const rawExpiry = iExpiry >= 0 ? fields[iExpiry] : "";
+    const strike = iStrike >= 0 ? parseFloat(fields[iStrike]) : NaN;
+    const side = iPutCall >= 0 ? fields[iPutCall] : "";
+    const qty = iQty >= 0 ? parseInt((fields[iQty] || "0").replace(/,/g, "")) : 0;
+    const price = iPrice >= 0 ? parseFloat(fields[iPrice] || "0") : 0;
+    const proceeds = iProceeds >= 0 ? parseFloat(fields[iProceeds] || "0") : 0;
+    const commission = iComm >= 0 ? parseFloat(fields[iComm] || "0") : 0;
+    const realizedPnl = iPnl >= 0 ? parseFloat(fields[iPnl] || "0") : 0;
+
+    // Open/close indicator
+    let code = iCode >= 0 ? fields[iCode] : "";
+    // IBKR Code column may contain "O;P" style — extract O or C
+    if (code.includes("O")) code = "O";
+    else if (code.includes("C") || code.includes("Ep")) code = "C";
+
+    // DateTime
+    let rawDt = iDate >= 0 ? fields[iDate] : "";
+    if (iTime >= 0 && fields[iTime]) rawDt += ", " + fields[iTime];
+
+    // Normalize expiry
+    let expiryFmt = rawExpiry;
+    if (rawExpiry && !rawExpiry.includes("-") && rawExpiry.length === 8) {
+      expiryFmt = rawExpiry.slice(0,4) + "-" + rawExpiry.slice(4,6) + "-" + rawExpiry.slice(6,8);
+    } else if (rawExpiry && rawExpiry.match(/^\d{2}[A-Z]{3}\d{2}$/)) {
+      // DDMMMYY format like Activity Statement
+      const parsed = parseIBKROptionSymbol(ticker + " " + rawExpiry + " " + strike + " " + side);
+      if (parsed) expiryFmt = parsed.expiry;
+    }
+
+    const dateOnly = rawDt.split(/[;T,]/)[0].trim().replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+
+    if (!ticker || !expiryFmt || isNaN(strike) || isNaN(qty) || qty === 0) continue;
+    if (!side) continue; // Skip non-option rows
+
+    optionTrades.push({
+      ticker, expiry: expiryFmt, strike, side: side.charAt(0).toUpperCase(),
+      datetime: rawDt, qty, price, proceeds, commission, realizedPnl, code,
+      dateOnly,
+      isOpen: code === "O",
+      isClose: code === "C",
+    });
+  }
+
+  dbg("Flex CSV: parsed " + optionTrades.length + " option trades", optionTrades.length ? "success" : "warn");
+  return optionTrades;
+}
+
 async function syncIBKR() {
   const token = STATE.ibkrToken || document.getElementById("s-ibkr-token").value.trim();
   const queryId = STATE.ibkrQueryId || document.getElementById("s-ibkr-query").value.trim();
@@ -2605,10 +2713,10 @@ async function syncIBKR() {
       const fetchUrl = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=" + refCode + "&t=" + token + "&v=3";
       const fetchResp = await ibkrProxy(fetchUrl);
 
-      // Check if still generating
+      // Check if still generating (IBKR returns XML status while processing)
       if (fetchResp.includes("Statement generation in progress")) { dbg("IBKR: still generating...", "info"); continue; }
-      if (fetchResp.includes("Warn") && !fetchResp.includes("FlexQueryResponse") && !fetchResp.includes("<Trade")) {
-        dbg("IBKR: warning response, retrying...", "warn");
+      if (fetchResp.includes("<Status>Warn</Status>") && fetchResp.includes("Please try again")) {
+        dbg("IBKR: not ready, retrying...", "warn");
         continue;
       }
 
@@ -2619,9 +2727,17 @@ async function syncIBKR() {
 
     if (!data) throw new Error("IBKR took too long to generate the report. Try again in a minute.");
 
-    // Step 3: Parse the XML
-    const optionTrades = parseFlexXMLTrades(data);
-    if (!optionTrades.length) throw new Error("No option trades found in the Flex Query response.");
+    // Step 3: Parse response (auto-detect XML vs CSV)
+    let optionTrades;
+    const trimmed = data.trim();
+    if (trimmed.startsWith("<?xml") || trimmed.startsWith("<")) {
+      dbg("Detected XML response", "info");
+      optionTrades = parseFlexXMLTrades(data);
+    } else {
+      dbg("Detected CSV response", "info");
+      optionTrades = parseFlexCSVTrades(data);
+    }
+    if (!optionTrades.length) throw new Error("No option trades found in the Flex Query response. Enable debug mode for details.");
 
     // Step 4: Pair into spreads (reuse existing logic)
     const spreads = pairIntoSpreads(optionTrades);
