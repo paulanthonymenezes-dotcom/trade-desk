@@ -466,19 +466,35 @@ async function load() {
 }
 
 // ── Market Data API ───────────────────────────────────────────────────────────
-async function mdaFetch(path) {
+async function mdaFetch(path, retries=2) {
   const url = MDA_BASE + path + (path.includes("?") ? "&" : "?") + "token=" + MDA_TOKEN + "&format=json";
-  const r = await fetch(url);
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  return r.json();
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url);
+      if (r.status === 429) {
+        const wait = Math.min(2000 * Math.pow(2, attempt), 8000);
+        dbg("Rate limited, waiting " + wait + "ms (attempt " + (attempt+1) + ")", "warn");
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue;
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    } catch(e) {
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 async function fetchQuote(ticker) {
   try {
     const d = await mdaFetch("/stocks/quotes/" + ticker + "/?feed=live");
-    if (d.s !== "ok") return null;
+    if (d.s !== "ok") { dbg("Quote " + ticker + ": " + (d.errmsg||d.s), "warn"); return null; }
     return { price: d.last[0], change: d.change[0], changePct: d.changepct[0] * 100, volume: d.volume[0], ts: new Date().toLocaleTimeString() };
-  } catch { return null; }
+  } catch(e) { dbg("Quote " + ticker + " error: " + e.message, "error"); return null; }
 }
 
 async function fetchCandles(ticker, from, to) {
@@ -661,38 +677,44 @@ async function refreshAll() {
 
   dbg("Fetching: " + tickers.join(", "));
 
-  const results = await Promise.allSettled(tickers.map(async t => {
-    const q = await fetchQuote(t);
-    dbg(q ? "✓ "+t+" = $"+q.price.toFixed(2) : "✗ "+t+" failed", q?"success":"error");
-    return {t, q};
-  }));
-  results.forEach(r => {
-    if (r.status==="fulfilled" && r.value.q) {
-      const existing = STATE.quotes[r.value.t];
-      // Only update if price changed or no existing quote
-      if (!existing || r.value.q.price !== existing.price) {
-        STATE.quotes[r.value.t] = r.value.q;
-      } else {
-        // Keep existing but update timestamp
-        STATE.quotes[r.value.t] = {...existing, ts: r.value.q.ts};
+  // Fetch quotes in small batches to avoid rate limits
+  const BATCH_SIZE = 4;
+  for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+    const batch = tickers.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(batch.map(async t => {
+      const q = await fetchQuote(t);
+      dbg(q ? "✓ "+t+" = $"+q.price.toFixed(2) : "✗ "+t+" failed", q?"success":"error");
+      return {t, q};
+    }));
+    results.forEach(r => {
+      if (r.status==="fulfilled" && r.value.q) {
+        const existing = STATE.quotes[r.value.t];
+        if (!existing || r.value.q.price !== existing.price) {
+          STATE.quotes[r.value.t] = r.value.q;
+        } else {
+          STATE.quotes[r.value.t] = {...existing, ts: r.value.q.ts};
+        }
       }
-    }
-  });
+    });
+    if (i + BATCH_SIZE < tickers.length) await new Promise(r => setTimeout(r, 500));
+  }
 
   checkAlerts();
   trackDailyPrices();
   renderAll();
   btn.textContent = "↻"; btn.disabled = false;
 
-  // Background: candles (skip if already cached)
-  if (Object.keys(STATE.candles).length === 0) {
-    for (const ticker of tickers) {
+  // Background: candles (fetch any missing tickers)
+  const needCandles = tickers.filter(t => !STATE.candles[t]);
+  if (needCandles.length > 0) {
+    dbg("Fetching candles for: " + needCandles.join(", "));
+    for (const ticker of needCandles) {
       try {
         const [c, e] = await Promise.all([fetchCandles(ticker, yearAgo, today), fetchEarnings(ticker)]);
         if (c) STATE.candles[ticker] = c;
         if (e) STATE.earnings[ticker] = e;
         renderWatchlist(); renderPositions();
-      } catch {}
+      } catch(e) { dbg("Candles " + ticker + " failed: " + e.message, "error"); }
       await new Promise(r => setTimeout(r, 400));
     }
   }
@@ -1100,7 +1122,9 @@ function renderPositions() {
         <button class="btn btn-g" style="flex:1;padding:7px;color:#6a8fa8;border-color:#1a2d42" onclick="openDiary(${t.id})">DIARY</button>
         <button class="btn btn-g" style="padding:7px 10px;color:#6a8fa8;border-color:#1a2d42" onclick="openTradeModal(${t.id})">✎</button>
       </div>
-      ${t.chartLink?`<img src="${t.chartLink}" style="width:100%;margin-top:10px;border-radius:4px;border:1px solid #1a2d42;max-height:200px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open('${t.chartLink}','_blank')" onerror="this.style.display='none'">`:``}
+      ${t.chartLink?`<div style="margin-top:10px">
+        <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:200px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open('${t.chartLink}','_blank')" onerror="this.parentElement.innerHTML='<div style=\\'padding:8px;font-size:10px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load — may need to re-upload</div>'">
+      </div>`:``}
     </div>`;
   }).join("");
 }
@@ -1219,8 +1243,11 @@ function renderDiary() {
       </div>`).join("")}
     </div>`:""}
 
-    <!-- Chart link -->
-    ${t.chartLink?`<div style="margin-bottom:10px"><a href="${t.chartLink}" target="_blank" class="btn btn-g" style="display:inline-block;padding:7px 14px;font-size:10px;text-decoration:none">📊 VIEW CHART</a></div>`:""}
+    <!-- Entry Chart -->
+    ${t.chartLink?`<div class="card" style="margin-bottom:10px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a8fa8;letter-spacing:.1em;margin-bottom:10px">ENTRY CHART</div>
+      <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid #1a2d42;max-height:300px;object-fit:contain;background:#060a10;cursor:pointer" onclick="window.open('${t.chartLink}','_blank')" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:#f59e0b;border:1px dashed #f59e0b33;border-radius:4px;text-align:center\\'>Chart image failed to load — may need to re-upload</div>'">
+    </div>`:""}
 
     <!-- Journal -->
     <div class="card" style="margin-bottom:10px">
@@ -1500,8 +1527,8 @@ function renderForecast() {
   function fmt(n) { return n>=1e6?(n/1e6).toFixed(2)+"M":n.toLocaleString(undefined,{maximumFractionDigits:0}); }
 
   // Trend indicator
-  const trend = p30.rate > p90.rate && p90.rate > p365.rate ? { text:"▲ Improving", color:"#00e5aa" }
-              : p30.rate < p90.rate && p90.rate < p365.rate ? { text:"▼ Declining", color:"#f43f5e" }
+  const trend = p30.rate > p90.rate && p90.rate > pAll.rate ? { text:"▲ Improving", color:"#00e5aa" }
+              : p30.rate < p90.rate && p90.rate < pAll.rate ? { text:"▼ Declining", color:"#f43f5e" }
               : { text:"◆ Mixed", color:"#f59e0b" };
 
   document.getElementById("forecast-content").innerHTML = `
