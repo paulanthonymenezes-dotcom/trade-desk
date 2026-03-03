@@ -830,37 +830,53 @@ async function refreshAll() {
     }
   }
 
-  // Background: auto-fetch spread values for open trades
+  // Spread values + IV: once daily at market close (4 PM ET) to save API credits
   const todayStr = new Date().toISOString().slice(0,10);
-  for (const trade of openTrades) {
-    try {
-      const sv = await fetchSpreadValue(trade);
-      if (sv) {
-        if (!STATE.spreadHistory) STATE.spreadHistory = {};
-        if (!STATE.spreadHistory[trade.id]) STATE.spreadHistory[trade.id] = {};
-        const existing = STATE.spreadHistory[trade.id][todayStr] || {};
-        // Auto-update: keep the worst high and best low seen today
-        STATE.spreadHistory[trade.id][todayStr] = {
-          high: Math.max(sv.high, existing.high || 0),
-          low: existing.low ? Math.min(sv.low, existing.low) : sv.low,
-          mid: sv.mid,
-          delta: sv.shortDelta,
-          auto: true
-        };
-        save(); renderPositions();
-      }
-    } catch {}
-    await new Promise(r => setTimeout(r, 500));
+  const nowET = new Date(new Date().toLocaleString("en-US", {timeZone: "America/New_York"}));
+  const hourET = nowET.getHours();
+  const minET = nowET.getMinutes();
+  const isAfterClose = hourET > 16 || (hourET === 16 && minET >= 1);
+  const spreadDoneToday = openTrades.length > 0 && openTrades.every(t => STATE.spreadHistory?.[t.id]?.[todayStr]?.auto);
+  const ivDoneToday = STATE.watchlist.every(t => STATE.ivHistory?.[t]?.[todayStr]);
+
+  if (isAfterClose && !spreadDoneToday) {
+    dbg("Market closed — fetching daily spread snapshots for MAE/MFE...");
+    for (const trade of openTrades) {
+      if (STATE.spreadHistory?.[trade.id]?.[todayStr]?.auto) continue;
+      try {
+        const sv = await fetchSpreadValue(trade);
+        if (sv) {
+          if (!STATE.spreadHistory) STATE.spreadHistory = {};
+          if (!STATE.spreadHistory[trade.id]) STATE.spreadHistory[trade.id] = {};
+          const existing = STATE.spreadHistory[trade.id][todayStr] || {};
+          STATE.spreadHistory[trade.id][todayStr] = {
+            high: Math.max(sv.high, existing.high || 0),
+            low: existing.low ? Math.min(sv.low, existing.low) : sv.low,
+            mid: sv.mid,
+            delta: sv.shortDelta,
+            auto: true
+          };
+          save(); renderPositions();
+          dbg("✓ Spread snapshot " + trade.ticker + " " + trade.longStrike + "/" + trade.shortStrike + " = $" + sv.mid.toFixed(2), "success");
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+  } else if (!isAfterClose) {
+    dbg("Spread fetch skipped — runs once daily after 4 PM ET (currently " + hourET + ":" + String(minET).padStart(2,"0") + " ET)");
   }
 
-  // Background: fetch real IV for watchlist tickers (once per day per ticker)
-  for (const ticker of STATE.watchlist) {
-    if (STATE.ivHistory?.[ticker]?.[todayStr]) continue;
-    try {
-      await fetchAndStoreIV(ticker);
-      renderWatchlist();
-    } catch {}
-    await new Promise(r => setTimeout(r, 500));
+  // IV: also once daily after close
+  if (isAfterClose && !ivDoneToday) {
+    dbg("Fetching daily IV snapshots...");
+    for (const ticker of STATE.watchlist) {
+      if (STATE.ivHistory?.[ticker]?.[todayStr]) continue;
+      try {
+        await fetchAndStoreIV(ticker);
+        renderWatchlist();
+      } catch {}
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
 }
 
