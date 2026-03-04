@@ -1423,37 +1423,56 @@ function renderSnapshot() {
     const changeFmt = q ? `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(1)}%` : "";
 
     // Health bar: where is price between SL and TP?
-    // SL hit = price <= slPrice (bad), TP hit = price >= tpPrice (good)
+    // SL breached = FULL RED, TP hit = FULL GREEN, between = proportional
     let healthPct = 50, healthColor = "#2d4a60", healthTitle = "no quote";
+    let breached = false, tpHit = false;
     if (q) {
       const sl = t.slPrice ? parseFloat(t.slPrice) : null;
       const tp = t.tpPrice ? parseFloat(t.tpPrice) : null;
-      if (sl && tp && tp !== sl) {
-        // Both set: 0% = at/below SL, 100% = at/above TP
-        healthPct = Math.max(0, Math.min(100, ((q.price - sl) / (tp - sl)) * 100));
-        healthTitle = q.price <= sl ? "SL BREACHED" : q.price >= tp ? "TP HIT" : `${healthPct.toFixed(0)}% SL→TP`;
+      breached = sl && q.price <= sl;
+      tpHit = tp && q.price >= tp;
+
+      if (breached) {
+        // SL BREACHED — full red bar
+        healthPct = 100;
+        healthColor = "#f43f5e";
+        healthTitle = `SL BREACHED ($${q.price.toFixed(0)} < $${sl})`;
+      } else if (tpHit) {
+        // TP HIT — full green bar
+        healthPct = 100;
+        healthColor = "#00e5aa";
+        healthTitle = `TP HIT ($${q.price.toFixed(0)} ≥ $${tp})`;
+      } else if (sl && tp && tp !== sl) {
+        // Both set: proportional between SL and TP
+        healthPct = Math.max(5, Math.min(95, ((q.price - sl) / (tp - sl)) * 100));
+        healthColor = healthPct <= 20 ? "#f43f5e" : healthPct <= 40 ? "#f59e0b" : "#00e5aa";
+        healthTitle = `${healthPct.toFixed(0)}% SL→TP`;
       } else if (sl) {
-        // Only SL: show distance above SL (0% = at SL, 100% = 10%+ above)
+        // Only SL: distance above SL
         const dist = ((q.price - sl) / sl) * 100;
-        healthPct = Math.max(0, Math.min(100, dist * 10));
-        healthTitle = q.price <= sl ? "SL BREACHED" : `${dist.toFixed(1)}% above SL`;
+        healthPct = Math.max(5, Math.min(95, dist * 10));
+        healthColor = dist < 2 ? "#f43f5e" : dist < 5 ? "#f59e0b" : "#00e5aa";
+        healthTitle = `${dist.toFixed(1)}% above SL`;
       } else if (tp) {
-        // Only TP: show how close to TP (100% = at TP)
-        const prox = ((q.price - t.shortStrike) / (tp - t.shortStrike)) * 100;
-        healthPct = Math.max(0, Math.min(100, prox));
-        healthTitle = q.price >= tp ? "TP HIT" : `${(100 - prox).toFixed(0)}% to TP`;
+        // Only TP: progress toward TP
+        const range = tp - t.shortStrike;
+        const prox = range > 0 ? ((q.price - t.shortStrike) / range) * 100 : 50;
+        healthPct = Math.max(5, Math.min(95, prox));
+        healthColor = prox <= 20 ? "#f43f5e" : prox <= 40 ? "#f59e0b" : "#00e5aa";
+        healthTitle = `${(100 - prox).toFixed(0)}% to TP`;
       } else {
-        // Neither: fall back to proximity to short strike
+        // Neither: proximity to short strike
         const prox = ((q.price - t.shortStrike) / q.price) * 100;
-        healthPct = Math.max(0, Math.min(100, prox / 10 * 100));
-        healthTitle = `${prox.toFixed(1)}% from strike`;
+        healthPct = prox <= 0 ? 100 : Math.max(5, Math.min(95, prox / 10 * 100));
+        healthColor = prox <= 2 ? "#f43f5e" : prox <= 5 ? "#f59e0b" : "#00e5aa";
+        if (prox <= 0) { breached = true; healthColor = "#f43f5e"; }
+        healthTitle = prox <= 0 ? "BELOW SHORT STRIKE" : `${prox.toFixed(1)}% from strike`;
       }
-      healthColor = healthPct <= 15 ? "#f43f5e" : healthPct <= 35 ? "#f59e0b" : "#00e5aa";
     }
 
     // Border glow for danger
-    const borderColor = (q && healthPct <= 15) ? "#f43f5e44" : "#142030";
-    const hoverBorder = (q && healthPct <= 15) ? "#f43f5e66" : "#1a2d42";
+    const borderColor = breached ? "#f43f5e44" : "#142030";
+    const hoverBorder = breached ? "#f43f5e66" : "#1a2d42";
 
     return `<div onclick="scrollToTrade(${t.id})" style="display:grid;grid-template-columns:1fr auto;gap:6px;padding:10px 12px;background:#0b1622;border:1px solid ${borderColor};border-radius:6px;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='${hoverBorder}'" onmouseout="this.style.borderColor='${borderColor}'">
       <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
