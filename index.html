@@ -1417,15 +1417,45 @@ function renderSnapshot() {
   const rows = open.map(t => {
     const q = STATE.quotes[t.ticker];
     const dl = daysLeft(t.expiry);
-    const prox = q ? ((q.price - t.shortStrike) / q.price * 100) : null;
-    const proxColor = prox === null ? "#2d4a60" : prox < 2 ? "#f43f5e" : prox < 5 ? "#f59e0b" : "#00e5aa";
-    const proxWidth = prox === null ? 0 : Math.max(0, Math.min(prox / 10 * 100, 100));
     const sector = getSector(t.ticker);
     const priceFmt = q ? `$${q.price.toFixed(2)}` : "—";
     const priceColor = q ? (q.changePct >= 0 ? "#00e5aa" : "#f43f5e") : "#6a8fa8";
     const changeFmt = q ? `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(1)}%` : "";
 
-    return `<div onclick="scrollToTrade(${t.id})" style="display:grid;grid-template-columns:1fr auto;gap:6px;padding:10px 12px;background:#0b1622;border:1px solid #142030;border-radius:6px;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='#1a2d42'" onmouseout="this.style.borderColor='#142030'">
+    // Health bar: where is price between SL and TP?
+    // SL hit = price <= slPrice (bad), TP hit = price >= tpPrice (good)
+    let healthPct = 50, healthColor = "#2d4a60", healthTitle = "no quote";
+    if (q) {
+      const sl = t.slPrice ? parseFloat(t.slPrice) : null;
+      const tp = t.tpPrice ? parseFloat(t.tpPrice) : null;
+      if (sl && tp && tp !== sl) {
+        // Both set: 0% = at/below SL, 100% = at/above TP
+        healthPct = Math.max(0, Math.min(100, ((q.price - sl) / (tp - sl)) * 100));
+        healthTitle = q.price <= sl ? "SL BREACHED" : q.price >= tp ? "TP HIT" : `${healthPct.toFixed(0)}% SL→TP`;
+      } else if (sl) {
+        // Only SL: show distance above SL (0% = at SL, 100% = 10%+ above)
+        const dist = ((q.price - sl) / sl) * 100;
+        healthPct = Math.max(0, Math.min(100, dist * 10));
+        healthTitle = q.price <= sl ? "SL BREACHED" : `${dist.toFixed(1)}% above SL`;
+      } else if (tp) {
+        // Only TP: show how close to TP (100% = at TP)
+        const prox = ((q.price - t.shortStrike) / (tp - t.shortStrike)) * 100;
+        healthPct = Math.max(0, Math.min(100, prox));
+        healthTitle = q.price >= tp ? "TP HIT" : `${(100 - prox).toFixed(0)}% to TP`;
+      } else {
+        // Neither: fall back to proximity to short strike
+        const prox = ((q.price - t.shortStrike) / q.price) * 100;
+        healthPct = Math.max(0, Math.min(100, prox / 10 * 100));
+        healthTitle = `${prox.toFixed(1)}% from strike`;
+      }
+      healthColor = healthPct <= 15 ? "#f43f5e" : healthPct <= 35 ? "#f59e0b" : "#00e5aa";
+    }
+
+    // Border glow for danger
+    const borderColor = (q && healthPct <= 15) ? "#f43f5e44" : "#142030";
+    const hoverBorder = (q && healthPct <= 15) ? "#f43f5e66" : "#1a2d42";
+
+    return `<div onclick="scrollToTrade(${t.id})" style="display:grid;grid-template-columns:1fr auto;gap:6px;padding:10px 12px;background:#0b1622;border:1px solid ${borderColor};border-radius:6px;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='${hoverBorder}'" onmouseout="this.style.borderColor='${borderColor}'">
       <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
         <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
           <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:#a8c4d8">${t.ticker}</span>
@@ -1448,8 +1478,8 @@ function renderSnapshot() {
         </div>
       </div>
       <div style="display:flex;align-items:center;width:50px">
-        <div style="width:100%;height:4px;background:#142030;border-radius:2px;overflow:hidden" title="${prox !== null ? prox.toFixed(1) + '% from strike' : 'no quote'}">
-          <div style="width:${proxWidth}%;height:100%;background:${proxColor};border-radius:2px"></div>
+        <div style="width:100%;height:4px;background:#142030;border-radius:2px;overflow:hidden" title="${healthTitle}">
+          <div style="width:${healthPct}%;height:100%;background:${healthColor};border-radius:2px"></div>
         </div>
       </div>
     </div>`;
