@@ -1714,7 +1714,7 @@ function renderPositions() {
         // Auto-tracked MAE/MFE
         const mae = t._autoMAE || null;
         const mfe = t._autoMFE || null;
-        const hasMaeMfe = mae?.pnl !== null || mfe?.pnl !== null;
+        const hasMaeMfe = mae?.pnl != null || mfe?.pnl != null;
 
         return `${hasMaeMfe || livePnl !== null ? `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:4px;padding:12px;margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1728,7 +1728,7 @@ function renderPositions() {
               <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${livePnlColor};font-weight:600">${livePnl!==null?(livePnl>=0?"+$":"-$")+Math.abs(livePnl).toFixed(0):"—"}</div>
               ${livePnl!==null&&maxLoss>0?`<div style="font-size:9px;color:${C.textTri};margin-top:2px">${livePnl<0?(Math.abs(livePnl)/maxLoss*100).toFixed(0)+"% of max loss":"safe"}</div>`:""}
             </div>
-            ${mae?.pnl!==null?`<div style="background:${C.bgCard};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
+            ${mae?.pnl!=null?`<div style="background:${C.bgCard};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${C.neg};letter-spacing:.06em;margin-bottom:3px">MAE — WORST</div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${C.neg};font-weight:600">${mae.pnl>=0?"+$":"-$"}${Math.abs(mae.pnl).toFixed(0)}</div>
               <div style="font-size:9px;color:${C.textTri};margin-top:2px">$${mae.price?.toFixed(0)||"?"} · ${mae.date?.slice(5)||""}</div>
@@ -1736,7 +1736,7 @@ function renderPositions() {
               <div style="font-size:9px;color:${C.textSec};letter-spacing:.06em;margin-bottom:3px">MAE — WORST</div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${C.textMut};font-weight:600">—</div>
             </div>`}
-            ${mfe?.pnl!==null?`<div style="background:${C.bgCard};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
+            ${mfe?.pnl!=null?`<div style="background:${C.bgCard};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${mfe.pnl>=0?C.pos:C.warn};letter-spacing:.06em;margin-bottom:3px">MFE — BEST</div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${mfe.pnl>=0?C.pos:C.warn};font-weight:600">${mfe.pnl>=0?"+$":"-$"}${Math.abs(mfe.pnl).toFixed(0)}</div>
               <div style="font-size:9px;color:${C.textTri};margin-top:2px">$${mfe.price?.toFixed(0)||"?"} · ${mfe.date?.slice(5)||""}</div>
