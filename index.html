@@ -1424,7 +1424,8 @@ async function refreshSpreadQuotes() {
           high: sv.high,
           low: sv.low,
           delta: sv.shortDelta,
-          ts: sv.ts
+          ts: sv.ts,
+          _fetchedAt: Date.now()
         };
         dbg("✓ " + trade.ticker + " spread $" + sv.mid.toFixed(2) + " (bid/ask: $" + sv.low.toFixed(2) + "/$" + sv.high.toFixed(2) + ")", "success");
       }
@@ -1435,33 +1436,44 @@ async function refreshSpreadQuotes() {
   }
 }
 
+// Intrinsic value approximation (always available from real-time stock price)
+function intrinsicSpreadValue(trade, stockPrice) {
+  if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const type = (trade.tradeType || "").toLowerCase();
+  if (type.includes("bear call") || type.includes("short call") || type.includes("covered call")) {
+    return Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
+  }
+  return Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
+}
+
 // Calculate unrealized P&L using real spread price (or intrinsic fallback)
 function liveUnrealizedPnl(trade, stockPrice) {
   const premium = trade.premiumCollected || 0;
   const contracts = trade.contracts || 1;
 
-  // Prefer real spread price from MarketData.app
-  if (trade._liveSpread?.mid != null) {
-    const costToClose = trade._liveSpread.mid * 100 * contracts;
-    return premium - costToClose;
+  // Prefer real spread price from MarketData.app (if fresh — under 30 min old)
+  if (trade._liveSpread?.mid != null && trade._liveSpread?._fetchedAt) {
+    const age = Date.now() - trade._liveSpread._fetchedAt;
+    if (age < 30 * 60 * 1000) { // only use if under 30 min old
+      const costToClose = trade._liveSpread.mid * 100 * contracts;
+      return premium - costToClose;
+    }
   }
 
-  // Fallback: intrinsic value approximation
-  if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
-  const width = Math.abs(trade.shortStrike - trade.longStrike);
-  const type = (trade.tradeType || "").toLowerCase();
-  let itm;
-  if (type.includes("bear call") || type.includes("short call") || type.includes("covered call")) {
-    itm = Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
-  } else {
-    itm = Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
-  }
+  // Fallback: intrinsic value from real-time stock price
+  const itm = intrinsicSpreadValue(trade, stockPrice);
+  if (itm === null) return null;
   return premium - (itm * 100 * contracts);
 }
 
 // Is the P&L based on real option prices or fallback?
 function pnlSource(trade) {
-  return trade._liveSpread?.mid != null ? "live" : "approx";
+  if (trade._liveSpread?.mid != null && trade._liveSpread?._fetchedAt) {
+    const age = Date.now() - trade._liveSpread._fetchedAt;
+    if (age < 30 * 60 * 1000) return "live";
+  }
+  return "approx";
 }
 
 // Auto-track MAE/MFE on every quote refresh
