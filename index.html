@@ -925,6 +925,9 @@ async function refreshAll() {
     }
   }
 
+  // Fetch real option spread prices (every 5 min during market hours)
+  await refreshSpreadQuotes();
+
   // Auto-track MAE/MFE for open trades — persist when new extremes hit
   let _maeMfeChanged = false;
   STATE.trades.filter(t => t.status === "Open").forEach(t => {
@@ -1394,34 +1397,71 @@ function calcPriceMFE(trade) {
 function mfePriceColor(m) { if (m===null) return C.textSec; return m>5?C.pos:m>2?C.warn:C.textSec; }
 function mfePriceLabel(m) { if (m===null) return "—"; return m<=0?"—":"+"+m.toFixed(1)+"%"; }
 
-// ── Spread MAE/MFE Tracking (from OptionStrat) ──────────────────────────────
-// ── Live P&L from stock price (no manual logging needed) ────────────────────
-// Approximates spread value from intrinsic value. Ignores extrinsic (time/IV)
-// but gets more accurate as DTE decreases. Always current.
-function approxSpreadValue(trade, stockPrice) {
+// ── Spread P&L — real option prices via MarketData.app ───────────────────────
+// Uses live bid/ask/mid from fetchSpreadValue(). Falls back to intrinsic value
+// when market is closed or API unavailable. Tracks MAE/MFE from real prices.
+
+let _lastSpreadFetch = 0;  // timestamp of last spread quote cycle
+const SPREAD_FETCH_INTERVAL = 5 * 60 * 1000; // 5 minutes between fetches
+
+// Fetch real spread prices for all open trades (called from refreshAll)
+async function refreshSpreadQuotes() {
+  const now = Date.now();
+  if (now - _lastSpreadFetch < SPREAD_FETCH_INTERVAL) return; // throttle
+
+  const openTrades = STATE.trades.filter(t => t.status === "Open");
+  if (!openTrades.length) return;
+
+  _lastSpreadFetch = now;
+  dbg("Fetching live spread quotes...");
+
+  for (const trade of openTrades) {
+    try {
+      const sv = await fetchSpreadValue(trade);
+      if (sv) {
+        trade._liveSpread = {
+          mid: sv.mid,
+          high: sv.high,
+          low: sv.low,
+          delta: sv.shortDelta,
+          ts: sv.ts
+        };
+        dbg("✓ " + trade.ticker + " spread $" + sv.mid.toFixed(2) + " (bid/ask: $" + sv.low.toFixed(2) + "/$" + sv.high.toFixed(2) + ")", "success");
+      }
+    } catch (e) {
+      dbg("Spread " + trade.ticker + ": " + e.message, "warn");
+    }
+    await new Promise(r => setTimeout(r, 400)); // rate limit spacing
+  }
+}
+
+// Calculate unrealized P&L using real spread price (or intrinsic fallback)
+function liveUnrealizedPnl(trade, stockPrice) {
+  const premium = trade.premiumCollected || 0;
+  const contracts = trade.contracts || 1;
+
+  // Prefer real spread price from MarketData.app
+  if (trade._liveSpread?.mid != null) {
+    const costToClose = trade._liveSpread.mid * 100 * contracts;
+    return premium - costToClose;
+  }
+
+  // Fallback: intrinsic value approximation
   if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
   const width = Math.abs(trade.shortStrike - trade.longStrike);
   const type = (trade.tradeType || "").toLowerCase();
-
-  if (type.includes("bull put") || type.includes("cash secured put") || type.includes("short put")) {
-    // Bull put spread / CSP: lose when stock drops below short strike
-    const itm = Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
-    return itm;
-  } else if (type.includes("bear call") || type.includes("short call") || type.includes("covered call")) {
-    // Bear call spread: lose when stock rises above short strike
-    const itm = Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
-    return itm;
+  let itm;
+  if (type.includes("bear call") || type.includes("short call") || type.includes("covered call")) {
+    itm = Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
+  } else {
+    itm = Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
   }
-  // Default: assume bull put spread (most common)
-  const itm = Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
-  return itm;
+  return premium - (itm * 100 * contracts);
 }
 
-function liveUnrealizedPnl(trade, stockPrice) {
-  const spreadVal = approxSpreadValue(trade, stockPrice);
-  if (spreadVal === null) return null;
-  const costToClose = spreadVal * 100 * (trade.contracts || 1);
-  return (trade.premiumCollected || 0) - costToClose;
+// Is the P&L based on real option prices or fallback?
+function pnlSource(trade) {
+  return trade._liveSpread?.mid != null ? "live" : "approx";
 }
 
 // Auto-track MAE/MFE on every quote refresh
@@ -1429,18 +1469,19 @@ function updateAutoMAEMFE(trade, stockPrice) {
   const pnl = liveUnrealizedPnl(trade, stockPrice);
   if (pnl === null) return;
 
-  if (!trade._autoMAE) trade._autoMAE = { pnl: null, price: null, date: null };
-  if (!trade._autoMFE) trade._autoMFE = { pnl: null, price: null, date: null };
+  if (!trade._autoMAE) trade._autoMAE = { pnl: null, price: null, date: null, src: null };
+  if (!trade._autoMFE) trade._autoMFE = { pnl: null, price: null, date: null, src: null };
 
   const today = new Date().toISOString().slice(0, 10);
+  const src = pnlSource(trade);
 
   // MAE = worst unrealized P&L (most negative)
   if (trade._autoMAE.pnl === null || pnl < trade._autoMAE.pnl) {
-    trade._autoMAE = { pnl, price: stockPrice, date: today };
+    trade._autoMAE = { pnl, price: stockPrice, date: today, src };
   }
   // MFE = best unrealized P&L (most positive)
   if (trade._autoMFE.pnl === null || pnl > trade._autoMFE.pnl) {
-    trade._autoMFE = { pnl, price: stockPrice, date: today };
+    trade._autoMFE = { pnl, price: stockPrice, date: today, src };
   }
 }
 
@@ -1707,9 +1748,13 @@ function renderPositions() {
 
       <!-- Spread MAE/MFE Tracker -->
       ${(()=>{
-        // Live P&L from current stock price
+        // Live P&L from real spread price or stock price fallback
         const livePnl = q ? liveUnrealizedPnl(t, q.price) : null;
         const livePnlColor = livePnl === null ? C.textSec : livePnl >= 0 ? C.pos : C.neg;
+        const src = pnlSource(t);
+        const spreadMid = t._liveSpread?.mid;
+        const spreadTs = t._liveSpread?.ts;
+        const spreadDelta = t._liveSpread?.delta;
 
         // Auto-tracked MAE/MFE
         const mae = t._autoMAE || null;
@@ -1719,7 +1764,7 @@ function renderPositions() {
         return `${hasMaeMfe || livePnl !== null ? `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:4px;padding:12px;margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em">TRADE P&L</div>
-            <div style="font-size:9px;color:${C.textTri}">auto-calculated from stock price</div>
+            <div style="font-size:9px;color:${src==="live"?C.pos:C.textTri}">${src==="live"?"● live spread $"+(spreadMid?.toFixed(2)||"?")+(spreadDelta!=null?" · Δ"+spreadDelta.toFixed(2):"")+(spreadTs?" · "+spreadTs:""):"○ intrinsic approx"}</div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:${hasMaeMfe && livePnl !== null ? '8' : '0'}px">
