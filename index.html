@@ -925,6 +925,19 @@ async function refreshAll() {
     }
   }
 
+  // Auto-track MAE/MFE for open trades — persist when new extremes hit
+  let _maeMfeChanged = false;
+  STATE.trades.filter(t => t.status === "Open").forEach(t => {
+    const q = STATE.quotes[t.ticker];
+    if (q) {
+      const prevMAE = t._autoMAE?.pnl;
+      const prevMFE = t._autoMFE?.pnl;
+      updateAutoMAEMFE(t, q.price);
+      if (t._autoMAE?.pnl !== prevMAE || t._autoMFE?.pnl !== prevMFE) _maeMfeChanged = true;
+    }
+  });
+  if (_maeMfeChanged) save();
+
   checkAlerts();
   trackDailyPrices();
   renderAll();
@@ -1382,81 +1395,53 @@ function mfePriceColor(m) { if (m===null) return C.textSec; return m>5?C.pos:m>2
 function mfePriceLabel(m) { if (m===null) return "—"; return m<=0?"—":"+"+m.toFixed(1)+"%"; }
 
 // ── Spread MAE/MFE Tracking (from OptionStrat) ──────────────────────────────
-function logSpreadData(tradeId) {
-  const highEl = document.getElementById('spread-high-'+tradeId);
-  const lowEl = document.getElementById('spread-low-'+tradeId);
-  const high = parseFloat(highEl?.value);
-  const low = parseFloat(lowEl?.value);
-  if (isNaN(high) && isNaN(low)) return;
+// ── Live P&L from stock price (no manual logging needed) ────────────────────
+// Approximates spread value from intrinsic value. Ignores extrinsic (time/IV)
+// but gets more accurate as DTE decreases. Always current.
+function approxSpreadValue(trade, stockPrice) {
+  if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const type = (trade.tradeType || "").toLowerCase();
 
-  const today = new Date().toISOString().slice(0,10);
-  if (!STATE.spreadHistory) STATE.spreadHistory = {};
-  if (!STATE.spreadHistory[tradeId]) STATE.spreadHistory[tradeId] = {};
-
-  const existing = STATE.spreadHistory[tradeId][today] || {};
-  STATE.spreadHistory[tradeId][today] = {
-    high: !isNaN(high) ? high : (existing.high || null),
-    low: !isNaN(low) ? low : (existing.low || null)
-  };
-
-  if (highEl) highEl.value = '';
-  if (lowEl) lowEl.value = '';
-  save(); renderPositions();
-  dbg("Spread data logged for trade " + tradeId + " — high: $" + (high||'—') + " low: $" + (low||'—'), "success");
+  if (type.includes("bull put") || type.includes("cash secured put") || type.includes("short put")) {
+    // Bull put spread / CSP: lose when stock drops below short strike
+    const itm = Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
+    return itm;
+  } else if (type.includes("bear call") || type.includes("short call") || type.includes("covered call")) {
+    // Bear call spread: lose when stock rises above short strike
+    const itm = Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
+    return itm;
+  }
+  // Default: assume bull put spread (most common)
+  const itm = Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
+  return itm;
 }
 
-function calcSpreadMAE(trade) {
-  // MAE = highest spread debit seen (worst case — most you'd pay to close)
-  const hist = STATE.spreadHistory?.[trade.id];
-  if (!hist || !Object.keys(hist).length) return null;
-  const highs = Object.values(hist).map(d => d.high).filter(v => v !== null && v !== undefined);
-  return highs.length ? Math.max(...highs) : null;
+function liveUnrealizedPnl(trade, stockPrice) {
+  const spreadVal = approxSpreadValue(trade, stockPrice);
+  if (spreadVal === null) return null;
+  const costToClose = spreadVal * 100 * (trade.contracts || 1);
+  return (trade.premiumCollected || 0) - costToClose;
 }
 
-function calcSpreadMFE(trade) {
-  // MFE = lowest spread debit seen (best case — cheapest to close)
-  const hist = STATE.spreadHistory?.[trade.id];
-  if (!hist || !Object.keys(hist).length) return null;
-  const lows = Object.values(hist).map(d => d.low).filter(v => v !== null && v !== undefined);
-  return lows.length ? Math.min(...lows) : null;
-}
+// Auto-track MAE/MFE on every quote refresh
+function updateAutoMAEMFE(trade, stockPrice) {
+  const pnl = liveUnrealizedPnl(trade, stockPrice);
+  if (pnl === null) return;
 
-function spreadMAEPnl(trade) {
-  // How much you'd lose at worst point: (MAE spread × 100 × contracts) - premium
-  const mae = calcSpreadMAE(trade);
-  if (mae === null) return null;
-  return (mae * 100 * (trade.contracts||1)) - (trade.premiumCollected||0);
-}
+  if (!trade._autoMAE) trade._autoMAE = { pnl: null, price: null, date: null };
+  if (!trade._autoMFE) trade._autoMFE = { pnl: null, price: null, date: null };
 
-function spreadMFEPnl(trade) {
-  // How much profit at best point: premium - (MFE spread × 100 × contracts)
-  const mfe = calcSpreadMFE(trade);
-  if (mfe === null) return null;
-  return (trade.premiumCollected||0) - (mfe * 100 * (trade.contracts||1));
-}
+  const today = new Date().toISOString().slice(0, 10);
 
-function drawSpreadSparkline(tradeId, width=120, height=28) {
-  const hist = STATE.spreadHistory?.[tradeId];
-  if (!hist) return "";
-  const entries = Object.entries(hist).sort((a,b) => a[0].localeCompare(b[0]));
-  if (entries.length < 2) return "";
-  // Use midpoint of high/low for each day
-  const mids = entries.map(([d,v]) => {
-    const h = v.high, l = v.low;
-    if (h !== null && l !== null) return (h+l)/2;
-    return h || l || null;
-  }).filter(v => v !== null);
-  if (mids.length < 2) return "";
-  const min = Math.min(...mids), max = Math.max(...mids);
-  const range = max - min || 0.01;
-  const pts = mids.map((v, i) => {
-    const x = (i / (mids.length - 1)) * width;
-    const y = ((v - min) / range) * height; // invert: higher spread = worse = top
-    return x.toFixed(1) + "," + y.toFixed(1);
-  }).join(" ");
-  return `<svg viewBox="0 0 ${width} ${height}" style="width:${width}px;height:${height}px;display:block;margin-top:4px">
-    <polyline points="${pts}" fill="none" stroke="${C.warn}" stroke-width="1.5" stroke-linejoin="round"/>
-  </svg>`;
+  // MAE = worst unrealized P&L (most negative)
+  if (trade._autoMAE.pnl === null || pnl < trade._autoMAE.pnl) {
+    trade._autoMAE = { pnl, price: stockPrice, date: today };
+  }
+  // MFE = best unrealized P&L (most positive)
+  if (trade._autoMFE.pnl === null || pnl > trade._autoMFE.pnl) {
+    trade._autoMFE = { pnl, price: stockPrice, date: today };
+  }
 }
 
 // Quick chart upload from position card
@@ -1722,69 +1707,55 @@ function renderPositions() {
 
       <!-- Spread MAE/MFE Tracker -->
       ${(()=>{
-        const sMAE = calcSpreadMAE(t);
-        const sMFE = calcSpreadMFE(t);
-        const maePnl = spreadMAEPnl(t);
-        const mfePnl = spreadMFEPnl(t);
-        const histCount = STATE.spreadHistory?.[t.id] ? Object.keys(STATE.spreadHistory[t.id]).length : 0;
-        const today = new Date().toISOString().slice(0,10);
-        const todayData = STATE.spreadHistory?.[t.id]?.[today];
-        const premium = t.premiumCollected||0;
-        const perContract = (premium / (t.contracts||1) / 100).toFixed(2);
+        // Live P&L from current stock price
+        const livePnl = q ? liveUnrealizedPnl(t, q.price) : null;
+        const livePnlColor = livePnl === null ? C.textSec : livePnl >= 0 ? C.pos : C.neg;
 
-        // Current unrealized P&L from latest logged data
-        const hist = STATE.spreadHistory?.[t.id];
-        const latestDate = hist ? Object.keys(hist).sort().pop() : null;
-        const latestData = latestDate ? hist[latestDate] : null;
-        const latestMid = latestData ? ((latestData.high||0)+(latestData.low||0))/2 : null;
-        const currentUnrealized = latestMid !== null ? premium - (latestMid * 100 * (t.contracts||1)) : null;
+        // Auto-tracked MAE/MFE
+        const mae = t._autoMAE || null;
+        const mfe = t._autoMFE || null;
+        const hasMaeMfe = mae?.pnl !== null || mfe?.pnl !== null;
 
-        // Risk-to-Pain ratio: current unrealized loss as % of max loss
-        const riskToPain = (currentUnrealized !== null && currentUnrealized < 0 && maxLoss > 0)
-          ? Math.abs(currentUnrealized) / maxLoss * 100 : null;
-        const rtpColor = riskToPain === null ? C.textSec : riskToPain > 50 ? C.neg : riskToPain > 25 ? C.warn : C.pos;
-
-        // MAE date
-        const maeDate = hist ? Object.entries(hist).reduce((best, [d,v]) => v.high !== null && (best === null || v.high > best[1]) ? [d, v.high] : best, null) : null;
-        const mfeDate = hist ? Object.entries(hist).reduce((best, [d,v]) => v.low !== null && (best === null || v.low < best[1]) ? [d, v.low] : best, null) : null;
-
-        return `<div style="background:${C.bg};border:1px solid ${C.warnDim};border-radius:4px;padding:12px;margin-bottom:10px">
+        return `${hasMaeMfe || livePnl !== null ? `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:4px;padding:12px;margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.warn};letter-spacing:.1em">SPREAD TRACKER</div>
-            <div style="font-size:9px;color:${C.textTri}">${histCount} day${histCount!==1?"s":""} logged · entry $${perContract}/spread</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em">TRADE P&L</div>
+            <div style="font-size:9px;color:${C.textTri}">auto-calculated from stock price</div>
           </div>
 
-          ${sMAE !== null || sMFE !== null ? `
-          <!-- MAE / MFE / Risk-to-Pain -->
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
-            <div style="background:${C.bgCard};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:${hasMaeMfe && livePnl !== null ? '8' : '0'}px">
+            <div style="background:${C.bgCard};border:1px solid ${livePnlColor}22;border-radius:3px;padding:8px 10px">
+              <div style="font-size:9px;color:${livePnlColor};letter-spacing:.06em;margin-bottom:3px">UNREALIZED</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${livePnlColor};font-weight:600">${livePnl!==null?(livePnl>=0?"+$":"-$")+Math.abs(livePnl).toFixed(0):"—"}</div>
+              ${livePnl!==null&&maxLoss>0?`<div style="font-size:9px;color:${C.textTri};margin-top:2px">${livePnl<0?(Math.abs(livePnl)/maxLoss*100).toFixed(0)+"% of max loss":"safe"}</div>`:""}
+            </div>
+            ${mae?.pnl!==null?`<div style="background:${C.bgCard};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${C.neg};letter-spacing:.06em;margin-bottom:3px">MAE — WORST</div>
-              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${C.neg};font-weight:600">${maePnl!==null?(maePnl>0?"-$"+maePnl.toFixed(0):"$0"):"—"}</div>
-              ${sMAE!==null?`<div style="font-size:9px;color:${C.textTri};margin-top:2px">$${sMAE.toFixed(2)} spread${maeDate?" · "+maeDate[0].slice(5):""}</div>`:""}
-            </div>
-            <div style="background:${C.bgCard};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
-              <div style="font-size:9px;color:${C.pos};letter-spacing:.06em;margin-bottom:3px">MFE — BEST</div>
-              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${C.pos};font-weight:600">${mfePnl!==null?(mfePnl>0?"+$"+mfePnl.toFixed(0):"$0"):"—"}</div>
-              ${sMFE!==null?`<div style="font-size:9px;color:${C.textTri};margin-top:2px">$${sMFE.toFixed(2)} spread${mfeDate?" · "+mfeDate[0].slice(5):""}</div>`:""}
-            </div>
-            <div style="background:${C.bgCard};border:1px solid ${rtpColor}22;border-radius:3px;padding:8px 10px">
-              <div style="font-size:9px;color:${rtpColor};letter-spacing:.06em;margin-bottom:3px">RISK-TO-PAIN</div>
-              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${rtpColor};font-weight:600">${riskToPain!==null?riskToPain.toFixed(1)+"%":(currentUnrealized!==null&&currentUnrealized>=0?"SAFE":"—")}</div>
-              ${currentUnrealized!==null?`<div style="font-size:9px;color:${currentUnrealized>=0?C.pos:C.neg};margin-top:2px">unrealized: ${currentUnrealized>=0?"+$":"-$"}${Math.abs(currentUnrealized).toFixed(0)}</div>`:""}
-            </div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${C.neg};font-weight:600">${mae.pnl>=0?"+$":"-$"}${Math.abs(mae.pnl).toFixed(0)}</div>
+              <div style="font-size:9px;color:${C.textTri};margin-top:2px">$${mae.price?.toFixed(0)||"?"} · ${mae.date?.slice(5)||""}</div>
+            </div>`:`<div style="background:${C.bgCard};border:1px solid ${C.border};border-radius:3px;padding:8px 10px">
+              <div style="font-size:9px;color:${C.textSec};letter-spacing:.06em;margin-bottom:3px">MAE — WORST</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${C.textMut};font-weight:600">—</div>
+            </div>`}
+            ${mfe?.pnl!==null?`<div style="background:${C.bgCard};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
+              <div style="font-size:9px;color:${mfe.pnl>=0?C.pos:C.warn};letter-spacing:.06em;margin-bottom:3px">MFE — BEST</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${mfe.pnl>=0?C.pos:C.warn};font-weight:600">${mfe.pnl>=0?"+$":"-$"}${Math.abs(mfe.pnl).toFixed(0)}</div>
+              <div style="font-size:9px;color:${C.textTri};margin-top:2px">$${mfe.price?.toFixed(0)||"?"} · ${mfe.date?.slice(5)||""}</div>
+            </div>`:`<div style="background:${C.bgCard};border:1px solid ${C.border};border-radius:3px;padding:8px 10px">
+              <div style="font-size:9px;color:${C.textSec};letter-spacing:.06em;margin-bottom:3px">MFE — BEST</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${C.textMut};font-weight:600">—</div>
+            </div>`}
           </div>
 
-          <!-- Progress bar: where current P&L sits between MAE and MFE -->
-          ${maePnl!==null && mfePnl!==null && currentUnrealized!==null ? (()=>{
-            const worstPnl = -Math.abs(maePnl);
-            const bestPnl = Math.abs(mfePnl);
+          ${hasMaeMfe && livePnl !== null ? (()=>{
+            const worstPnl = mae?.pnl ?? livePnl;
+            const bestPnl = mfe?.pnl ?? livePnl;
             const range = bestPnl - worstPnl || 1;
-            const pct = Math.max(0, Math.min(100, ((currentUnrealized - worstPnl) / range) * 100));
-            return `<div style="margin-bottom:8px">
+            const pct = Math.max(0, Math.min(100, ((livePnl - worstPnl) / range) * 100));
+            return `<div>
               <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-                <span style="font-size:9px;color:${C.neg}">-$${Math.abs(maePnl).toFixed(0)}</span>
-                <span style="font-size:9px;color:${C.textSec}">CURRENT P&L</span>
-                <span style="font-size:9px;color:${C.pos}">+$${Math.abs(mfePnl).toFixed(0)}</span>
+                <span style="font-size:9px;color:${C.neg}">${worstPnl>=0?"+$":"-$"}${Math.abs(worstPnl).toFixed(0)}</span>
+                <span style="font-size:9px;color:${C.textSec}">CURRENT</span>
+                <span style="font-size:9px;color:${C.pos}">+$${Math.abs(bestPnl).toFixed(0)}</span>
               </div>
               <div style="height:4px;background:${C.borderVis};border-radius:2px;position:relative">
                 <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,${C.neg},${C.warn},${C.pos});border-radius:2px"></div>
@@ -1792,22 +1763,7 @@ function renderPositions() {
               </div>
             </div>`;
           })() : ""}
-          ${drawSpreadSparkline(t.id)}
-          ` : ""}
-
-          <div style="display:flex;gap:6px;align-items:flex-end">
-            <div style="flex:1">
-              <div style="font-size:9px;color:${C.neg};margin-bottom:3px">SPREAD HIGH (worst)</div>
-              <input id="spread-high-${t.id}" type="number" step="0.01" placeholder="${todayData?.high ? 'today: $'+todayData.high.toFixed(2) : 'e.g. 5.45'}" style="font-size:12px;padding:6px 8px">
-            </div>
-            <div style="flex:1">
-              <div style="font-size:9px;color:${C.pos};margin-bottom:3px">SPREAD LOW (best)</div>
-              <input id="spread-low-${t.id}" type="number" step="0.01" placeholder="${todayData?.low ? 'today: $'+todayData.low.toFixed(2) : 'e.g. 4.20'}" style="font-size:12px;padding:6px 8px">
-            </div>
-            <button class="btn btn-p" style="padding:6px 12px;white-space:nowrap" onclick="logSpreadData(${t.id})">LOG</button>
-          </div>
-          <div style="font-size:9px;color:${C.textTri};margin-top:6px">OptionStrat → Price History → log spread high &amp; low EOD</div>
-        </div>`;
+        </div>` : ""}`;
       })()}
 
       <!-- Actions -->
