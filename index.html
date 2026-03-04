@@ -30,25 +30,27 @@
   --overlay-bg: rgba(0,0,0,.9);
 }
 [data-theme="koyfin"] {
-  --bg-primary: #0e0e0e;
-  --bg-card: #1a1a1a;
-  --bg-hover: #252525;
-  --border-subtle: #2a2a2a;
-  --border-visible: #383838;
-  --text-primary: #d4d4d4;
-  --text-secondary: #888888;
-  --text-tertiary: #666666;
-  --text-muted: #444444;
-  --positive: #22c55e;
-  --negative: #ef4444;
-  --warning: #f59e0b;
-  --positive-dim: rgba(34,197,94,.13);
-  --negative-dim: rgba(239,68,68,.13);
-  --negative-hover: rgba(239,68,68,.4);
+  --bg-primary: #000000;
+  --bg-card: #0a0a0a;
+  --bg-hover: #161616;
+  --border-subtle: #2c2c2c;
+  --border-visible: #3a3a3a;
+  --text-primary: #f0f0f0;
+  --text-secondary: #999999;
+  --text-tertiary: #707070;
+  --text-muted: #4a4a4a;
+  --positive: #26a69a;
+  --negative: #ef5350;
+  --warning: #ffa726;
+  --positive-dim: rgba(38,166,154,.15);
+  --negative-dim: rgba(239,83,80,.15);
+  --negative-hover: rgba(239,83,80,.4);
   --warning-dim: rgba(245,158,11,.13);
   --warning-faint: rgba(245,158,11,.07);
   --overlay-bg: rgba(0,0,0,.92);
 }
+[data-theme="koyfin"] .card{border-color:#3a3a3a}
+[data-theme="koyfin"] #positions-cards .card+.card{border-top-color:#3a3a3a}
 /* ── Base ─────────────────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);font-family:'IBM Plex Sans',sans-serif;overscroll-behavior:none;-webkit-font-smoothing:antialiased}
@@ -456,13 +458,13 @@ const THEMES = {
     bgOverlay:'#060a10cc',
   },
   koyfin: {
-    bg:'#0e0e0e', bgCard:'#1a1a1a', bgHover:'#252525',
-    border:'#2a2a2a', borderVis:'#383838',
-    text:'#d4d4d4', textSec:'#888888', textTri:'#666666', textMut:'#444444',
-    pos:'#22c55e', neg:'#ef4444', warn:'#f59e0b',
-    posDim:'#22c55e22', negDim:'#ef444444', negHov:'#ef444466',
-    warnDim:'#f59e0b22', warnFaint:'#f59e0b11',
-    bgOverlay:'#0e0e0ecc',
+    bg:'#000000', bgCard:'#0a0a0a', bgHover:'#161616',
+    border:'#2c2c2c', borderVis:'#3a3a3a',
+    text:'#f0f0f0', textSec:'#999999', textTri:'#707070', textMut:'#4a4a4a',
+    pos:'#26a69a', neg:'#ef5350', warn:'#ffa726',
+    posDim:'#26a69a22', negDim:'#ef535044', negHov:'#ef535066',
+    warnDim:'#ffa72622', warnFaint:'#ffa72611',
+    bgOverlay:'#000000dd',
   }
 };
 let C = {...THEMES.original}; // active color palette
