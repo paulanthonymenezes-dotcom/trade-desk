@@ -1,0 +1,12 @@
+{
+  "name": "trading-desk-alerter",
+  "version": "1.0.0",
+  "description": "VPS alert server — monitors positions and sends Telegram alerts",
+  "main": "alerter.js",
+  "scripts": {
+    "start": "node alerter.js"
+  },
+  "dependencies": {
+    "node-cron": "^3.0.3"
+  }
+}
