@@ -411,10 +411,21 @@ async function cmdStatus() {
     const status = !q ? '⚪' : pnlData ? (pnlUp ? '🟢' : '🔴') : (q.price < t.shortStrike ? '🔴' : '🟢');
     const spreadStr = spread ? `$${spread.mid.toFixed(2)}` : '-';
     const pnlStr = pnlData ? `${pnlData.pnl >= 0 ? '+' : '-'}$${Math.abs(pnlData.pnl).toFixed(0)}` : '';
-    const slStr = t.slPrice ? `SL:$${t.slPrice}` : '';
-    const tpStr = t.tpPrice ? `TP:$${t.tpPrice}` : '';
 
-    return `${status} <b>${t.ticker}</b> ${price} (${chg})\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE\n   Spread: ${spreadStr} | P&L: ${pnlStr} | Prox: ${prox}\n   ${[slStr, tpStr].filter(Boolean).join(' | ')}`;
+    // Distance to SL/TP
+    const slDist = (t.slPrice && q) ? `SL:$${t.slPrice} (${(q.price - parseFloat(t.slPrice)).toFixed(1)} away)` : '';
+    const tpDist = (t.tpPrice && q) ? `TP:$${t.tpPrice} (${(parseFloat(t.tpPrice) - q.price).toFixed(1)} away)` : '';
+
+    // Daily implied move from IV
+    const impliedMove = (spread?.iv && q) ? `±$${(q.price * spread.iv * Math.sqrt(1/252)).toFixed(2)}/day` : '';
+
+    let line = `${status} <b>${t.ticker}</b> ${price} (${chg})`;
+    line += `\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE`;
+    line += `\n   Spread: ${spreadStr} | P&L: ${pnlStr} | Prox: ${prox}`;
+    if (impliedMove) line += `\n   IV Move: ${impliedMove}`;
+    if (slDist || tpDist) line += `\n   ${[slDist, tpDist].filter(Boolean).join(' | ')}`;
+
+    return line;
   });
 
   tg(`📊 <b>Open Positions (${trades.length})</b>\n\n${lines.join('\n\n')}`);
