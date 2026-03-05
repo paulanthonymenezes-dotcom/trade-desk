@@ -68,18 +68,19 @@ async function saveState(state) {
 }
 
 // ── MarketData.app Fetch ────────────────────────────────────────────────────
-async function mdaFetch(path) {
+async function mdaFetch(path, retries = 2) {
   const url = `${MDA_BASE}${path}${path.includes('?') ? '&' : '?'}token=${MDA_TOKEN}&format=json`;
-  const r = await fetch(url);
-  if (r.status === 429) {
-    console.warn('[MDA] Rate limited, waiting 5s...');
-    await sleep(5000);
-    const r2 = await fetch(url);
-    if (!r2.ok) throw new Error(`MDA ${r2.status}`);
-    return r2.json();
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const r = await fetch(url);
+    if (r.ok) return r.json();
+    if ((r.status === 429 || r.status === 403) && attempt < retries) {
+      const wait = (attempt + 1) * 3000; // 3s, 6s
+      console.warn(`[MDA] ${r.status} on attempt ${attempt + 1}, waiting ${wait/1000}s...`);
+      await sleep(wait);
+      continue;
+    }
+    throw new Error(`MDA ${r.status}`);
   }
-  if (!r.ok) throw new Error(`MDA ${r.status}`);
-  return r.json();
 }
 
 async function fetchSpreadValue(trade) {
@@ -87,10 +88,10 @@ async function fetchSpreadValue(trade) {
 
   const side = (trade.tradeType || '').toLowerCase().includes('put') ? 'put' : 'call';
 
-  const [shortData, longData] = await Promise.all([
-    mdaFetch(`/options/chain/${trade.ticker}/?expiration=${trade.expiry}&side=${side}&strike=${trade.shortStrike}`),
-    mdaFetch(`/options/chain/${trade.ticker}/?expiration=${trade.expiry}&side=${side}&strike=${trade.longStrike}`)
-  ]);
+  // Sequential fetches to avoid rate limiting
+  const shortData = await mdaFetch(`/options/chain/${trade.ticker}/?expiration=${trade.expiry}&side=${side}&strike=${trade.shortStrike}`);
+  await sleep(500);
+  const longData = await mdaFetch(`/options/chain/${trade.ticker}/?expiration=${trade.expiry}&side=${side}&strike=${trade.longStrike}`);
 
   if (shortData.s !== 'ok' || longData.s !== 'ok') return null;
 
@@ -135,7 +136,7 @@ async function refreshAllSpreads(trades) {
     } catch (e) {
       console.warn(`  ${trade.ticker}: ${e.message}`);
     }
-    await sleep(300); // rate limit buffer between trades
+    await sleep(1500); // rate limit buffer between trades
   }
 }
 
