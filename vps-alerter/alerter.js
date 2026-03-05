@@ -394,6 +394,11 @@ async function cmdStatus() {
   const tickers = [...new Set(trades.map(t => t.ticker))];
   const quotes = await fetchQuotes(tickers);
 
+  // Always fetch fresh spreads for on-demand commands
+  tg('⏳ Fetching live spreads...');
+  lastSpreadFetch = 0;
+  await refreshAllSpreads(state.trades);
+
   const lines = trades.map(t => {
     const q = quotes[t.ticker];
     const dl = daysLeft(t.expiry);
@@ -451,6 +456,10 @@ async function cmdPnl() {
   const tickers = [...new Set(trades.map(t => t.ticker))];
   const quotes = await fetchQuotes(tickers);
 
+  // Fetch fresh spreads
+  lastSpreadFetch = 0;
+  await refreshAllSpreads(state.trades);
+
   let totalPnl = 0;
   let totalPremium = 0;
 
@@ -487,6 +496,14 @@ async function cmdTicker(ticker) {
 
   const quotes = await fetchQuotes([ticker]);
   const q = quotes[ticker];
+
+  // Fetch fresh spreads for this ticker
+  for (const t of trades) {
+    try {
+      const sv = await fetchSpreadValue(t);
+      if (sv) spreadCache[t.id] = sv;
+    } catch (e) { console.warn(`Spread ${ticker}: ${e.message}`); }
+  }
 
   for (const t of trades) {
     const spread = spreadCache[t.id];
