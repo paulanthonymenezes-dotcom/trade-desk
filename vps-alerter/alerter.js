@@ -401,12 +401,15 @@ async function cmdStatus() {
     const price = q ? `$${q.price.toFixed(2)}` : '?';
     const chg = q ? `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%` : '';
     const prox = q ? `${((q.price - t.shortStrike) / q.price * 100).toFixed(1)}%` : '?';
-    const status = q && q.price < t.shortStrike ? '🔴' : q && ((q.price - t.shortStrike) / q.price * 100) < 5 ? '⚠️' : '🟢';
+    const pnlData = unrealizedPnl(t, q?.price);
+    const pnlUp = pnlData ? pnlData.pnl >= 0 : true;
+    const status = !q ? '⚪' : pnlData ? (pnlUp ? '🟢' : '🔴') : (q.price < t.shortStrike ? '🔴' : '🟢');
     const spreadStr = spread ? `$${spread.mid.toFixed(2)}` : '-';
+    const pnlStr = pnlData ? `${pnlData.pnl >= 0 ? '+' : '-'}$${Math.abs(pnlData.pnl).toFixed(0)}` : '';
     const slStr = t.slPrice ? `SL:$${t.slPrice}` : '';
     const tpStr = t.tpPrice ? `TP:$${t.tpPrice}` : '';
 
-    return `${status} <b>${t.ticker}</b> ${price} (${chg})\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE\n   Spread: ${spreadStr} | Prox: ${prox}\n   ${[slStr, tpStr].filter(Boolean).join(' | ')}`;
+    return `${status} <b>${t.ticker}</b> ${price} (${chg})\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE\n   Spread: ${spreadStr} | P&L: ${pnlStr} | Prox: ${prox}\n   ${[slStr, tpStr].filter(Boolean).join(' | ')}`;
   });
 
   tg(`📊 <b>Open Positions (${trades.length})</b>\n\n${lines.join('\n\n')}`);
@@ -583,8 +586,7 @@ async function sendHourlySummary() {
 
       const spread = spreadCache[t.id];
       const pnlData = unrealizedPnl(t, q.price);
-      const prox = ((q.price - t.shortStrike) / q.price * 100);
-      const icon = q.price < t.shortStrike ? '🔴' : prox < 5 ? '⚠️' : '🟢';
+      const icon = pnlData ? (pnlData.pnl >= 0 ? '🟢' : '🔴') : (q.price < t.shortStrike ? '🔴' : '🟢');
 
       let line = `${icon} ${t.ticker} $${q.price.toFixed(2)} (${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%)`;
       if (spread) line += ` | Sprd $${spread.mid.toFixed(2)}`;
@@ -654,7 +656,7 @@ async function sendMarketClose() {
       const pnlData = unrealizedPnl(t, q.price);
       const prox = ((q.price - t.shortStrike) / q.price * 100);
       const dl = daysLeft(t.expiry);
-      const icon = q.price < t.shortStrike ? '🔴' : prox < 5 ? '⚠️' : '🟢';
+      const icon = pnlData ? (pnlData.pnl >= 0 ? '🟢' : '🔴') : (q.price < t.shortStrike ? '🔴' : '🟢');
 
       if (pnlData) totalPnl += pnlData.pnl;
 
