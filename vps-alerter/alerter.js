@@ -1,32 +1,40 @@
 #!/usr/bin/env node
-// ── Trading Desk Alert Server ────────────────────────────────────────────────
-// Runs on VPS, monitors positions via Supabase, sends Telegram alerts.
-// No browser required — works 24/7 even when your Mac is off.
+// ── Trading Desk Alert Server v2 ────────────────────────────────────────────
+// Real-time spread monitoring + Telegram command center
+// Runs on VPS 24/7, monitors via Supabase + MarketData.app + Yahoo Finance
 // ─────────────────────────────────────────────────────────────────────────────
 
 const cron = require('node-cron');
 
-// ── Config (Supabase anon key is public — same as frontend) ─────────────────
+// ── Config ──────────────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyanBzd3JpcnN6ZXJocGJvamdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzMzgyOTQsImV4cCI6MjA4NzkxNDI5NH0.aLCb5xP8WbeQuMpLJ3uoGFYebENCWQ-WBbtQZLvtYuA";
 
-// ── State ───────────────────────────────────────────────────────────────────
-const alertsSent = new Set();   // dedup alerts within a trading day
-let lastMarketDate = null;      // track day for resetting alerts
-let lastState = null;           // cached state for logging
-let consecutiveErrors = 0;      // track errors for alerting
+const MDA_TOKEN = "d2E2NDEybGtwZTBabnhSV2pkeEZBb3JfWW9uOHpKNnNIRTJ2bzNYZVlMcz0";
+const MDA_BASE = "https://api.marketdata.app/v1";
 
-// ── Telegram ────────────────────────────────────────────────────────────────
-async function sendTelegram(botToken, chatId, msg) {
-  if (!botToken || !chatId) {
-    console.log('[SKIP] No Telegram config:', msg.replace(/<[^>]+>/g, ''));
-    return;
-  }
+const TG_BOT = "8441592699:AAE8T_GQhcPTrD7xT4PnKV6igMoTUxK6xRE";
+const TG_CHAT = "6155190874";
+
+const SPREAD_CHECK_INTERVAL = 5 * 60 * 1000; // 5 min between spread refreshes
+const STOCK_CHECK_INTERVAL = 60 * 1000;       // 60s between stock checks
+
+// ── State ───────────────────────────────────────────────────────────────────
+const alertsSent = new Set();
+let lastMarketDate = null;
+let lastState = null;
+let consecutiveErrors = 0;
+let spreadCache = {};        // { tradeId: { mid, high, low, delta, ts, fetchedAt } }
+let lastSpreadFetch = 0;
+let tgOffset = 0;            // Telegram polling offset
+
+// ── Telegram Send ───────────────────────────────────────────────────────────
+async function tg(msg) {
   try {
-    const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const r = await fetch(`https://api.telegram.org/bot${TG_BOT}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: msg, parse_mode: 'HTML' })
+      body: JSON.stringify({ chat_id: TG_CHAT, text: msg, parse_mode: 'HTML' })
     });
     if (!r.ok) console.error('[TG] Send failed:', r.status);
   } catch (e) {
@@ -34,21 +42,104 @@ async function sendTelegram(botToken, chatId, msg) {
   }
 }
 
-// ── Load state from Supabase ────────────────────────────────────────────────
+// ── Supabase Load/Save ──────────────────────────────────────────────────────
 async function loadState() {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/state?id=eq.main&select=data`, {
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`
-    }
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
   });
-  if (!r.ok) throw new Error(`Supabase ${r.status}: ${await r.text()}`);
+  if (!r.ok) throw new Error(`Supabase GET ${r.status}: ${await r.text()}`);
   const rows = await r.json();
   if (!rows[0]?.data) throw new Error('No state found in Supabase');
   return rows[0].data;
 }
 
-// ── Fetch quotes from Yahoo Finance ─────────────────────────────────────────
+async function saveState(state) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/state?id=eq.main`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify({ data: state })
+  });
+  if (!r.ok) throw new Error(`Supabase PATCH ${r.status}: ${await r.text()}`);
+}
+
+// ── MarketData.app Fetch ────────────────────────────────────────────────────
+async function mdaFetch(path) {
+  const url = `${MDA_BASE}${path}${path.includes('?') ? '&' : '?'}token=${MDA_TOKEN}&format=json`;
+  const r = await fetch(url);
+  if (r.status === 429) {
+    console.warn('[MDA] Rate limited, waiting 5s...');
+    await sleep(5000);
+    const r2 = await fetch(url);
+    if (!r2.ok) throw new Error(`MDA ${r2.status}`);
+    return r2.json();
+  }
+  if (!r.ok) throw new Error(`MDA ${r.status}`);
+  return r.json();
+}
+
+async function fetchSpreadValue(trade) {
+  if (!trade.expiry || !trade.shortStrike || !trade.longStrike) return null;
+
+  const side = (trade.tradeType || '').toLowerCase().includes('put') ? 'put' : 'call';
+
+  const [shortData, longData] = await Promise.all([
+    mdaFetch(`/options/chain/${trade.ticker}/?expiration=${trade.expiry}&side=${side}&strike=${trade.shortStrike}`),
+    mdaFetch(`/options/chain/${trade.ticker}/?expiration=${trade.expiry}&side=${side}&strike=${trade.longStrike}`)
+  ]);
+
+  if (shortData.s !== 'ok' || longData.s !== 'ok') return null;
+
+  const shortMid = shortData.mid?.[0];
+  const longMid = longData.mid?.[0];
+  if (shortMid == null || longMid == null) return null;
+
+  const spreadMid = Math.abs(shortMid - longMid);
+  const spreadHigh = Math.abs((shortData.ask?.[0] || shortMid) - (longData.bid?.[0] || longMid));
+  const spreadLow = Math.abs((shortData.bid?.[0] || shortMid) - (longData.ask?.[0] || longMid));
+
+  return {
+    mid: spreadMid,
+    high: Math.max(spreadHigh, spreadLow, spreadMid),
+    low: Math.min(spreadHigh, spreadLow, spreadMid),
+    shortMid, longMid,
+    delta: shortData.delta?.[0] || null,
+    iv: shortData.iv?.[0] || null,
+    underlyingPrice: shortData.underlyingPrice?.[0] || null,
+    ts: new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }),
+    fetchedAt: Date.now()
+  };
+}
+
+async function refreshAllSpreads(trades) {
+  const now = Date.now();
+  if (now - lastSpreadFetch < SPREAD_CHECK_INTERVAL) return;
+  lastSpreadFetch = now;
+
+  const openTrades = trades.filter(t => t.status === 'Open');
+  if (!openTrades.length) return;
+
+  console.log(`[${ts()}] Refreshing spreads for ${openTrades.length} trades...`);
+
+  for (const trade of openTrades) {
+    try {
+      const sv = await fetchSpreadValue(trade);
+      if (sv) {
+        spreadCache[trade.id] = sv;
+        console.log(`  ${trade.ticker} ${trade.shortStrike}/${trade.longStrike}: $${sv.mid.toFixed(2)} (${sv.ts})`);
+      }
+    } catch (e) {
+      console.warn(`  ${trade.ticker}: ${e.message}`);
+    }
+    await sleep(300); // rate limit buffer between trades
+  }
+}
+
+// ── Yahoo Finance Quotes ────────────────────────────────────────────────────
 async function fetchQuotes(tickers) {
   const results = {};
   await Promise.all(tickers.map(async (ticker) => {
@@ -77,19 +168,40 @@ async function fetchQuotes(tickers) {
   return results;
 }
 
-// ── Days until expiry ───────────────────────────────────────────────────────
-function daysLeft(expiry) {
-  if (!expiry) return Infinity;
-  const exp = new Date(expiry + 'T16:00:00-05:00');
-  return Math.ceil((exp - new Date()) / 86400000);
+// ── P&L Calculations ────────────────────────────────────────────────────────
+function intrinsicSpreadValue(trade, stockPrice) {
+  if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const type = (trade.tradeType || '').toLowerCase();
+  if (type.includes('bear call') || type.includes('short call') || type.includes('covered call')) {
+    return Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
+  }
+  return Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
 }
 
-// ── Check alerts ────────────────────────────────────────────────────────────
+function unrealizedPnl(trade, stockPrice) {
+  const premium = trade.premiumCollected || 0;
+  const contracts = trade.contracts || 1;
+
+  // Prefer live spread data if fresh (< 10 min)
+  const spread = spreadCache[trade.id];
+  if (spread?.mid != null && spread?.fetchedAt) {
+    const age = Date.now() - spread.fetchedAt;
+    if (age < 10 * 60 * 1000) {
+      return { pnl: premium - (spread.mid * 100 * contracts), source: 'live', spreadMid: spread.mid };
+    }
+  }
+
+  // Fallback to intrinsic
+  const itm = intrinsicSpreadValue(trade, stockPrice);
+  if (itm === null) return null;
+  return { pnl: premium - (itm * 100 * contracts), source: 'intrinsic', spreadMid: itm };
+}
+
+// ── Alert Checking ──────────────────────────────────────────────────────────
 function checkAlerts(state, quotes) {
   const trades = (state.trades || []).filter(t => t.status === 'Open');
   const strikeProx = state.alertStrikeProx || 5;
-  const tgBot = state.tgBot;
-  const tgChat = state.tgChat;
   let alertCount = 0;
 
   for (const t of trades) {
@@ -99,49 +211,106 @@ function checkAlerts(state, quotes) {
     const prox = ((q.price - t.shortStrike) / q.price) * 100;
     const dl = daysLeft(t.expiry);
     const key = t.id + '-';
+    const spread = spreadCache[t.id];
+    const pnlData = unrealizedPnl(t, q.price);
+
+    // ── Stock price alerts ──────────────────────────────────────────────
 
     // Strike proximity warning
     if (prox < strikeProx && prox >= 0 && !alertsSent.has(key + 'prox')) {
       alertsSent.add(key + 'prox');
-      sendTelegram(tgBot, tgChat,
-        `⚠️ <b>${t.ticker}</b> — $${q.price.toFixed(2)} only ${prox.toFixed(1)}% above short strike $${t.shortStrike}\nDTE: ${dl}`
-      );
+      const spreadLine = spread ? `\nSpread: $${spread.mid.toFixed(2)}` : '';
+      tg(`⚠️ <b>${t.ticker}</b> — $${q.price.toFixed(2)} only ${prox.toFixed(1)}% above short strike $${t.shortStrike}\nDTE: ${dl}${spreadLine}`);
       alertCount++;
     }
 
     // Short strike breach
     if (q.price < t.shortStrike && !alertsSent.has(key + 'breach')) {
       alertsSent.add(key + 'breach');
-      sendTelegram(tgBot, tgChat,
-        `🔴 <b>${t.ticker} BREACHED SHORT STRIKE</b>\n$${q.price.toFixed(2)} < $${t.shortStrike} | DTE: ${dl}`
-      );
+      const spreadLine = spread ? `\nSpread: $${spread.mid.toFixed(2)}` : '';
+      tg(`🔴 <b>${t.ticker} BREACHED SHORT STRIKE</b>\n$${q.price.toFixed(2)} < $${t.shortStrike} | DTE: ${dl}${spreadLine}`);
       alertCount++;
     }
 
-    // TP hit
+    // TP hit (stock price)
     if (t.tpPrice && q.price >= parseFloat(t.tpPrice) && !alertsSent.has(key + 'tp')) {
       alertsSent.add(key + 'tp');
-      sendTelegram(tgBot, tgChat,
-        `✅ <b>${t.ticker} TAKE PROFIT HIT</b>\n$${q.price.toFixed(2)} ≥ TP $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`
-      );
+      tg(`✅ <b>${t.ticker} TAKE PROFIT HIT</b>\n$${q.price.toFixed(2)} ≥ TP $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
       alertCount++;
     }
 
-    // SL hit
+    // SL hit (stock price)
     if (t.slPrice && q.price <= parseFloat(t.slPrice) && !alertsSent.has(key + 'sl')) {
       alertsSent.add(key + 'sl');
-      sendTelegram(tgBot, tgChat,
-        `🛑 <b>${t.ticker} STOP LOSS HIT</b>\n$${q.price.toFixed(2)} ≤ SL $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`
-      );
+      tg(`🛑 <b>${t.ticker} STOP LOSS HIT</b>\n$${q.price.toFixed(2)} ≤ SL $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
       alertCount++;
+    }
+
+    // ── Spread value alerts ─────────────────────────────────────────────
+
+    if (pnlData && t.premiumCollected) {
+      const premium = t.premiumCollected;
+      const lossPct = pnlData.pnl < 0 ? Math.abs(pnlData.pnl) / premium * 100 : 0;
+      const width = Math.abs(t.shortStrike - t.longStrike);
+      const maxLoss = (width * 100 * (t.contracts || 1)) - premium;
+
+      // 75% of premium lost
+      if (lossPct >= 75 && !alertsSent.has(key + 'loss75')) {
+        alertsSent.add(key + 'loss75');
+        tg(
+          `⚠️ <b>${t.ticker} — 75% PREMIUM LOSS</b>\n` +
+          `Spread: $${pnlData.spreadMid.toFixed(2)} | P&L: -$${Math.abs(pnlData.pnl).toFixed(0)}\n` +
+          `${t.shortStrike}/${t.longStrike} x${t.contracts} | DTE: ${dl}\n` +
+          `<i>Source: ${pnlData.source}</i>`
+        );
+        alertCount++;
+      }
+
+      // 100% of premium lost (breakeven breached)
+      if (lossPct >= 100 && !alertsSent.has(key + 'loss100')) {
+        alertsSent.add(key + 'loss100');
+        tg(
+          `🔴 <b>${t.ticker} — BREAKEVEN BREACHED</b>\n` +
+          `Spread: $${pnlData.spreadMid.toFixed(2)} | P&L: -$${Math.abs(pnlData.pnl).toFixed(0)}\n` +
+          `Premium was $${premium.toFixed(0)} — now underwater\n` +
+          `${t.shortStrike}/${t.longStrike} x${t.contracts} | DTE: ${dl}\n` +
+          `<i>Source: ${pnlData.source}</i>`
+        );
+        alertCount++;
+      }
+
+      // 150% of premium lost
+      if (lossPct >= 150 && !alertsSent.has(key + 'loss150')) {
+        alertsSent.add(key + 'loss150');
+        tg(
+          `🚨 <b>${t.ticker} — 150% LOSS</b>\n` +
+          `Spread: $${pnlData.spreadMid.toFixed(2)} | P&L: -$${Math.abs(pnlData.pnl).toFixed(0)}\n` +
+          `Max loss: $${maxLoss.toFixed(0)} (${(Math.abs(pnlData.pnl) / maxLoss * 100).toFixed(0)}% of max)\n` +
+          `${t.shortStrike}/${t.longStrike} x${t.contracts} | DTE: ${dl}\n` +
+          `<i>Source: ${pnlData.source}</i>`
+        );
+        alertCount++;
+      }
+
+      // Spread value TP — if spread dropped to 50% of entry (e.g. collected $1.00, spread now $0.50)
+      const spreadAtEntry = premium / (100 * (t.contracts || 1));
+      if (pnlData.spreadMid <= spreadAtEntry * 0.5 && pnlData.spreadMid > 0 && !alertsSent.has(key + 'spread50')) {
+        alertsSent.add(key + 'spread50');
+        tg(
+          `💰 <b>${t.ticker} — SPREAD AT 50% PROFIT</b>\n` +
+          `Spread: $${pnlData.spreadMid.toFixed(2)} (entry: $${spreadAtEntry.toFixed(2)})\n` +
+          `P&L: +$${pnlData.pnl.toFixed(0)} | ${t.shortStrike}/${t.longStrike} x${t.contracts}\n` +
+          `<i>Consider closing for profit</i>`
+        );
+        alertCount++;
+      }
     }
 
     // Expiry warning (1 DTE)
     if (dl === 1 && !alertsSent.has(key + 'exp')) {
       alertsSent.add(key + 'exp');
-      sendTelegram(tgBot, tgChat,
-        `⏰ <b>${t.ticker}</b> expires TOMORROW — ${t.longStrike}/${t.shortStrike} x${t.contracts}`
-      );
+      const spreadLine = spread ? `Spread: $${spread.mid.toFixed(2)} | ` : '';
+      tg(`⏰ <b>${t.ticker}</b> expires TOMORROW\n${spreadLine}${t.longStrike}/${t.shortStrike} x${t.contracts}`);
       alertCount++;
     }
   }
@@ -149,72 +318,290 @@ function checkAlerts(state, quotes) {
   return alertCount;
 }
 
-// ── Market hours check (ET) ─────────────────────────────────────────────────
-function isMarketHours() {
-  const now = new Date();
-  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = et.getDay(); // 0=Sun, 6=Sat
-  if (day === 0 || day === 6) return false;
+// ── Telegram Command Listener ───────────────────────────────────────────────
+async function pollTelegram() {
+  try {
+    const r = await fetch(
+      `https://api.telegram.org/bot${TG_BOT}/getUpdates?offset=${tgOffset}&timeout=30&allowed_updates=["message"]`,
+      { signal: AbortSignal.timeout(35000) }
+    );
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.ok || !data.result?.length) return;
 
-  const minutes = et.getHours() * 60 + et.getMinutes();
-  // 9:25 AM (pre-open buffer) to 4:05 PM (post-close buffer)
-  return minutes >= 565 && minutes <= 965;
-}
+    for (const update of data.result) {
+      tgOffset = update.update_id + 1;
+      const msg = update.message;
+      if (!msg?.text || String(msg.chat?.id) !== TG_CHAT) continue;
 
-function getETDate() {
-  return new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
-}
-
-// ── Main check cycle ────────────────────────────────────────────────────────
-async function runCheck() {
-  // Reset alerts at start of each new trading day
-  const today = getETDate();
-  if (lastMarketDate && lastMarketDate !== today) {
-    alertsSent.clear();
-    console.log(`[${new Date().toISOString()}] New trading day — alerts reset`);
+      const text = msg.text.trim();
+      if (text.startsWith('/')) {
+        await handleCommand(text);
+      }
+    }
+  } catch (e) {
+    if (!e.message?.includes('abort')) {
+      console.error('[TG-POLL]', e.message);
+    }
   }
-  lastMarketDate = today;
+}
+
+async function handleCommand(text) {
+  const parts = text.split(/\s+/);
+  const cmd = parts[0].toLowerCase().replace('@pauls_trading_alerts_bot', '');
 
   try {
-    // Load latest state from Supabase
-    const state = await loadState();
-    lastState = state;
-
-    const openTrades = (state.trades || []).filter(t => t.status === 'Open');
-    if (openTrades.length === 0) {
-      console.log(`[${new Date().toISOString()}] No open positions`);
-      return;
+    switch (cmd) {
+      case '/status': return await cmdStatus();
+      case '/spreads': return await cmdSpreads();
+      case '/pnl': return await cmdPnl();
+      case '/sl': return await cmdUpdateField(parts, 'slPrice', 'Stop Loss');
+      case '/tp': return await cmdUpdateField(parts, 'tpPrice', 'Take Profit');
+      case '/help': return await cmdHelp();
+      default: {
+        // Check if it's a ticker command like /nvda /cat etc
+        const ticker = cmd.replace('/', '').toUpperCase();
+        if (ticker.length >= 1 && ticker.length <= 5 && /^[A-Z]+$/.test(ticker)) {
+          return await cmdTicker(ticker);
+        }
+        tg(`Unknown command: ${cmd}\nType /help for available commands`);
+      }
     }
-
-    // Get unique tickers
-    const tickers = [...new Set(openTrades.map(t => t.ticker))];
-
-    // Fetch quotes
-    const quotes = await fetchQuotes(tickers);
-    const quotedCount = Object.keys(quotes).length;
-
-    // Check alerts
-    const alertCount = checkAlerts(state, quotes);
-
-    // Log
-    const prices = tickers.map(t => `${t}:${quotes[t]?.price?.toFixed(2) || '?'}`).join(' ');
-    console.log(`[${new Date().toISOString()}] ${quotedCount}/${tickers.length} quotes | ${alertCount} alerts | ${prices}`);
-
-    consecutiveErrors = 0;
   } catch (e) {
-    consecutiveErrors++;
-    console.error(`[${new Date().toISOString()}] ERROR (${consecutiveErrors}x): ${e.message}`);
-
-    // Alert on Telegram after 5 consecutive errors
-    if (consecutiveErrors === 5 && lastState) {
-      sendTelegram(lastState.tgBot, lastState.tgChat,
-        `🚨 <b>ALERT SERVER ERROR</b>\n${e.message}\n5 consecutive failures — check VPS`
-      );
-    }
+    console.error(`[CMD] ${cmd}: ${e.message}`);
+    tg(`Error: ${e.message}`);
   }
 }
 
-// ── Market open/close notifications ─────────────────────────────────────────
+async function cmdHelp() {
+  tg(
+    `<b>Trading Desk Commands</b>\n\n` +
+    `/status — All positions overview\n` +
+    `/spreads — Live spread values\n` +
+    `/pnl — P&L summary\n` +
+    `/sl TICKER PRICE — Update stop loss\n` +
+    `/tp TICKER PRICE — Update take profit\n` +
+    `/{ticker} — Detail on one position\n\n` +
+    `<i>Example: /sl NVDA 192</i>`
+  );
+}
+
+async function cmdStatus() {
+  const state = await loadState();
+  const trades = (state.trades || []).filter(t => t.status === 'Open');
+  if (!trades.length) return tg('No open positions');
+
+  const tickers = [...new Set(trades.map(t => t.ticker))];
+  const quotes = await fetchQuotes(tickers);
+
+  const lines = trades.map(t => {
+    const q = quotes[t.ticker];
+    const dl = daysLeft(t.expiry);
+    const spread = spreadCache[t.id];
+    const price = q ? `$${q.price.toFixed(2)}` : '?';
+    const chg = q ? `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%` : '';
+    const prox = q ? `${((q.price - t.shortStrike) / q.price * 100).toFixed(1)}%` : '?';
+    const status = q && q.price < t.shortStrike ? '🔴' : q && ((q.price - t.shortStrike) / q.price * 100) < 5 ? '⚠️' : '🟢';
+    const spreadStr = spread ? `$${spread.mid.toFixed(2)}` : '-';
+    const slStr = t.slPrice ? `SL:$${t.slPrice}` : '';
+    const tpStr = t.tpPrice ? `TP:$${t.tpPrice}` : '';
+
+    return `${status} <b>${t.ticker}</b> ${price} (${chg})\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE\n   Spread: ${spreadStr} | Prox: ${prox}\n   ${[slStr, tpStr].filter(Boolean).join(' | ')}`;
+  });
+
+  tg(`📊 <b>Open Positions (${trades.length})</b>\n\n${lines.join('\n\n')}`);
+}
+
+async function cmdSpreads() {
+  const state = await loadState();
+  const trades = (state.trades || []).filter(t => t.status === 'Open');
+  if (!trades.length) return tg('No open positions');
+
+  // Force a fresh spread refresh
+  lastSpreadFetch = 0;
+  await refreshAllSpreads(state.trades);
+
+  const lines = trades.map(t => {
+    const spread = spreadCache[t.id];
+    const premium = t.premiumCollected || 0;
+    const contracts = t.contracts || 1;
+    const entrySpread = premium / (100 * contracts);
+
+    if (!spread) return `${t.ticker} ${t.shortStrike}/${t.longStrike}: no data`;
+
+    const costToClose = spread.mid * 100 * contracts;
+    const pnl = premium - costToClose;
+    const pnlSign = pnl >= 0 ? '+' : '-';
+    const pnlPct = premium > 0 ? (pnl / premium * 100).toFixed(0) : '0';
+
+    return `${pnl >= 0 ? '🟢' : '🔴'} <b>${t.ticker}</b> $${spread.mid.toFixed(2)} (entry $${entrySpread.toFixed(2)})\n   ${pnlSign}$${Math.abs(pnl).toFixed(0)} (${pnlPct}%) | Δ${spread.delta?.toFixed(2) || '?'}`;
+  });
+
+  tg(`📈 <b>Live Spreads</b>\n\n${lines.join('\n\n')}`);
+}
+
+async function cmdPnl() {
+  const state = await loadState();
+  const trades = (state.trades || []).filter(t => t.status === 'Open');
+  if (!trades.length) return tg('No open positions');
+
+  const tickers = [...new Set(trades.map(t => t.ticker))];
+  const quotes = await fetchQuotes(tickers);
+
+  let totalPnl = 0;
+  let totalPremium = 0;
+
+  const lines = trades.map(t => {
+    const q = quotes[t.ticker];
+    const pnlData = unrealizedPnl(t, q?.price);
+    const premium = t.premiumCollected || 0;
+    totalPremium += premium;
+
+    if (!pnlData) return `${t.ticker}: no data`;
+
+    totalPnl += pnlData.pnl;
+    const sign = pnlData.pnl >= 0 ? '+' : '-';
+    const icon = pnlData.pnl >= 0 ? '🟢' : '🔴';
+
+    return `${icon} ${t.ticker}: ${sign}$${Math.abs(pnlData.pnl).toFixed(0)} (${pnlData.source})`;
+  });
+
+  const totalSign = totalPnl >= 0 ? '+' : '-';
+  const totalIcon = totalPnl >= 0 ? '🟢' : '🔴';
+
+  tg(
+    `💰 <b>P&L Summary</b>\n\n` +
+    lines.join('\n') + '\n\n' +
+    `${totalIcon} <b>Total: ${totalSign}$${Math.abs(totalPnl).toFixed(0)}</b>\n` +
+    `Total premium: $${totalPremium.toFixed(0)}`
+  );
+}
+
+async function cmdTicker(ticker) {
+  const state = await loadState();
+  const trades = (state.trades || []).filter(t => t.status === 'Open' && t.ticker.toUpperCase() === ticker);
+  if (!trades.length) return tg(`No open position for ${ticker}`);
+
+  const quotes = await fetchQuotes([ticker]);
+  const q = quotes[ticker];
+
+  for (const t of trades) {
+    const spread = spreadCache[t.id];
+    const pnlData = unrealizedPnl(t, q?.price);
+    const dl = daysLeft(t.expiry);
+    const premium = t.premiumCollected || 0;
+    const contracts = t.contracts || 1;
+    const width = Math.abs(t.shortStrike - t.longStrike);
+    const maxLoss = (width * 100 * contracts) - premium;
+    const entrySpread = premium / (100 * contracts);
+
+    let msg = `📋 <b>${t.ticker} ${t.tradeType}</b>\n\n`;
+    msg += `Strikes: ${t.shortStrike}/${t.longStrike} x${contracts}\n`;
+    msg += `Expiry: ${t.expiry} (${dl} DTE)\n`;
+    msg += `Entry: ${t.entryDate}\n\n`;
+
+    if (q) {
+      const prox = ((q.price - t.shortStrike) / q.price * 100);
+      msg += `📍 Price: $${q.price.toFixed(2)} (${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%)\n`;
+      msg += `Distance from strike: ${prox.toFixed(1)}%\n\n`;
+    }
+
+    if (spread) {
+      msg += `📊 <b>Spread: $${spread.mid.toFixed(2)}</b> (${spread.ts})\n`;
+      msg += `Bid/Ask: $${spread.low.toFixed(2)} / $${spread.high.toFixed(2)}\n`;
+      if (spread.delta) msg += `Delta: ${spread.delta.toFixed(3)}\n`;
+      if (spread.iv) msg += `IV: ${(spread.iv * 100).toFixed(1)}%\n`;
+      msg += '\n';
+    }
+
+    msg += `💰 Premium: $${premium.toFixed(0)} ($${entrySpread.toFixed(2)}/spread)\n`;
+    msg += `Max loss: $${maxLoss.toFixed(0)}\n`;
+
+    if (pnlData) {
+      const sign = pnlData.pnl >= 0 ? '+' : '-';
+      msg += `P&L: ${sign}$${Math.abs(pnlData.pnl).toFixed(0)} (${pnlData.source})\n`;
+    }
+
+    if (t.slPrice) msg += `\n🛑 SL: $${t.slPrice}`;
+    if (t.tpPrice) msg += `\n✅ TP: $${t.tpPrice}`;
+
+    msg += `\n\n<i>/sl ${ticker} PRICE — update stop\n/tp ${ticker} PRICE — update target</i>`;
+
+    tg(msg);
+  }
+}
+
+async function cmdUpdateField(parts, field, label) {
+  // /sl NVDA 192  or  /tp CAT 0.40
+  if (parts.length < 3) {
+    return tg(`Usage: ${parts[0]} TICKER VALUE\nExample: ${parts[0]} NVDA 192`);
+  }
+
+  const ticker = parts[1].toUpperCase();
+  const value = parseFloat(parts[2]);
+  if (isNaN(value)) return tg(`Invalid value: ${parts[2]}`);
+
+  const state = await loadState();
+  const trades = (state.trades || []).filter(t => t.status === 'Open' && t.ticker === ticker);
+  if (!trades.length) return tg(`No open position for ${ticker}`);
+
+  // Update all open trades for this ticker
+  let updated = 0;
+  for (const t of trades) {
+    t[field] = value;
+    updated++;
+  }
+
+  await saveState(state);
+  lastState = state;
+
+  // Clear relevant alerts so they re-trigger at new levels
+  for (const t of trades) {
+    const key = t.id + '-';
+    alertsSent.delete(key + 'sl');
+    alertsSent.delete(key + 'tp');
+  }
+
+  tg(`✅ <b>${ticker} ${label} → $${value}</b>\n${updated} trade(s) updated\n\n<i>Card will update on next refresh</i>`);
+}
+
+// ── Hourly Summary ──────────────────────────────────────────────────────────
+async function sendHourlySummary() {
+  try {
+    const state = await loadState();
+    const trades = (state.trades || []).filter(t => t.status === 'Open');
+    if (!trades.length) return;
+
+    const tickers = [...new Set(trades.map(t => t.ticker))];
+    const quotes = await fetchQuotes(tickers);
+
+    const etHour = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+
+    const lines = trades.map(t => {
+      const q = quotes[t.ticker];
+      if (!q) return `  ${t.ticker}: no quote`;
+
+      const spread = spreadCache[t.id];
+      const pnlData = unrealizedPnl(t, q.price);
+      const prox = ((q.price - t.shortStrike) / q.price * 100);
+      const icon = q.price < t.shortStrike ? '🔴' : prox < 5 ? '⚠️' : '🟢';
+
+      let line = `${icon} ${t.ticker} $${q.price.toFixed(2)} (${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%)`;
+      if (spread) line += ` | Sprd $${spread.mid.toFixed(2)}`;
+      if (pnlData) {
+        const sign = pnlData.pnl >= 0 ? '+' : '-';
+        line += ` | ${sign}$${Math.abs(pnlData.pnl).toFixed(0)}`;
+      }
+      return line;
+    });
+
+    tg(`🕐 <b>${etHour} ET Update</b>\n\n${lines.join('\n')}`);
+  } catch (e) {
+    console.error('[HOURLY]', e.message);
+  }
+}
+
+// ── Market Open/Close ───────────────────────────────────────────────────────
 async function sendMarketOpen() {
   try {
     const state = await loadState();
@@ -223,18 +610,23 @@ async function sendMarketOpen() {
     if (openTrades.length === 0) return;
 
     const tickers = [...new Set(openTrades.map(t => t.ticker))];
-    const tradesWithTP = openTrades.filter(t => t.tpPrice).length;
     const tradesWithSL = openTrades.filter(t => t.slPrice).length;
+    const tradesWithTP = openTrades.filter(t => t.tpPrice).length;
 
-    // Reset alerts for new day
     alertsSent.clear();
 
-    sendTelegram(state.tgBot, state.tgChat,
-      `🟢 <b>Market Open — Alert Server Active</b>\n` +
+    tg(
+      `🟢 <b>Market Open — Alert Server Active</b>\n\n` +
       `Monitoring ${openTrades.length} positions (${tickers.length} tickers)\n` +
-      `TP set: ${tradesWithTP} | SL set: ${tradesWithSL}\n` +
-      `Checking every 60s until 4:00 PM ET`
+      `SL set: ${tradesWithSL} | TP set: ${tradesWithTP}\n` +
+      `Spreads checked every 5 min\n` +
+      `Hourly summaries enabled\n\n` +
+      `<i>Type /help for commands</i>`
     );
+
+    // Fetch initial spreads
+    lastSpreadFetch = 0;
+    await refreshAllSpreads(state.trades);
   } catch (e) {
     console.error('[OPEN]', e.message);
   }
@@ -243,25 +635,45 @@ async function sendMarketOpen() {
 async function sendMarketClose() {
   try {
     const state = await loadState();
-    const openTrades = (state.trades || []).filter(t => t.status === 'Open');
-    if (openTrades.length === 0) return;
+    const trades = (state.trades || []).filter(t => t.status === 'Open');
+    if (trades.length === 0) return;
 
-    const quotes = await fetchQuotes([...new Set(openTrades.map(t => t.ticker))]);
+    const tickers = [...new Set(trades.map(t => t.ticker))];
+    const quotes = await fetchQuotes(tickers);
 
-    // Build summary
-    const lines = openTrades.map(t => {
+    // Force final spread refresh
+    lastSpreadFetch = 0;
+    await refreshAllSpreads(state.trades);
+
+    let totalPnl = 0;
+    const lines = trades.map(t => {
       const q = quotes[t.ticker];
       if (!q) return `  ${t.ticker}: no quote`;
-      const prox = ((q.price - t.shortStrike) / q.price) * 100;
+
+      const spread = spreadCache[t.id];
+      const pnlData = unrealizedPnl(t, q.price);
+      const prox = ((q.price - t.shortStrike) / q.price * 100);
       const dl = daysLeft(t.expiry);
-      const status = q.price < t.shortStrike ? '🔴' : prox < 5 ? '⚠️' : '🟢';
-      return `  ${status} ${t.ticker} $${q.price.toFixed(2)} (${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%) | ${prox.toFixed(1)}% from strike | ${dl} DTE`;
+      const icon = q.price < t.shortStrike ? '🔴' : prox < 5 ? '⚠️' : '🟢';
+
+      if (pnlData) totalPnl += pnlData.pnl;
+
+      let line = `${icon} <b>${t.ticker}</b> $${q.price.toFixed(2)} (${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%)`;
+      line += `\n   ${t.shortStrike}/${t.longStrike} | ${prox.toFixed(1)}% from strike | ${dl}DTE`;
+      if (spread) line += `\n   Spread: $${spread.mid.toFixed(2)}`;
+      if (pnlData) {
+        const sign = pnlData.pnl >= 0 ? '+' : '-';
+        line += ` | P&L: ${sign}$${Math.abs(pnlData.pnl).toFixed(0)}`;
+      }
+      return line;
     });
 
-    sendTelegram(state.tgBot, state.tgChat,
-      `🔴 <b>Market Closed — Daily Summary</b>\n` +
-      `${openTrades.length} open positions:\n` +
-      lines.join('\n') + '\n' +
+    const totalSign = totalPnl >= 0 ? '+' : '-';
+
+    tg(
+      `🔴 <b>Market Closed — Daily Summary</b>\n\n` +
+      lines.join('\n\n') + '\n\n' +
+      `<b>Total P&L: ${totalSign}$${Math.abs(totalPnl).toFixed(0)}</b>\n` +
       `Alerts sent today: ${alertsSent.size}`
     );
   } catch (e) {
@@ -269,39 +681,142 @@ async function sendMarketClose() {
   }
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function daysLeft(expiry) {
+  if (!expiry) return Infinity;
+  const exp = new Date(expiry + 'T16:00:00-05:00');
+  return Math.ceil((exp - new Date()) / 86400000);
+}
+
+function isMarketHours() {
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = et.getDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = et.getHours() * 60 + et.getMinutes();
+  return minutes >= 565 && minutes <= 965; // 9:25 AM to 4:05 PM
+}
+
+function getETDate() {
+  return new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+}
+
+function ts() {
+  return new Date().toISOString().replace('T', ' ').slice(0, 19);
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// ── Main Check Cycle ────────────────────────────────────────────────────────
+async function runCheck() {
+  const today = getETDate();
+  if (lastMarketDate && lastMarketDate !== today) {
+    alertsSent.clear();
+    console.log(`[${ts()}] New trading day — alerts reset`);
+  }
+  lastMarketDate = today;
+
+  try {
+    const state = await loadState();
+    lastState = state;
+
+    const openTrades = (state.trades || []).filter(t => t.status === 'Open');
+    if (openTrades.length === 0) {
+      console.log(`[${ts()}] No open positions`);
+      return;
+    }
+
+    const tickers = [...new Set(openTrades.map(t => t.ticker))];
+
+    // Fetch stock quotes (every cycle — Yahoo is free)
+    const quotes = await fetchQuotes(tickers);
+
+    // Fetch spread values (every 5 min — MarketData.app is metered)
+    await refreshAllSpreads(state.trades);
+
+    // Check all alerts
+    const alertCount = checkAlerts(state, quotes);
+
+    // Log
+    const prices = tickers.map(t => `${t}:${quotes[t]?.price?.toFixed(2) || '?'}`).join(' ');
+    const spreadCount = Object.keys(spreadCache).length;
+    console.log(`[${ts()}] ${Object.keys(quotes).length}/${tickers.length} quotes | ${spreadCount} spreads | ${alertCount} alerts | ${prices}`);
+
+    consecutiveErrors = 0;
+  } catch (e) {
+    consecutiveErrors++;
+    console.error(`[${ts()}] ERROR (${consecutiveErrors}x): ${e.message}`);
+
+    if (consecutiveErrors === 5) {
+      tg(`🚨 <b>ALERT SERVER ERROR</b>\n${e.message}\n5 consecutive failures — check VPS`);
+    }
+  }
+}
+
+// ── Telegram Polling Loop ───────────────────────────────────────────────────
+async function telegramLoop() {
+  console.log('[TG] Command listener started');
+  while (true) {
+    await pollTelegram();
+    await sleep(1000);
+  }
+}
+
 // ── Schedule ────────────────────────────────────────────────────────────────
 
-// Check every 60 seconds during market hours (Mon-Fri)
+// Stock + alert check every 60s during market hours
 cron.schedule('* * * * 1-5', () => {
   if (isMarketHours()) runCheck();
 }, { timezone: 'America/New_York' });
 
-// Market open notification at 9:30 AM ET
+// Market open at 9:30 AM ET
 cron.schedule('30 9 * * 1-5', sendMarketOpen, { timezone: 'America/New_York' });
+
+// Hourly summaries at :00 during market hours (10 AM - 3 PM)
+cron.schedule('0 10-15 * * 1-5', () => {
+  if (isMarketHours()) sendHourlySummary();
+}, { timezone: 'America/New_York' });
 
 // Market close summary at 4:05 PM ET
 cron.schedule('5 16 * * 1-5', sendMarketClose, { timezone: 'America/New_York' });
 
 // ── Startup ─────────────────────────────────────────────────────────────────
-console.log('═══════════════════════════════════════════════════════');
-console.log('  Trading Desk Alert Server');
-console.log('  Checking every 60s during market hours (9:30-4:00 ET)');
-console.log('  Reads positions from Supabase, sends alerts via Telegram');
-console.log('═══════════════════════════════════════════════════════');
+console.log('═══════════════════════════════════════════════════════════');
+console.log('  Trading Desk Alert Server v2');
+console.log('  Stock checks: every 60s | Spread checks: every 5 min');
+console.log('  Telegram commands: /help /status /spreads /pnl /sl /tp');
+console.log('  Hourly summaries: 10 AM - 3 PM ET');
+console.log('═══════════════════════════════════════════════════════════');
 
-// Run an initial check if market is currently open
+// Start Telegram command listener (runs 24/7)
+telegramLoop();
+
+// Run initial check
 if (isMarketHours()) {
   console.log('Market is open — running initial check...');
   runCheck();
 } else {
   console.log('Market closed — waiting for next market hours...');
-  // Still do a state check to verify connectivity
   loadState()
-    .then(s => {
+    .then(async s => {
       const openTrades = (s.trades || []).filter(t => t.status === 'Open');
       console.log(`✓ Supabase connected — ${openTrades.length} open positions`);
-      if (s.tgBot && s.tgChat) console.log('✓ Telegram configured');
-      else console.log('⚠ Telegram not configured — set bot token & chat ID in app Settings');
+      console.log('✓ Telegram configured');
+      console.log('✓ MarketData.app Trader plan active');
+
+      // Test spread fetch on startup
+      if (openTrades.length > 0) {
+        console.log('Testing spread fetch...');
+        try {
+          const sv = await fetchSpreadValue(openTrades[0]);
+          if (sv) console.log(`✓ Spread test: ${openTrades[0].ticker} = $${sv.mid.toFixed(2)}`);
+          else console.log('⚠ Spread test returned null');
+        } catch (e) {
+          console.error('✗ Spread test failed:', e.message);
+        }
+      }
     })
-    .catch(e => console.error('✗ Supabase connection failed:', e.message));
+    .catch(e => console.error('✗ Startup check failed:', e.message));
 }
