@@ -25,6 +25,8 @@ let lastMarketDate = null;
 let lastState = null;
 let consecutiveErrors = 0;
 let spreadCache = {};        // { tradeId: { mid, high, low, delta, ts, fetchedAt } }
+let prevSpreadCache = {};    // previous hour's spreads for change tracking
+let prevQuoteCache = {};     // previous hour's stock prices for change tracking
 let lastSpreadFetch = 0;
 let tgOffset = 0;            // Telegram polling offset
 
@@ -607,26 +609,65 @@ async function sendHourlySummary() {
     const tickers = [...new Set(trades.map(t => t.ticker))];
     const quotes = await fetchQuotes(tickers);
 
+    // Refresh spreads
+    lastSpreadFetch = 0;
+    await refreshAllSpreads(state.trades);
+
     const etHour = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
 
     const lines = trades.map(t => {
       const q = quotes[t.ticker];
-      if (!q) return `  ${t.ticker}: no quote`;
+      if (!q) return `  ${t.ticker}: no data`;
 
       const spread = spreadCache[t.id];
+      const prevSpread = prevSpreadCache[t.id];
+      const prevPrice = prevQuoteCache[t.ticker];
       const pnlData = unrealizedPnl(t, q.price);
-      const icon = pnlData ? (pnlData.pnl >= 0 ? '🟢' : '🔴') : (q.price < t.shortStrike ? '🔴' : '🟢');
+      const icon = pnlData ? (pnlData.pnl >= 0 ? '🟢' : '🔴') : '⚪';
 
-      let line = `${icon} ${t.ticker} $${q.price.toFixed(2)} (${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%)`;
-      if (spread) line += ` | Sprd $${spread.mid.toFixed(2)}`;
+      // Price change since last hour
+      const priceChg = prevPrice ? q.price - prevPrice : null;
+      const priceChgStr = priceChg != null ? ` (${priceChg >= 0 ? '↑' : '↓'}$${Math.abs(priceChg).toFixed(2)}/hr)` : '';
+
+      // Spread change since last hour
+      const spreadChg = (spread && prevSpread) ? spread.mid - prevSpread.mid : null;
+      const spreadChgStr = spreadChg != null ? ` (${spreadChg > 0 ? '↑' : spreadChg < 0 ? '↓' : '→'}$${Math.abs(spreadChg).toFixed(2)})` : '';
+
+      let line = `${icon} <b>${t.ticker}</b>${priceChgStr}`;
+
+      // Spread + change
+      if (spread) line += `\n   Sprd: $${spread.mid.toFixed(2)}${spreadChgStr}`;
+
+      // Distance to SL
+      if (t.slPrice) {
+        const slDist = q.price - parseFloat(t.slPrice);
+        const impliedMove = spread?.iv ? q.price * spread.iv * Math.sqrt(1/252) : null;
+        const slMoves = impliedMove ? ` (${(slDist / impliedMove).toFixed(1)}x IV move)` : '';
+        line += `\n   SL: $${slDist.toFixed(1)} away${slMoves}`;
+      }
+
+      // Distance to TP
+      if (t.tpPrice) {
+        const tpDist = parseFloat(t.tpPrice) - q.price;
+        line += `\n   TP: $${tpDist.toFixed(1)} away`;
+      }
+
+      // P&L
       if (pnlData) {
         const sign = pnlData.pnl >= 0 ? '+' : '-';
-        line += ` | ${sign}$${Math.abs(pnlData.pnl).toFixed(0)}`;
+        line += `\n   P&L: ${sign}$${Math.abs(pnlData.pnl).toFixed(0)}`;
       }
+
       return line;
     });
 
-    tg(`🕐 <b>${etHour} ET Update</b>\n\n${lines.join('\n')}`);
+    tg(`🕐 <b>${etHour} ET</b>\n\n${lines.join('\n\n')}`);
+
+    // Snapshot current values for next hour's comparison
+    prevSpreadCache = { ...spreadCache };
+    for (const t of tickers) {
+      if (quotes[t]) prevQuoteCache[t] = quotes[t].price;
+    }
   } catch (e) {
     console.error('[HOURLY]', e.message);
   }
