@@ -242,14 +242,38 @@ function checkAlerts(state, quotes) {
       alertCount++;
     }
 
-    // SL hit (stock price)
+    // SL hit (stock price — thesis broken)
     if (t.slPrice && q.price <= parseFloat(t.slPrice) && !alertsSent.has(key + 'sl')) {
       alertsSent.add(key + 'sl');
-      tg(`🛑 <b>${t.ticker} STOP LOSS HIT</b>\n$${q.price.toFixed(2)} ≤ SL $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+      const spreadLine = spread ? `\nSpread: $${spread.mid.toFixed(2)}` : '';
+      tg(
+        `🛑 <b>${t.ticker} PRICE STOP LOSS HIT</b>\n` +
+        `$${q.price.toFixed(2)} ≤ SL $${t.slPrice} — thesis broken\n` +
+        `${t.longStrike}/${t.shortStrike} x${t.contracts} | DTE: ${dl}${spreadLine}\n` +
+        `<i>Close the trade — your thesis is invalidated</i>`
+      );
       alertCount++;
     }
 
-    // ── Spread value alerts ─────────────────────────────────────────────
+    // ── Spread stop loss (911 — non-negotiable) ─────────────────────────
+
+    if (t.spreadSL && spread?.mid != null && spread.mid >= parseFloat(t.spreadSL) && !alertsSent.has(key + 'spreadSL')) {
+      alertsSent.add(key + 'spreadSL');
+      const premium = t.premiumCollected || 0;
+      const contracts = t.contracts || 1;
+      const costToClose = spread.mid * 100 * contracts;
+      const pnl = premium - costToClose;
+      tg(
+        `🚨🚨🚨 <b>${t.ticker} SPREAD STOP LOSS — GET OUT NOW</b>\n\n` +
+        `Spread: $${spread.mid.toFixed(2)} ≥ SSL $${t.spreadSL}\n` +
+        `P&L: -$${Math.abs(pnl).toFixed(0)}\n` +
+        `${t.shortStrike}/${t.longStrike} x${contracts} | DTE: ${dl}\n\n` +
+        `<b>THIS IS YOUR HARD STOP. CLOSE IT.</b>`
+      );
+      alertCount++;
+    }
+
+    // ── Percentage-based spread alerts ───────────────────────────────────
 
     if (pnlData && t.premiumCollected) {
       const premium = t.premiumCollected;
@@ -358,7 +382,8 @@ async function handleCommand(text) {
       case '/status': return await cmdStatus();
       case '/spreads': return await cmdSpreads();
       case '/pnl': return await cmdPnl();
-      case '/sl': return await cmdUpdateField(parts, 'slPrice', 'Stop Loss');
+      case '/sl': return await cmdUpdateField(parts, 'slPrice', 'Price Stop Loss');
+      case '/ssl': return await cmdUpdateField(parts, 'spreadSL', 'Spread Stop Loss');
       case '/tp': return await cmdUpdateField(parts, 'tpPrice', 'Take Profit');
       case '/help': return await cmdHelp();
       default: {
@@ -382,10 +407,12 @@ async function cmdHelp() {
     `/status — All positions overview\n` +
     `/spreads — Live spread values\n` +
     `/pnl — P&L summary\n` +
-    `/sl TICKER PRICE — Update stop loss\n` +
-    `/tp TICKER PRICE — Update take profit\n` +
+    `/sl TICKER PRICE — Price stop loss\n` +
+    `/ssl TICKER VALUE — Spread stop loss (911)\n` +
+    `/tp TICKER PRICE — Take profit\n` +
     `/{ticker} — Detail on one position\n\n` +
-    `<i>Example: /sl NVDA 192</i>`
+    `<i>/sl NVDA 192 — thesis broken, get out</i>\n` +
+    `<i>/ssl NVDA 4.50 — spread can't go above this</i>`
   );
 }
 
@@ -417,6 +444,7 @@ async function cmdStatus() {
 
     // Distance to SL/TP
     const slDist = (t.slPrice && q) ? `SL:$${t.slPrice} (${(q.price - parseFloat(t.slPrice)).toFixed(1)} away)` : '';
+    const sslDist = (t.spreadSL && spread) ? `SSL:$${t.spreadSL} ($${(parseFloat(t.spreadSL) - spread.mid).toFixed(2)} away)` : '';
     const tpDist = (t.tpPrice && q) ? `TP:$${t.tpPrice} (${(parseFloat(t.tpPrice) - q.price).toFixed(1)} away)` : '';
 
     // Daily implied move from IV
@@ -426,7 +454,7 @@ async function cmdStatus() {
     line += `\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE`;
     line += `\n   Spread: ${spreadStr} | P&L: ${pnlStr} | Prox: ${prox}`;
     if (impliedMove) line += `\n   IV Move: ${impliedMove}`;
-    if (slDist || tpDist) line += `\n   ${[slDist, tpDist].filter(Boolean).join(' | ')}`;
+    if (slDist || sslDist || tpDist) line += `\n   ${[slDist, sslDist, tpDist].filter(Boolean).join('\n   ')}`;
 
     return line;
   });
@@ -556,10 +584,11 @@ async function cmdTicker(ticker) {
       msg += `P&L: ${sign}$${Math.abs(pnlData.pnl).toFixed(0)} (${pnlData.source})\n`;
     }
 
-    if (t.slPrice) msg += `\n🛑 SL: $${t.slPrice}`;
+    if (t.slPrice) msg += `\n🛑 Price SL: $${t.slPrice}`;
+    if (t.spreadSL) msg += `\n🚨 Spread SL: $${t.spreadSL}`;
     if (t.tpPrice) msg += `\n✅ TP: $${t.tpPrice}`;
 
-    msg += `\n\n<i>/sl ${ticker} PRICE — update stop\n/tp ${ticker} PRICE — update target</i>`;
+    msg += `\n\n<i>/sl ${ticker} PRICE — price stop\n/ssl ${ticker} VALUE — spread stop (911)\n/tp ${ticker} PRICE — take profit</i>`;
 
     tg(msg);
   }
@@ -594,6 +623,7 @@ async function cmdUpdateField(parts, field, label) {
     const key = t.id + '-';
     alertsSent.delete(key + 'sl');
     alertsSent.delete(key + 'tp');
+    alertsSent.delete(key + 'spreadSL');
   }
 
   tg(`✅ <b>${ticker} ${label} → $${value}</b>\n${updated} trade(s) updated\n\n<i>Card will update on next refresh</i>`);
@@ -638,12 +668,18 @@ async function sendHourlySummary() {
       // Spread + change
       if (spread) line += `\n   Sprd: $${spread.mid.toFixed(2)}${spreadChgStr}`;
 
-      // Distance to SL
+      // Distance to price SL
       if (t.slPrice) {
         const slDist = q.price - parseFloat(t.slPrice);
         const impliedMove = spread?.iv ? q.price * spread.iv * Math.sqrt(1/252) : null;
         const slMoves = impliedMove ? ` (${(slDist / impliedMove).toFixed(1)}x IV move)` : '';
         line += `\n   SL: $${slDist.toFixed(1)} away${slMoves}`;
+      }
+
+      // Distance to spread SL (911)
+      if (t.spreadSL && spread) {
+        const sslDist = parseFloat(t.spreadSL) - spread.mid;
+        line += `\n   SSL: $${sslDist.toFixed(2)} from hard stop`;
       }
 
       // Distance to TP
