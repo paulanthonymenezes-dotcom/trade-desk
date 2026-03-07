@@ -239,6 +239,19 @@ table{width:100%;border-collapse:collapse}
         <input id="tf-slPrice" type="number" placeholder="e.g. 178.00">
         <div id="tf-sl-picks" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
       </div>
+      <div class="frow" style="margin-bottom:0">
+        <label>🚨 Spread SL — % of premium collected to stop out</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="tf-spreadSLPct" type="number" placeholder="e.g. 200" style="flex:1" oninput="calcSpreadSL()">
+          <span style="color:var(--text-secondary);font-size:11px">%</span>
+          <span id="tf-spreadSLCalc" style="color:var(--negative);font-size:12px;font-family:'IBM Plex Mono',monospace;min-width:80px"></span>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=150;calcSpreadSL()">150%</button>
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=200;calcSpreadSL()">200%</button>
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=300;calcSpreadSL()">300%</button>
+        </div>
+      </div>
     </div>
 
     <div class="frow"><label>Thesis — why are you in this trade?</label><textarea id="tf-thesis" style="height:60px" placeholder="What's the setup? What needs to happen for this to work?"></textarea></div>
@@ -2619,6 +2632,8 @@ function openTradeModal(id=null) {
   document.getElementById("tf-status").value = t?.status||"Open";
   document.getElementById("tf-tpPrice").value = t?.tpPrice||"";
   document.getElementById("tf-slPrice").value = t?.slPrice||"";
+  document.getElementById("tf-spreadSLPct").value = t?.spreadSLPct||"";
+  document.getElementById("tf-spreadSLCalc").textContent = t?.spreadSL ? `= $${parseFloat(t.spreadSL).toFixed(2)}` : "";
   document.getElementById("tf-deltaEntry").value = t?.deltaEntry||"";
   updateSRPicks(t?.ticker||"");
   document.getElementById("tf-pop").value = t?.pop||"";
@@ -2637,6 +2652,22 @@ function openTradeModal(id=null) {
   document.getElementById("trade-modal").style.display = "flex";
 }
 function closeTradeModal() { document.getElementById("trade-modal").style.display="none"; }
+
+function calcSpreadSLValue() {
+  const pct = parseFloat(document.getElementById("tf-spreadSLPct").value);
+  const premium = parseFloat(document.getElementById("tf-premium").value);
+  const contracts = parseInt(document.getElementById("tf-contracts").value) || 1;
+  if (!pct || !premium) return "";
+  const perSpread = premium / (100 * contracts);
+  const sl = perSpread * (pct / 100);
+  return sl.toFixed(2);
+}
+
+function calcSpreadSL() {
+  const sl = calcSpreadSLValue();
+  const el = document.getElementById("tf-spreadSLCalc");
+  el.textContent = sl ? `= $${sl}` : "";
+}
 
 function handleSaveTrade() {
   saveTrade();
@@ -2673,6 +2704,8 @@ function saveTrade() {
     status,
     tpPrice,
     slPrice,
+    spreadSLPct: document.getElementById("tf-spreadSLPct").value,
+    spreadSL: calcSpreadSLValue(),
     tpLevel: getSRLabel(ticker, tpPrice) || "custom",
     slLevel: getSRLabel(ticker, slPrice) || "custom",
     deltaEntry: document.getElementById("tf-deltaEntry").value,
@@ -2693,6 +2726,7 @@ function saveTrade() {
     if (pendingChartDataUrl === "CLEARED") newTrade.chartLink = '';
     if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Take Profit set at $${newTrade.tpPrice}`);
     if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Stop Loss set at $${newTrade.slPrice}`);
+    if (newTrade.spreadSL && newTrade.spreadSL !== prev.spreadSL) sendTelegram(`🚨 <b>${ticker}</b> Spread SL set at $${newTrade.spreadSL} (${newTrade.spreadSLPct}%)`);
     STATE.trades = STATE.trades.map(x=>x.id===editingTradeId?newTrade:x);
   } else {
     const entryD = new Date(newTrade.entryDate), expiryD = new Date(newTrade.expiry);
