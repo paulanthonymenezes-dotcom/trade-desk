@@ -1746,19 +1746,20 @@ function renderPositions() {
 
       <!-- Spread TP / Spread SL -->
       ${(t.spreadTP || t.spreadSL) ? (() => {
-        const spMid = t._liveSpread?.mid;
+        const spMid = t._liveSpread?.mid ?? null;
+        const spLabel = spMid != null ? `now $${spMid.toFixed(2)}` : '';
         const spreadTPDist = (t.spreadTP && spMid != null) ? ((spMid - parseFloat(t.spreadTP)) / spMid * 100).toFixed(0) : null;
         const spreadSLDist = (t.spreadSL && spMid != null) ? ((parseFloat(t.spreadSL) - spMid) / spMid * 100).toFixed(0) : null;
         return `<div style="display:flex;gap:6px;margin-bottom:10px">
         ${t.spreadTP ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
           <div style="font-size:9px;color:${C.pos};letter-spacing:.08em;margin-bottom:3px">🎯 SPREAD TP</div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.pos};font-weight:600">$${parseFloat(t.spreadTP).toFixed(2)}</div>
-          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadTPPct}% profit${spreadTPDist != null ? ` · ${spreadTPDist}% away` : ""}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadTPPct}% profit${spreadTPDist != null ? ` · ${spreadTPDist}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
         </div>` : ""}
         ${t.spreadSL ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
           <div style="font-size:9px;color:${C.neg};letter-spacing:.08em;margin-bottom:3px">🚨 SPREAD SL</div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.neg};font-weight:600">$${parseFloat(t.spreadSL).toFixed(2)}</div>
-          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadSLPct}% loss${spreadSLDist != null ? ` · ${spreadSLDist}% away` : ""}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadSLPct}% loss${spreadSLDist != null ? ` · ${spreadSLDist}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
         </div>` : ""}
       </div>`;
       })() : ""}
