@@ -1730,6 +1730,14 @@ function renderPositions() {
         })()}
       </div>
 
+      <!-- Spread SL -->
+      ${t.spreadSL ? `<div style="background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px;margin-bottom:10px">
+        <div style="font-size:9px;color:${C.neg};letter-spacing:.08em;margin-bottom:3px">🚨 SPREAD STOP LOSS</div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.neg};font-weight:600">$${parseFloat(t.spreadSL).toFixed(2)} ${t.spreadSLPct ? `<span style="font-size:10px;font-weight:400;color:${C.textSec}">(${t.spreadSLPct}% of premium)</span>` : ""}</div>
+        </div>
+      </div>` : ""}
+
       <!-- S/R Levels -->
       ${hasSR ? `<div style="margin-bottom:10px">
         ${resistances.length ? `<div style="margin-bottom:5px">
