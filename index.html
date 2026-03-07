@@ -239,6 +239,20 @@ table{width:100%;border-collapse:collapse}
         <input id="tf-slPrice" type="number" placeholder="e.g. 178.00">
         <div id="tf-sl-picks" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
       </div>
+      <div class="frow">
+        <label>🎯 Spread TP — % of premium to take profit (buy back at this value)</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="tf-spreadTPPct" type="number" placeholder="e.g. 50" style="flex:1" oninput="calcSpreadTP()">
+          <span style="color:var(--text-secondary);font-size:11px">%</span>
+          <span id="tf-spreadTPCalc" style="color:var(--positive);font-size:12px;font-family:'IBM Plex Mono',monospace;min-width:80px"></span>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=25;calcSpreadTP()">25%</button>
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=50;calcSpreadTP()">50%</button>
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=75;calcSpreadTP()">75%</button>
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=100;calcSpreadTP()">100%</button>
+        </div>
+      </div>
       <div class="frow" style="margin-bottom:0">
         <label>🚨 Spread SL — % of premium collected to stop out</label>
         <div style="display:flex;gap:8px;align-items:center">
@@ -1730,13 +1744,24 @@ function renderPositions() {
         })()}
       </div>
 
-      <!-- Spread SL -->
-      ${t.spreadSL ? `<div style="background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px;margin-bottom:10px">
-        <div style="font-size:9px;color:${C.neg};letter-spacing:.08em;margin-bottom:3px">🚨 SPREAD STOP LOSS</div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.neg};font-weight:600">$${parseFloat(t.spreadSL).toFixed(2)} ${t.spreadSLPct ? `<span style="font-size:10px;font-weight:400;color:${C.textSec}">(${t.spreadSLPct}% of premium)</span>` : ""}</div>
-        </div>
-      </div>` : ""}
+      <!-- Spread TP / Spread SL -->
+      ${(t.spreadTP || t.spreadSL) ? (() => {
+        const spMid = t._liveSpread?.mid;
+        const spreadTPDist = (t.spreadTP && spMid != null) ? ((spMid - parseFloat(t.spreadTP)) / spMid * 100).toFixed(0) : null;
+        const spreadSLDist = (t.spreadSL && spMid != null) ? ((parseFloat(t.spreadSL) - spMid) / spMid * 100).toFixed(0) : null;
+        return `<div style="display:flex;gap:6px;margin-bottom:10px">
+        ${t.spreadTP ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
+          <div style="font-size:9px;color:${C.pos};letter-spacing:.08em;margin-bottom:3px">🎯 SPREAD TP</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.pos};font-weight:600">$${parseFloat(t.spreadTP).toFixed(2)}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadTPPct}% profit${spreadTPDist != null ? ` · ${spreadTPDist}% away` : ""}</div>
+        </div>` : ""}
+        ${t.spreadSL ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
+          <div style="font-size:9px;color:${C.neg};letter-spacing:.08em;margin-bottom:3px">🚨 SPREAD SL</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.neg};font-weight:600">$${parseFloat(t.spreadSL).toFixed(2)}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadSLPct}% loss${spreadSLDist != null ? ` · ${spreadSLDist}% away` : ""}</div>
+        </div>` : ""}
+      </div>`;
+      })() : ""}
 
       <!-- S/R Levels -->
       ${hasSR ? `<div style="margin-bottom:10px">
@@ -2644,6 +2669,8 @@ function openTradeModal(id=null) {
   document.getElementById("tf-status").value = t?.status||"Open";
   document.getElementById("tf-tpPrice").value = t?.tpPrice||"";
   document.getElementById("tf-slPrice").value = t?.slPrice||"";
+  document.getElementById("tf-spreadTPPct").value = t?.spreadTPPct||"";
+  document.getElementById("tf-spreadTPCalc").textContent = t?.spreadTP ? `= $${parseFloat(t.spreadTP).toFixed(2)}` : "";
   document.getElementById("tf-spreadSLPct").value = t?.spreadSLPct||"";
   document.getElementById("tf-spreadSLCalc").textContent = t?.spreadSL ? `= $${parseFloat(t.spreadSL).toFixed(2)}` : "";
   document.getElementById("tf-deltaEntry").value = t?.deltaEntry||"";
@@ -2681,6 +2708,22 @@ function calcSpreadSL() {
   el.textContent = sl ? `= $${sl}` : "";
 }
 
+function calcSpreadTPValue() {
+  const pct = parseFloat(document.getElementById("tf-spreadTPPct").value);
+  const premium = parseFloat(document.getElementById("tf-premium").value);
+  const contracts = parseInt(document.getElementById("tf-contracts").value) || 1;
+  if (!pct || !premium) return "";
+  const perSpread = premium / (100 * contracts);
+  const tp = perSpread * (1 - pct / 100);
+  return tp.toFixed(2);
+}
+
+function calcSpreadTP() {
+  const tp = calcSpreadTPValue();
+  const el = document.getElementById("tf-spreadTPCalc");
+  el.textContent = tp ? `= $${tp}` : "";
+}
+
 function handleSaveTrade() {
   saveTrade();
 }
@@ -2716,6 +2759,8 @@ function saveTrade() {
     status,
     tpPrice,
     slPrice,
+    spreadTPPct: document.getElementById("tf-spreadTPPct").value,
+    spreadTP: calcSpreadTPValue(),
     spreadSLPct: document.getElementById("tf-spreadSLPct").value,
     spreadSL: calcSpreadSLValue(),
     tpLevel: getSRLabel(ticker, tpPrice) || "custom",
@@ -2738,6 +2783,7 @@ function saveTrade() {
     if (pendingChartDataUrl === "CLEARED") newTrade.chartLink = '';
     if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Take Profit set at $${newTrade.tpPrice}`);
     if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Stop Loss set at $${newTrade.slPrice}`);
+    if (newTrade.spreadTP && newTrade.spreadTP !== prev.spreadTP) sendTelegram(`🎯 <b>${ticker}</b> Spread TP set at $${newTrade.spreadTP} (${newTrade.spreadTPPct}% profit)`);
     if (newTrade.spreadSL && newTrade.spreadSL !== prev.spreadSL) sendTelegram(`🚨 <b>${ticker}</b> Spread SL set at $${newTrade.spreadSL} (${newTrade.spreadSLPct}%)`);
     STATE.trades = STATE.trades.map(x=>x.id===editingTradeId?newTrade:x);
   } else {
