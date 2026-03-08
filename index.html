@@ -642,6 +642,7 @@ let STATE = {
   spreadHistory: {}, // { tradeId: { 'YYYY-MM-DD': { high, low } } }
   ivHistory: {}, // { TICKER: { 'YYYY-MM-DD': iv_decimal } }
   sectors: {}, // { TICKER: sectorString }
+  watchlistTargets: {}, // { TICKER: { price: number, direction: 'below'|'above' } }
   tgBot: "", tgChat: "", alertIVRank: 60, alertStrikeProx: 5,
   accountBalance: 38788, ytdDeposits: 10118,
   ibkrToken: "", ibkrQueryId: "",
@@ -1433,6 +1434,7 @@ async function refreshAll() {
   if (_maeMfeChanged) save();
 
   checkAlerts();
+  checkWatchlistAlerts();
   trackDailyPrices();
   renderAll();
   btn.textContent = "↻"; btn.disabled = false;
@@ -1547,6 +1549,49 @@ function checkAlerts() {
     if (dl === 1 && !_alertedThisCycle.has(key+"exp")) {
       _alertedThisCycle.add(key+"exp");
       sendTelegram(`⏰ <b>${t.ticker}</b> expires TOMORROW — ${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+    }
+  });
+}
+
+// ── Watchlist Entry Target Alerts ─────────────────────────────────────────────
+function setWatchlistTarget(ticker) {
+  const q = STATE.quotes[ticker];
+  const existing = STATE.watchlistTargets?.[ticker];
+  const currentPrice = q ? q.price.toFixed(2) : '';
+  const price = prompt(`Set entry target price for ${ticker}${currentPrice ? ' (current: $' + currentPrice + ')' : ''}:`, existing?.price || '');
+  if (price === null) return;
+  const p = parseFloat(price);
+  if (isNaN(p) || p <= 0) { alert('Invalid price'); return; }
+  if (!STATE.watchlistTargets) STATE.watchlistTargets = {};
+  const direction = q && p < q.price ? 'below' : 'above';
+  STATE.watchlistTargets[ticker] = { price: p, direction };
+  save();
+  renderWatchlist();
+}
+
+function clearWatchlistTarget(ticker) {
+  if (STATE.watchlistTargets?.[ticker]) {
+    delete STATE.watchlistTargets[ticker];
+    save();
+    renderWatchlist();
+  }
+}
+
+function checkWatchlistAlerts() {
+  if (!STATE.watchlistTargets) return;
+  Object.entries(STATE.watchlistTargets).forEach(([ticker, tgt]) => {
+    if (!tgt || !tgt.price) return;
+    const q = STATE.quotes[ticker];
+    if (!q) return;
+    const key = 'wl-' + ticker + '-' + tgt.price;
+    if (_alertedThisCycle.has(key)) return;
+    const hit = (tgt.direction === 'below' && q.price <= tgt.price) ||
+                (tgt.direction === 'above' && q.price >= tgt.price);
+    if (hit) {
+      _alertedThisCycle.add(key);
+      const arrow = tgt.direction === 'below' ? '📉' : '📈';
+      sendTelegram(`${arrow} <b>${ticker} ENTRY TARGET HIT</b>\n$${q.price.toFixed(2)} ${tgt.direction === 'below' ? '≤' : '≥'} target $${tgt.price.toFixed(2)}\nTime to check for entry!`);
+      dbg(`${ticker} hit entry target $${tgt.price}`, 'warn');
     }
   });
 }
@@ -1709,13 +1754,7 @@ function renderWatchlist() {
           ${earnDays!==null?`<span style="font-size:9px;color:${C.warn};border:1px solid ${C.warn}33;padding:1px 5px;border-radius:2px">EARN ${earnDays}d</span>`:""}
           ${sectorBadge(ticker)}
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-            <span class="iv-pill" style="color:${ivrColor};background:${ivrBg}">${ivr!==null?"IVR "+ivr:"IVR —"}${currentIV!==null?" · "+(currentIV*100).toFixed(0)+"%":""}</span>
-            ${ivSparkline}
-          </div>
-          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:16px;line-height:1">×</button>
-        </div>
+        <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:16px;line-height:1">×</button>
       </div>
       ${q ? `
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
@@ -1725,6 +1764,23 @@ function renderWatchlist() {
           </div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>
         </div>
+        ${(()=>{
+          const tgt = STATE.watchlistTargets?.[ticker];
+          if (tgt && tgt.price) {
+            const dist = ((q.price - tgt.price) / q.price * 100);
+            const isBelow = tgt.direction === 'below';
+            const color = isBelow ? C.neg : C.pos;
+            const arrow = isBelow ? '▼' : '▲';
+            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;background:${color}08;border:1px solid ${color}33;border-radius:3px;padding:6px 10px">
+              <span style="font-size:9px;color:${color};letter-spacing:.06em;flex-shrink:0">${arrow} ENTRY TARGET</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${color};font-weight:600">$${parseFloat(tgt.price).toFixed(2)}</span>
+              <span style="font-size:10px;color:${C.textSec};flex:1">${Math.abs(dist).toFixed(1)}% ${dist>0?"above":"below"}</span>
+              <button onclick="setWatchlistTarget('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:9px;font-family:'IBM Plex Mono',monospace;cursor:pointer">EDIT</button>
+              <button onclick="clearWatchlistTarget('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:12px;cursor:pointer">×</button>
+            </div>`;
+          }
+          return `<button onclick="setWatchlistTarget('${ticker}')" class="btn btn-g" style="width:100%;padding:6px;font-size:10px;margin-bottom:10px;border-style:dashed">+ SET ENTRY TARGET</button>`;
+        })()}
         ${(supports.length || resistances.length) && q ? `
           <div style="margin-bottom:10px">
             ${resistances.length ? `
@@ -2302,13 +2358,7 @@ function renderPositions() {
       </div>` : `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
         <div><div class="lbl">PREMIUM</div><div class="val">$${(t.premiumCollected||0).toFixed(0)}</div></div>
         <div><div class="lbl">MAX LOSS</div><div class="val" style="color:${C.neg}">-$${maxLoss.toFixed(0)}</div></div>
-        ${(()=>{
-          const ivd = calcIVRankFromHistory(t.ticker);
-          const posIvr = ivd.ivr;
-          const posIV = ivd.currentIV;
-          const posColor = posIvr===null?C.textSec:posIvr>=70?C.neg:posIvr>=40?C.warn:C.pos;
-          return `<div><div class="lbl">IVR · IV%</div><div class="val" style="color:${posColor}">${posIvr!==null?"IVR "+posIvr:"—"}${posIV!==null?" · "+(posIV*100).toFixed(0)+"%":""}</div>${drawIVSparkline(ivd.history,50,18)}</div>`;
-        })()}
+        <div></div>
       </div>`}
 
       <!-- P&L Tracker -->
