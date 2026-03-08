@@ -217,9 +217,10 @@ table{width:100%;border-collapse:collapse}
       <span id="chart-ticker-display">--</span>
       <a id="chart-tv-open" href="https://www.tradingview.com/chart/" target="_blank" rel="noopener">Open in TradingView ↗</a>
       <div id="chart-timeframe-btns">
-        <button class="chart-tf-btn active" onclick="setChartTF('D',this)">1D</button>
+        <button class="chart-tf-btn" onclick="setChartTF('5',this)">5M</button>
+        <button class="chart-tf-btn" onclick="setChartTF('30',this)">30M</button>
         <button class="chart-tf-btn" onclick="setChartTF('60',this)">1H</button>
-        <button class="chart-tf-btn" onclick="setChartTF('15',this)">15M</button>
+        <button class="chart-tf-btn active" onclick="setChartTF('D',this)">1D</button>
         <button class="chart-tf-btn" onclick="setChartTF('W',this)">1W</button>
       </div>
     </div>
