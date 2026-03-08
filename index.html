@@ -2580,10 +2580,27 @@ function renderDiary() {
     </div>`:""}
 
     <!-- Entry Chart -->
-    ${t.chartLink?`<div class="card" style="margin-bottom:10px">
+    <div class="card" style="margin-bottom:10px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin-bottom:10px">ENTRY CHART</div>
-      <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid ${C.borderVis};max-height:300px;object-fit:contain;background:${C.bg};cursor:pointer" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:${C.warn};border:1px dashed ${C.warn}33;border-radius:4px;text-align:center\\'>Chart image failed to load — may need to re-upload</div>'">
-    </div>`:""}
+      ${t.chartLink?`<img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid ${C.borderVis};max-height:300px;object-fit:contain;background:${C.bg};cursor:pointer" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:${C.warn};border:1px dashed ${C.warn}33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">`
+        :`<div style="padding:20px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">No entry chart yet</div>`}
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px" onclick="regenTradeChart(${t.id},'entry')">↻ REGENERATE</button>
+        <label class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px;text-align:center;cursor:pointer">📎 UPLOAD<input type="file" accept="image/*" style="display:none" onchange="uploadTradeChart(this,${t.id},'entry')"></label>
+      </div>
+    </div>
+
+    <!-- Exit Chart -->
+    <div class="card" style="margin-bottom:10px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin-bottom:10px">EXIT CHART</div>
+      ${t.exitChartLink?`<img src="${t.exitChartLink}" style="width:100%;border-radius:4px;border:1px solid ${C.borderVis};max-height:300px;object-fit:contain;background:${C.bg};cursor:pointer" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:${C.warn};border:1px dashed ${C.warn}33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">`
+        :t.exitDate?`<div style="padding:20px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">No exit chart yet — click regenerate</div>`
+        :`<div style="padding:20px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">Trade still open — exit chart generated on close</div>`}
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px" onclick="regenTradeChart(${t.id},'exit')" ${!t.exitDate?'disabled':''}>↻ REGENERATE</button>
+        <label class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px;text-align:center;cursor:pointer">📎 UPLOAD<input type="file" accept="image/*" style="display:none" onchange="uploadTradeChart(this,${t.id},'exit')"></label>
+      </div>
+    </div>
 
     <!-- Journal -->
     <div class="card" style="margin-bottom:10px">
@@ -3958,6 +3975,230 @@ function clearChartUpload() {
 }
 
 
+// ── Auto-generate trade chart from candle data ───────────────────────────────
+function renderTradeChart(ticker, entryDate, exitDate, strikes) {
+  const candles = STATE.candles[ticker];
+  if (!candles?.c?.length) return null;
+
+  const W = 800, H = 450;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // Dark background
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+
+  // Convert timestamps to YYYY-MM-DD for matching
+  const dates = candles.t.map(ts => new Date(ts * 1000).toISOString().slice(0, 10));
+
+  // Determine date range
+  const entryIdx = dates.findIndex(d => d >= entryDate);
+  let startIdx, endIdx;
+  if (exitDate) {
+    // Exit chart: 20 trading days before entry → 5 days after exit
+    let exitIdx = dates.findIndex(d => d >= exitDate);
+    if (exitIdx < 0) exitIdx = dates.length - 1;
+    startIdx = Math.max(0, (entryIdx >= 0 ? entryIdx : 0) - 20);
+    endIdx = Math.min(dates.length - 1, exitIdx + 5);
+  } else {
+    // Entry chart: 60 trading days before entry → entry date
+    startIdx = Math.max(0, (entryIdx >= 0 ? entryIdx : dates.length - 1) - 60);
+    endIdx = entryIdx >= 0 ? entryIdx : dates.length - 1;
+  }
+
+  // Ensure we have data
+  if (endIdx <= startIdx) { startIdx = Math.max(0, endIdx - 30); }
+  const n = endIdx - startIdx + 1;
+  if (n < 2) return null;
+
+  // Extract slice
+  const sliceO = candles.o.slice(startIdx, endIdx + 1);
+  const sliceH = candles.h.slice(startIdx, endIdx + 1);
+  const sliceL = candles.l.slice(startIdx, endIdx + 1);
+  const sliceC = candles.c.slice(startIdx, endIdx + 1);
+  const sliceV = candles.v.slice(startIdx, endIdx + 1);
+  const sliceD = dates.slice(startIdx, endIdx + 1);
+
+  // Chart area margins
+  const ML = 10, MR = 60, MT = 30, MB = 50;
+  const chartW = W - ML - MR;
+  const chartH = H - MT - MB;
+  const volH = chartH * 0.15; // bottom 15% for volume
+
+  // Y range from price data + strikes
+  let pMin = Math.min(...sliceL);
+  let pMax = Math.max(...sliceH);
+  if (strikes?.short) { pMin = Math.min(pMin, strikes.short, strikes.long || strikes.short); pMax = Math.max(pMax, strikes.short, strikes.long || strikes.short); }
+  const pad = (pMax - pMin) * 0.08;
+  pMin -= pad; pMax += pad;
+
+  const vMax = Math.max(...sliceV) || 1;
+
+  // Helpers
+  const xFor = (i) => ML + (i + 0.5) * (chartW / n);
+  const yFor = (p) => MT + chartH - ((p - pMin) / (pMax - pMin)) * chartH;
+  const candleW = Math.max(1, Math.min(8, (chartW / n) * 0.7));
+
+  // Grid lines
+  ctx.strokeStyle = '#1a1a2e';
+  ctx.lineWidth = 0.5;
+  const nTicks = 5;
+  for (let i = 0; i <= nTicks; i++) {
+    const y = MT + (chartH / nTicks) * i;
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - MR, y); ctx.stroke();
+  }
+
+  // Volume bars
+  for (let i = 0; i < n; i++) {
+    const x = xFor(i);
+    const vh = (sliceV[i] / vMax) * volH;
+    const up = sliceC[i] >= sliceO[i];
+    ctx.fillStyle = up ? 'rgba(0,229,170,0.15)' : 'rgba(244,63,94,0.15)';
+    ctx.fillRect(x - candleW / 2, MT + chartH - vh, candleW, vh);
+  }
+
+  // Candlesticks
+  for (let i = 0; i < n; i++) {
+    const x = xFor(i);
+    const up = sliceC[i] >= sliceO[i];
+    const bodyTop = yFor(Math.max(sliceO[i], sliceC[i]));
+    const bodyBot = yFor(Math.min(sliceO[i], sliceC[i]));
+    const wickTop = yFor(sliceH[i]);
+    const wickBot = yFor(sliceL[i]);
+
+    // Wick
+    ctx.strokeStyle = up ? '#00e5aa' : '#f43f5e';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, wickTop); ctx.lineTo(x, wickBot); ctx.stroke();
+
+    // Body
+    ctx.fillStyle = up ? '#00e5aa' : '#f43f5e';
+    const bodyH = Math.max(1, bodyBot - bodyTop);
+    ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
+  }
+
+  // Strike lines
+  if (strikes?.short) {
+    const drawStrike = (price, label) => {
+      if (!price) return;
+      const y = yFor(price);
+      if (y < MT || y > MT + chartH) return;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = 'rgba(245,158,11,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - MR, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '10px "IBM Plex Mono", monospace';
+      ctx.fillStyle = 'rgba(245,158,11,0.7)';
+      ctx.textAlign = 'left';
+      ctx.fillText(label + ' $' + price, ML + 4, y - 4);
+    };
+    drawStrike(strikes.short, 'Short');
+    if (strikes.long && strikes.long !== strikes.short) drawStrike(strikes.long, 'Long');
+  }
+
+  // Entry marker
+  if (entryDate) {
+    let eIdx = sliceD.findIndex(d => d >= entryDate);
+    if (eIdx < 0) eIdx = sliceD.length - 1;
+    const ex = xFor(eIdx);
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#00e5aa';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(ex, MT); ctx.lineTo(ex, MT + chartH); ctx.stroke();
+    ctx.setLineDash([]);
+    // Label
+    ctx.font = 'bold 10px "IBM Plex Mono", monospace';
+    ctx.fillStyle = '#00e5aa';
+    ctx.textAlign = 'center';
+    ctx.fillText('▲ ENTRY ' + entryDate.slice(5), ex, MT + chartH + 14);
+  }
+
+  // Exit marker
+  if (exitDate) {
+    let xIdx = sliceD.findIndex(d => d >= exitDate);
+    if (xIdx < 0) xIdx = sliceD.length - 1;
+    const xx = xFor(xIdx);
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#f43f5e';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(xx, MT); ctx.lineTo(xx, MT + chartH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = 'bold 10px "IBM Plex Mono", monospace';
+    ctx.fillStyle = '#f43f5e';
+    ctx.textAlign = 'center';
+    ctx.fillText('▼ EXIT ' + exitDate.slice(5), xx, MT + chartH + 14);
+  }
+
+  // Y-axis price labels
+  ctx.font = '10px "IBM Plex Mono", monospace';
+  ctx.fillStyle = '#6b7280';
+  ctx.textAlign = 'left';
+  for (let i = 0; i <= nTicks; i++) {
+    const p = pMax - ((pMax - pMin) / nTicks) * i;
+    const y = MT + (chartH / nTicks) * i;
+    ctx.fillText('$' + p.toFixed(p >= 100 ? 0 : 2), W - MR + 4, y + 3);
+  }
+
+  // X-axis date labels
+  ctx.textAlign = 'center';
+  const step = Math.max(1, Math.floor(n / 6));
+  for (let i = 0; i < n; i += step) {
+    const x = xFor(i);
+    const d = new Date(sliceD[i] + 'T12:00:00');
+    const lbl = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    ctx.fillText(lbl, x, MT + chartH + 30);
+  }
+
+  // Title
+  ctx.font = 'bold 11px "IBM Plex Mono", monospace';
+  ctx.fillStyle = '#e5e7eb';
+  ctx.textAlign = 'left';
+  const title = ticker + (exitDate ? ' · Trade Period' : ' · Entry');
+  ctx.fillText(title, ML + 4, MT - 10);
+
+  return canvas.toDataURL('image/jpeg', 0.7);
+}
+
+function regenTradeChart(tradeId, type) {
+  const t = STATE.trades.find(x => x.id === tradeId);
+  if (!t) return;
+  if (!STATE.candles[t.ticker]) { alert('No candle data for ' + t.ticker + ' — try refreshing first'); return; }
+  const strikes = { short: t.shortStrike, long: t.longStrike };
+  if (type === 'entry') {
+    const chart = renderTradeChart(t.ticker, t.entryDate, null, strikes);
+    if (chart) { STATE.trades = STATE.trades.map(x => x.id === tradeId ? { ...x, chartLink: chart } : x); save(); renderDiary(); }
+  } else {
+    if (!t.exitDate) { alert('No exit date — close the trade first'); return; }
+    const chart = renderTradeChart(t.ticker, t.entryDate, t.exitDate, strikes);
+    if (chart) { STATE.trades = STATE.trades.map(x => x.id === tradeId ? { ...x, exitChartLink: chart } : x); save(); renderDiary(); }
+  }
+}
+
+function uploadTradeChart(input, tradeId, type) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 800;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', 0.6);
+      const field = type === 'entry' ? 'chartLink' : 'exitChartLink';
+      STATE.trades = STATE.trades.map(t => t.id === tradeId ? { ...t, [field]: compressed } : t);
+      save(); renderDiary();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 // ── Chart lightbox ────────────────────────────────────────────────────────────
 function openLightbox(src) {
   const lb = document.getElementById("chart-lightbox");
@@ -4180,6 +4421,7 @@ function saveTrade() {
     newTrade.exitReason = prev.exitReason; newTrade.thesisAccuracy = prev.thesisAccuracy; newTrade.lessonLearned = prev.lessonLearned;
     newTrade.strategyType = prev.strategyType; newTrade.sentiment = prev.sentiment; newTrade.earningsFlag = prev.earningsFlag;
     newTrade.mae = prev.mae; newTrade.mfe = prev.mfe; newTrade.deltaClose = prev.deltaClose;
+    newTrade.exitChartLink = prev.exitChartLink || '';
     // Preserve existing chartLink unless a new one was selected or cleared
     if (!pendingChartDataUrl && prev.chartLink) newTrade.chartLink = prev.chartLink;
     if (pendingChartDataUrl === "CLEARED") newTrade.chartLink = '';
@@ -4194,6 +4436,11 @@ function saveTrade() {
     newTrade.dteAtEntry = Math.ceil((expiryD-entryD)/86400000);
     newTrade.rolls=[]; newTrade.journal=[]; newTrade.realizedPnl=null; newTrade.exitDate=null;
     newTrade.exitReason=""; newTrade.thesisAccuracy=""; newTrade.lessonLearned=""; newTrade.createdAt=new Date().toISOString().slice(0,10);
+    // Auto-generate entry chart from candle data if no manual upload
+    if (!newTrade.chartLink && STATE.candles[ticker]) {
+      const autoChart = renderTradeChart(ticker, newTrade.entryDate, null, { short: newTrade.shortStrike, long: newTrade.longStrike });
+      if (autoChart) newTrade.chartLink = autoChart;
+    }
     STATE.trades.push(newTrade);
     if (!STATE.watchlist.includes(ticker)) STATE.watchlist.push(ticker);
   }
@@ -4363,6 +4610,21 @@ function confirmExit() {
     STATE.trades.push(stockTrade);
     if (!STATE.watchlist.includes(orig.ticker)) STATE.watchlist.push(orig.ticker);
     sendTelegram("📋 <b>" + orig.ticker + " ASSIGNED</b> — " + stockDir + " " + shares + " shares @ $" + orig.shortStrike);
+  }
+
+  // Auto-generate exit chart from candle data
+  if (STATE.candles[orig.ticker]) {
+    const strikes = { short: orig.shortStrike, long: orig.longStrike };
+    const exitChart = renderTradeChart(orig.ticker, orig.entryDate, exitData.exitDate, strikes);
+    if (exitChart) {
+      if (isPartial) {
+        // Find the newly created closed trade (last pushed)
+        const closedId = STATE.trades[STATE.trades.length - (exitData.exitReason === "Assigned" ? 2 : 1)].id;
+        STATE.trades = STATE.trades.map(t => t.id === closedId ? { ...t, exitChartLink: exitChart } : t);
+      } else {
+        STATE.trades = STATE.trades.map(t => t.id === exitingTradeId ? { ...t, exitChartLink: exitChart } : t);
+      }
+    }
   }
 
   save(); closeExitModal(); renderAll();
