@@ -96,8 +96,15 @@ table{width:100%;border-collapse:collapse}
 /* ── TradingView Chart Panel ──────────────────────────────────────────────── */
 #app-layout{display:block}
 #chart-panel{display:none}
-#chart-panel-inner{position:sticky;top:60px;height:calc(100vh - 80px)}
-#tv-chart-container{width:100%;height:calc(100% - 44px);border:1px solid var(--border-subtle);border-radius:4px;overflow:hidden;background:var(--bg-card)}
+#chart-panel-inner{position:sticky;top:60px;height:calc(100vh - 80px);display:flex;flex-direction:column}
+#chart-ticker-bar{flex-shrink:0}
+#tv-chart-container{width:100%;flex:65 1 0;min-height:0;border:1px solid var(--border-subtle);border-radius:4px;overflow:hidden;background:var(--bg-card)}
+#iv-hv-chart{flex:35 1 0;min-height:0;padding:8px 4px 4px;display:flex;flex-direction:column}
+.iv-hv-header{display:flex;justify-content:space-between;align-items:center;padding:0 4px 6px;font-family:'IBM Plex Mono',monospace}
+.iv-hv-title{font-size:10px;color:var(--text-secondary);letter-spacing:.08em}
+.iv-hv-legend{display:flex;gap:12px;font-size:10px}
+.iv-hv-legend .iv-l{color:#f59e0b}.iv-hv-legend .hv-l{color:#06b6d4}
+#iv-hv-svg{flex:1;width:100%;min-height:0}
 #chart-ticker-bar{display:flex;align-items:center;gap:8px;padding:8px 0 8px;font-family:'IBM Plex Mono',monospace;font-size:11px}
 #chart-ticker-display{color:var(--positive);font-weight:600;font-size:14px;letter-spacing:.1em}
 #chart-timeframe-btns{display:flex;gap:4px;margin-left:auto}
@@ -217,6 +224,16 @@ table{width:100%;border-collapse:collapse}
       </div>
     </div>
     <div id="tv-chart-container"></div>
+    <div id="iv-hv-chart">
+      <div class="iv-hv-header">
+        <span class="iv-hv-title">IV vs HV</span>
+        <div class="iv-hv-legend">
+          <span class="iv-l">IV <span id="iv-hv-iv-val">—</span></span>
+          <span class="hv-l">HV <span id="iv-hv-hv-val">—</span></span>
+        </div>
+      </div>
+      <svg id="iv-hv-svg" preserveAspectRatio="none"></svg>
+    </div>
   </div>
 </div>
 </div>
@@ -662,6 +679,7 @@ function selectChartTicker(ticker) {
   const panel = document.getElementById('chart-panel');
   if (!panel || getComputedStyle(panel).display === 'none') return;
   _loadOrUpdateTVChart(ticker, _tvCurrentTF);
+  renderIVHVChart(ticker);
 }
 
 function setChartTF(interval, btn) {
@@ -732,10 +750,170 @@ function _showChartPanel(show) {
   if (!panel) return;
   if (show) {
     panel.classList.remove('chart-hidden');
-    if (_tvCurrentTicker) _loadOrUpdateTVChart(_tvCurrentTicker, _tvCurrentTF);
+    if (_tvCurrentTicker) {
+      _loadOrUpdateTVChart(_tvCurrentTicker, _tvCurrentTF);
+      renderIVHVChart(_tvCurrentTicker);
+    }
   } else {
     panel.classList.add('chart-hidden');
   }
+}
+
+// ── IV vs HV Chart ──────────────────────────────────────────────────────────
+function calcHVSeries(candles) {
+  if (!candles?.c?.length || candles.c.length < 32) return [];
+  const closes = candles.c;
+  const timestamps = candles.t;
+  const result = [];
+  for (let i = 30; i < closes.length; i++) {
+    const window = [];
+    for (let j = i - 29; j <= i; j++) {
+      window.push(Math.log(closes[j] / closes[j - 1]));
+    }
+    const mean = window.reduce((s, v) => s + v, 0) / window.length;
+    const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / (window.length - 1);
+    const hv = Math.sqrt(variance) * Math.sqrt(252) * 100;
+    const d = new Date(timestamps[i] * 1000);
+    result.push({ date: d.toISOString().slice(0, 10), hv });
+  }
+  return result;
+}
+
+function renderIVHVChart(ticker) {
+  const svg = document.getElementById('iv-hv-svg');
+  const ivVal = document.getElementById('iv-hv-iv-val');
+  const hvVal = document.getElementById('iv-hv-hv-val');
+  if (!svg) return;
+
+  const ivHist = STATE.ivHistory?.[ticker];
+  const candles = STATE.candles?.[ticker];
+  const hvSeries = calcHVSeries(candles);
+
+  if ((!ivHist || Object.keys(ivHist).length < 2) && hvSeries.length < 2) {
+    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#6b7280" font-family="IBM Plex Mono,monospace" font-size="10">No IV/HV data yet</text>';
+    if (ivVal) ivVal.textContent = '—';
+    if (hvVal) hvVal.textContent = '—';
+    return;
+  }
+
+  // Build HV lookup by date
+  const hvMap = {};
+  hvSeries.forEach(h => { hvMap[h.date] = h.hv; });
+
+  // Build IV entries sorted by date (convert decimal → %)
+  const ivEntries = ivHist ? Object.entries(ivHist).sort((a, b) => a[0].localeCompare(b[0])).map(([d, v]) => ({ date: d, iv: v * 100 })) : [];
+  const ivMap = {};
+  ivEntries.forEach(e => { ivMap[e.date] = e.iv; });
+
+  // Collect all dates from both series
+  const allDates = [...new Set([...Object.keys(ivMap), ...Object.keys(hvMap)])].sort();
+  if (allDates.length < 2) {
+    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#6b7280" font-family="IBM Plex Mono,monospace" font-size="10">Not enough data</text>';
+    return;
+  }
+
+  // Interpolate missing IV values between known points
+  const ivDates = ivEntries.map(e => e.date);
+  function interpIV(date) {
+    if (ivMap[date] != null) return ivMap[date];
+    // Find surrounding known dates
+    let before = null, after = null;
+    for (const d of ivDates) {
+      if (d <= date) before = d;
+      if (d >= date && !after) after = d;
+    }
+    if (before && after && before !== after) {
+      const t = (new Date(date) - new Date(before)) / (new Date(after) - new Date(before));
+      return ivMap[before] + t * (ivMap[after] - ivMap[before]);
+    }
+    return before ? ivMap[before] : after ? ivMap[after] : null;
+  }
+
+  // Build merged data points
+  const points = [];
+  allDates.forEach(date => {
+    const iv = interpIV(date);
+    const hv = hvMap[date] ?? null;
+    if (iv != null || hv != null) points.push({ date, iv, hv });
+  });
+
+  if (points.length < 2) return;
+
+  // Update current values
+  const lastWithIV = [...points].reverse().find(p => p.iv != null);
+  const lastWithHV = [...points].reverse().find(p => p.hv != null);
+  if (ivVal) ivVal.textContent = lastWithIV ? lastWithIV.iv.toFixed(0) + '%' : '—';
+  if (hvVal) hvVal.textContent = lastWithHV ? lastWithHV.hv.toFixed(0) + '%' : '—';
+
+  // Chart dimensions
+  const rect = svg.getBoundingClientRect();
+  const W = rect.width || 400;
+  const H = rect.height || 120;
+  const pad = { top: 8, right: 6, bottom: 20, left: 32 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+
+  // Scales
+  const allVals = points.flatMap(p => [p.iv, p.hv]).filter(v => v != null);
+  const yMin = Math.max(0, Math.min(...allVals) * 0.85);
+  const yMax = Math.max(...allVals) * 1.1;
+  const yRange = yMax - yMin || 1;
+  const xScale = (i) => pad.left + (i / (points.length - 1)) * cW;
+  const yScale = (v) => pad.top + cH - ((v - yMin) / yRange) * cH;
+
+  // Build IV and HV polyline strings
+  let ivPts = '', hvPts = '';
+  const ivCoords = [], hvCoords = [];
+  points.forEach((p, i) => {
+    const x = xScale(i);
+    if (p.iv != null) { ivPts += (ivPts ? ' ' : '') + x.toFixed(1) + ',' + yScale(p.iv).toFixed(1); ivCoords.push({ x, y: yScale(p.iv), i }); }
+    if (p.hv != null) { hvPts += (hvPts ? ' ' : '') + x.toFixed(1) + ',' + yScale(p.hv).toFixed(1); hvCoords.push({ x, y: yScale(p.hv), i }); }
+  });
+
+  // Build shaded area between IV and HV where both exist
+  let fills = '';
+  const both = points.map((p, i) => (p.iv != null && p.hv != null) ? { i, x: xScale(i), ivY: yScale(p.iv), hvY: yScale(p.hv), ivGt: p.iv > p.hv } : null).filter(Boolean);
+  if (both.length > 1) {
+    let seg = [both[0]];
+    for (let i = 1; i < both.length; i++) {
+      if (both[i].ivGt === seg[0].ivGt) { seg.push(both[i]); }
+      else { fills += _ivhvFillPath(seg); seg = [both[i]]; }
+    }
+    fills += _ivhvFillPath(seg);
+  }
+
+  // Y-axis ticks
+  const ticks = [yMin, (yMin + yMax) / 2, yMax];
+  const ticksHtml = ticks.map(v => `<text x="${pad.left - 4}" y="${yScale(v).toFixed(1)}" text-anchor="end" fill="#6b7280" font-family="IBM Plex Mono,monospace" font-size="8" dominant-baseline="middle">${v.toFixed(0)}%</text>`).join('');
+
+  // X-axis month labels
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let xLabels = '';
+  let lastMonth = -1;
+  points.forEach((p, i) => {
+    const m = new Date(p.date).getMonth();
+    if (m !== lastMonth) {
+      lastMonth = m;
+      xLabels += `<text x="${xScale(i).toFixed(1)}" y="${H - 2}" text-anchor="middle" fill="#6b7280" font-family="IBM Plex Mono,monospace" font-size="8">${months[m]}</text>`;
+    }
+  });
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = `
+    ${fills}
+    ${ivPts ? `<polyline points="${ivPts}" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
+    ${hvPts ? `<polyline points="${hvPts}" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
+    ${ticksHtml}
+    ${xLabels}
+  `;
+}
+
+function _ivhvFillPath(seg) {
+  if (seg.length < 2) return '';
+  const color = seg[0].ivGt ? '#f43f5e' : '#00e5aa';
+  const top = seg.map(s => s.x.toFixed(1) + ',' + s.ivY.toFixed(1)).join(' ');
+  const bot = [...seg].reverse().map(s => s.x.toFixed(1) + ',' + s.hvY.toFixed(1)).join(' ');
+  return `<polygon points="${top} ${bot}" fill="${color}" opacity="0.12"/>`;
 }
 
 // ── Auto-sync chart to visible card ──────────────────────────────────────────
