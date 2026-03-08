@@ -92,6 +92,7 @@ table{width:100%;border-collapse:collapse}
 #positions-cards .card+.card{border-top:5px solid var(--border-visible);margin-top:20px;padding-top:18px}
 .section{display:none}
 .section.active{display:block}
+.stats-pill.active{background:var(--positive)!important;color:var(--bg-primary)!important;font-weight:700;border-color:var(--positive)!important}
 </style>
 </head>
 <body>
@@ -576,6 +577,8 @@ let rollingTradeId = null;
 let currentFilter = "All";
 let pollTimer = null;
 let currentDiaryId = null;
+let statsSubTab = "overview";
+let aiMessages = []; // conversation history for AI chat
 
 // ── Supabase Persistence ─────────────────────────────────────────────────────
 const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
@@ -878,6 +881,91 @@ function dteColor(d) { return d<=3?C.neg:d<=7?C.warn:C.pos; }
 function dteBucket(d) { return d<=1?"0–1 DTE":d<=7?"2–7 DTE":d<=15?"8–15 DTE":d<=30?"16–30 DTE":d<=45?"31–45 DTE":"45+ DTE"; }
 function fmt$(n) { return (n>=0?"+$":"-$")+Math.abs(n).toFixed(0); }
 function pct(n) { return (n>=0?"+":"")+n.toFixed(1)+"%"; }
+
+// ── Stats Helpers ────────────────────────────────────────────────────────────
+function maxRisk(t) {
+  if (!t.shortStrike || !t.longStrike || !t.contracts || !t.premiumCollected) return null;
+  return Math.abs(t.longStrike - t.shortStrike) * t.contracts * 100 - t.premiumCollected;
+}
+function kpiCard(label, value, color, subtitle) {
+  return `<div class="card" style="padding:12px">
+    <div class="lbl">${label}</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:${String(value).length>8?16:22}px;color:${color}">${value}</div>
+    ${subtitle?`<div style="font-size:9px;color:${C.textSec};margin-top:3px">${subtitle}</div>`:""}
+  </div>`;
+}
+function sectionHdr(label) {
+  return `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:16px 0 8px">${label}</div>`;
+}
+function insightText(text) {
+  return `<div style="font-size:10px;color:${C.textSec};line-height:1.7;font-style:italic;margin-top:8px">${text}</div>`;
+}
+function emptyState(label, msg) {
+  return `${sectionHdr(label)}<div class="card" style="padding:12px;opacity:.5;font-size:11px;color:${C.textSec}">${msg}</div>`;
+}
+function buildBreakdown(closed, keyFn, label) {
+  const map = {};
+  closed.forEach(t => {
+    const k = keyFn(t) || "Unknown";
+    if (!map[k]) map[k] = {wins:0,losses:0,pnl:0,count:0};
+    map[k].count++;
+    map[k].pnl += (t.realizedPnl||0);
+    if ((t.realizedPnl||0)>0) map[k].wins++; else map[k].losses++;
+  });
+  const rows = Object.entries(map).sort((a,b)=>b[1].pnl-a[1].pnl);
+  if (!rows.length) return "";
+  return `
+    ${sectionHdr(label)}
+    <div style="display:flex;flex-direction:column;gap:5px">
+      ${rows.map(([k,v])=>{
+        const bwr = v.count ? Math.round(v.wins/v.count*100) : 0;
+        const bc = bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
+        return `<div class="card" style="padding:10px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${k}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${v.pnl>=0?C.pos:C.neg}">${fmt$(v.pnl)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+            <span style="font-size:10px;color:${C.textSec}">${v.wins}W / ${v.losses}L · ${v.count} trades</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
+          </div>
+          <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+function calcDrawdown(closed) {
+  const sorted = [...closed].filter(t=>t.exitDate).sort((a,b)=>a.exitDate.localeCompare(b.exitDate));
+  let peak=0, cum=0, maxDD=0;
+  sorted.forEach(t=>{ cum+=(t.realizedPnl||0); if(cum>peak) peak=cum; const dd=peak-cum; if(dd>maxDD) maxDD=dd; });
+  return { maxDD, ddPct: peak>0?(maxDD/peak*100):0 };
+}
+function streaks(closed) {
+  const sorted = [...closed].filter(t=>t.exitDate).sort((a,b)=>a.exitDate.localeCompare(b.exitDate));
+  let mw=0,ml=0,cur=0,type=null;
+  sorted.forEach(t=>{ const w=(t.realizedPnl||0)>0; if(w===type) cur++; else { cur=1; type=w; } if(w&&cur>mw) mw=cur; if(!w&&cur>ml) ml=cur; });
+  return {maxWin:mw, maxLoss:ml};
+}
+function getMAE(t) {
+  // Returns MAE as positive $ — how far underwater the trade went
+  // Manual mae = worst spread debit $ total → adverse excursion = mae - premiumCollected
+  if (t.mae != null && t.mae !== 0) {
+    return t.premiumCollected ? Math.max(0, t.mae - t.premiumCollected) : t.mae;
+  }
+  // Auto-tracked: pnl = worst unrealized P&L (negative = underwater)
+  if (t._autoMAE?.pnl != null) return Math.max(0, -(t._autoMAE.pnl));
+  return null;
+}
+function getMFE(t) {
+  // Returns MFE as positive $ — best unrealized profit seen
+  // Manual mfe = best spread debit $ total → best profit = premiumCollected - mfe
+  if (t.mfe != null && t.mfe !== 0) {
+    return t.premiumCollected ? Math.max(0, t.premiumCollected - t.mfe) : 0;
+  }
+  // Auto-tracked: pnl = best unrealized P&L (positive = profitable)
+  if (t._autoMFE?.pnl != null) return Math.max(0, t._autoMFE.pnl);
+  return null;
+}
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
 async function sendTelegram(msg) {
@@ -1883,6 +1971,25 @@ function renderPositions() {
         <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="quickChartUpload(${t.id})">📷</button>
         <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="openTradeModal(${t.id})">✎</button>
       </div>
+
+      <!-- Quick Notes -->
+      <div style="margin-top:10px">
+        <button onclick="toggleQuickNotes(${t.id})" style="background:none;border:none;color:${C.textSec};font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:4px">
+          <span id="qn-arrow-${t.id}">▶</span> NOTES (${(t.journal||[]).length})
+        </button>
+        <div id="qn-panel-${t.id}" style="display:none;margin-top:6px">
+          ${(t.journal||[]).slice(-3).map(j=>`<div style="border-left:2px solid ${C.borderVis};padding:4px 8px;margin-bottom:4px">
+            <div style="font-size:8px;color:${C.textMut}">${new Date(j.date).toLocaleDateString()} ${new Date(j.date).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+            <div style="font-size:10px;color:${C.textSec};line-height:1.4">${j.text}</div>
+          </div>`).join("")}
+          ${(t.journal||[]).length>3?`<div style="font-size:8px;color:${C.textMut};margin-bottom:4px">${(t.journal||[]).length-3} earlier notes — open DIARY to see all</div>`:""}
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <input type="text" id="qn-input-${t.id}" placeholder="Quick check-in note..." style="flex:1;padding:6px 8px;font-size:10px">
+            <button class="btn btn-p" style="padding:6px 10px;font-size:9px;white-space:nowrap" onclick="quickAddNote(${t.id})">ADD</button>
+          </div>
+        </div>
+      </div>
+
       ${t.chartLink?`<div style="margin-top:10px;position:relative">
         <img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid ${C.borderVis};max-height:200px;object-fit:contain;background:${C.bg};cursor:pointer" onclick="openLightbox(this.src)" onerror="this.parentElement.innerHTML='<div style=\\'padding:8px;font-size:10px;color:${C.warn};border:1px dashed ${C.warn}33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">
         <button onclick="quickChartUpload(${t.id})" style="position:absolute;top:6px;right:6px;background:${C.bgOverlay};border:1px solid ${C.borderVis};color:${C.textSec};font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace">REPLACE</button>
@@ -2056,80 +2163,125 @@ function renderDiaryList() {
   `;
 }
 
+// ── Stats Dispatcher ─────────────────────────────────────────────────────────
+function setStatsTab(tab, btn) {
+  statsSubTab = tab;
+  document.querySelectorAll(".stats-pill").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  renderStatsContent();
+}
 function renderStats() {
+  const tabs = [
+    ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
+    ["strategies","STRATEGIES"],["discipline","DISCIPLINE"],["ai","AI ANALYSIS"]
+  ];
+  document.getElementById("stats-content").innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      ${tabs.map(([k,l])=>`<button class="btn btn-g stats-pill${statsSubTab===k?" active":""}" onclick="setStatsTab('${k}',this)">${l}</button>`).join("")}
+    </div>
+    <div id="stats-sub"></div>`;
+  renderStatsContent();
+}
+function renderStatsContent() {
   const closed = STATE.trades.filter(t=>t.status!=="Open");
+  const el = document.getElementById("stats-sub");
+  if (!el) return;
+  switch(statsSubTab) {
+    case "overview":    el.innerHTML = renderStatsOverview(closed); break;
+    case "risk":        el.innerHTML = renderStatsRisk(closed); break;
+    case "rr":          el.innerHTML = renderStatsRR(closed); break;
+    case "maemfe":      el.innerHTML = renderStatsMAEMFE(closed); break;
+    case "strategies":  el.innerHTML = renderStatsStrategies(closed); break;
+    case "discipline":  el.innerHTML = renderStatsDiscipline(closed); break;
+    case "ai":          el.innerHTML = renderStatsAI(closed); break;
+  }
+}
+
+// ── 1. OVERVIEW ─────────────────────────────────────────────────────────────
+function renderStatsOverview(closed) {
+  if (!closed.length) return `<div class="card" style="padding:16px;opacity:.5;font-size:11px;color:${C.textSec}">No closed trades yet. Close a trade to see performance analytics.</div>`;
   const pnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
   const wins = closed.filter(t=>(t.realizedPnl||0)>0);
-  const wr = closed.length ? Math.round(wins.length/closed.length*100) : 0;
-  const avgPnl = closed.length ? pnl/closed.length : 0;
-  const avgWin = wins.length ? wins.reduce((s,t)=>s+(t.realizedPnl||0),0)/wins.length : 0;
   const losses = closed.filter(t=>(t.realizedPnl||0)<=0);
+  const wr = Math.round(wins.length/closed.length*100);
+  const avgPnl = pnl/closed.length;
+  const avgWin = wins.length ? wins.reduce((s,t)=>s+(t.realizedPnl||0),0)/wins.length : 0;
   const avgLoss = losses.length ? losses.reduce((s,t)=>s+(t.realizedPnl||0),0)/losses.length : 0;
 
   // DTE buckets
   const buckets = {};
   DTE_BUCKETS.forEach(b=>buckets[b]={wins:0,losses:0,pnl:0,count:0});
-  closed.forEach(t=>{
-    const b = dteBucket(t.dteAtEntry||0);
-    buckets[b].count++;
-    buckets[b].pnl += (t.realizedPnl||0);
-    if ((t.realizedPnl||0)>0) buckets[b].wins++; else buckets[b].losses++;
-  });
+  closed.forEach(t=>{ const b=dteBucket(t.dteAtEntry||0); buckets[b].count++; buckets[b].pnl+=(t.realizedPnl||0); if((t.realizedPnl||0)>0) buckets[b].wins++; else buckets[b].losses++; });
 
-  // Breakdown helper
-  function buildBreakdown(keyFn, label) {
-    const map = {};
-    closed.forEach(t => {
-      const k = keyFn(t) || "Unknown";
-      if (!map[k]) map[k] = {wins:0,losses:0,pnl:0,count:0};
-      map[k].count++;
-      map[k].pnl += (t.realizedPnl||0);
-      if ((t.realizedPnl||0)>0) map[k].wins++; else map[k].losses++;
-    });
-    const rows = Object.entries(map).sort((a,b)=>b[1].pnl-a[1].pnl);
-    if (!rows.length) return "";
-    return `
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:16px 0 8px">${label}</div>
-      <div style="display:flex;flex-direction:column;gap:5px">
-        ${rows.map(([k,v])=>{
-          const bwr = v.count ? Math.round(v.wins/v.count*100) : 0;
-          const bc = bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
-          return `<div class="card" style="padding:10px 14px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${k}</span>
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${v.pnl>=0?C.pos:C.neg}">${v.pnl>=0?"+$":"-$"}${Math.abs(v.pnl).toFixed(0)}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-              <span style="font-size:10px;color:${C.textSec}">${v.wins}W / ${v.losses}L · ${v.count} trades</span>
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
-            </div>
-            <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
-          </div>`;
-        }).join("")}
-      </div>`;
-  }
+  // Monthly P&L
+  const months = {};
+  closed.forEach(t=>{ if(!t.exitDate) return; const k=t.exitDate.slice(0,7); if(!months[k]) months[k]={pnl:0,wins:0,losses:0,count:0}; months[k].count++; months[k].pnl+=(t.realizedPnl||0); if((t.realizedPnl||0)>0) months[k].wins++; else months[k].losses++; });
+  const monthRows = Object.entries(months).sort((a,b)=>b[0].localeCompare(a[0]));
 
-  document.getElementById("stats-content").innerHTML = `
+  // Equity curve data
+  const sorted = [...closed].filter(t=>t.exitDate).sort((a,b)=>a.exitDate.localeCompare(b.exitDate));
+  let cumPnl = 0;
+  const eqData = sorted.map(t=>{ cumPnl+=(t.realizedPnl||0); return cumPnl; });
+  const eqMax = eqData.length ? Math.max(...eqData.map(Math.abs),1) : 1;
+  const barW = eqData.length ? Math.max(2, Math.min(6, Math.floor(320/eqData.length))) : 4;
+
+  return `
     <div class="g2" style="margin-bottom:12px">
-      <div class="card" style="padding:12px"><div class="lbl">Win Rate</div><div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:${C.pos}">${wr}%</div></div>
-      <div class="card" style="padding:12px"><div class="lbl">Realized P&L</div><div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:${pnl>=0?C.pos:C.neg}">${pnl>=0?"+$":"-$"}${Math.abs(pnl).toFixed(0)}</div></div>
-      <div class="card" style="padding:12px"><div class="lbl">Avg Win</div><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.pos}">+$${avgWin.toFixed(0)}</div></div>
-      <div class="card" style="padding:12px"><div class="lbl">Avg Loss</div><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.neg}">-$${Math.abs(avgLoss).toFixed(0)}</div></div>
-      <div class="card" style="padding:12px"><div class="lbl">Total Trades</div><div style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:${C.text}">${closed.length}</div></div>
-      <div class="card" style="padding:12px"><div class="lbl">Avg P&L/Trade</div><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${avgPnl>=0?C.pos:C.neg}">${avgPnl>=0?"+$":"-$"}${Math.abs(avgPnl).toFixed(0)}</div></div>
+      ${kpiCard("Win Rate", wr+"%", wr>=60?C.pos:wr>=50?C.warn:C.neg)}
+      ${kpiCard("Realized P&L", fmt$(pnl), pnl>=0?C.pos:C.neg)}
+      ${kpiCard("Avg Win", "+$"+avgWin.toFixed(0), C.pos)}
+      ${kpiCard("Avg Loss", "-$"+Math.abs(avgLoss).toFixed(0), C.neg)}
+      ${kpiCard("Total Trades", String(closed.length), C.text)}
+      ${kpiCard("Avg P&L/Trade", fmt$(avgPnl), avgPnl>=0?C.pos:C.neg)}
     </div>
 
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin-bottom:8px">BY DTE BUCKET</div>
+    ${eqData.length > 1 ? `
+    ${sectionHdr("EQUITY CURVE")}
+    <div class="card" style="padding:14px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-end;justify-content:center;height:80px;gap:1px">
+        ${eqData.map(v=>{
+          const h = Math.max(2, Math.round(Math.abs(v)/eqMax*70));
+          const col = v>=0?C.pos:C.neg;
+          return `<div style="width:${barW}px;height:${h}px;background:${col};border-radius:1px;opacity:.8"></div>`;
+        }).join("")}
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px">
+        <span style="font-size:9px;color:${C.textMut}">${sorted[0]?.exitDate||""}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${cumPnl>=0?C.pos:C.neg}">${fmt$(cumPnl)}</span>
+        <span style="font-size:9px;color:${C.textMut}">${sorted[sorted.length-1]?.exitDate||""}</span>
+      </div>
+    </div>` : ""}
+
+    ${monthRows.length ? `
+    ${sectionHdr("MONTHLY P&L")}
+    <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
+      ${monthRows.map(([m,v])=>{
+        const mwr = v.count ? Math.round(v.wins/v.count*100) : 0;
+        const mc = mwr>=70?C.pos:mwr>=50?C.warn:C.neg;
+        return `<div class="card" style="padding:10px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${m}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${v.pnl>=0?C.pos:C.neg}">${fmt$(v.pnl)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+            <span style="font-size:10px;color:${C.textSec}">${v.wins}W / ${v.losses}L · ${v.count} trades</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${mc}">${mwr}%</span>
+          </div>
+          <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${mwr}%;background:${mc};border-radius:1px"></div></div>
+        </div>`;
+      }).join("")}
+    </div>` : ""}
+
+    ${sectionHdr("BY DTE BUCKET")}
     <div style="display:flex;flex-direction:column;gap:5px">
       ${DTE_BUCKETS.map(b=>{
-        const bk = buckets[b];
-        if (!bk.count) return `<div class="card" style="padding:10px 14px;opacity:.3"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${C.textSec}">${b} — no data</span></div>`;
-        const bwr = Math.round(bk.wins/bk.count*100);
-        const bc = bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
+        const bk=buckets[b];
+        if(!bk.count) return `<div class="card" style="padding:10px 14px;opacity:.3"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${C.textSec}">${b} — no data</span></div>`;
+        const bwr=Math.round(bk.wins/bk.count*100); const bc=bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
         return `<div class="card" style="padding:10px 14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${b}</span>
-            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bk.pnl>=0?C.pos:C.neg}">${bk.pnl>=0?"+$":"-$"}${Math.abs(bk.pnl).toFixed(0)}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bk.pnl>=0?C.pos:C.neg}">${fmt$(bk.pnl)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:5px">
             <span style="font-size:10px;color:${C.textSec}">${bk.wins}W / ${bk.losses}L · ${bk.count} trades</span>
@@ -2140,115 +2292,786 @@ function renderStats() {
       }).join("")}
     </div>
 
-    ${buildBreakdown(t=>t.ticker, "BY TICKER")}
-    ${buildBreakdown(t=>t.strategyType||t.tradeType?.replace('⭐ ',''), "BY STRATEGY / TRADE TYPE")}
-    ${buildBreakdown(t=>t.entryType, "BY ENTRY TYPE")}
-
-    ${(()=>{
-      const withAdherence = closed.filter(t=>t.ruleAdherence);
-      if (!withAdherence.length) return `
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:16px 0 8px">RULE ADHERENCE</div>
-        <div class="card" style="padding:12px;opacity:.5;font-size:11px;color:${C.textSec}">No adherence data yet — fill in when closing trades.</div>`;
-
-      const yes = withAdherence.filter(t=>t.ruleAdherence.startsWith("Yes"));
-      const partial = withAdherence.filter(t=>t.ruleAdherence.startsWith("Partial"));
-      const no = withAdherence.filter(t=>t.ruleAdherence.startsWith("No"));
-      const adherencePct = Math.round(yes.length / withAdherence.length * 100);
-
-      const yesPnl = yes.reduce((s,t)=>s+(t.realizedPnl||0),0);
-      const noPnl = no.reduce((s,t)=>s+(t.realizedPnl||0),0);
-      const partialPnl = partial.reduce((s,t)=>s+(t.realizedPnl||0),0);
-
-      // Rule break reasons breakdown
-      const breakReasons = {};
-      no.forEach(t=>{ if(t.ruleBreak) { breakReasons[t.ruleBreak] = (breakReasons[t.ruleBreak]||0)+1; }});
-      const breakRows = Object.entries(breakReasons).sort((a,b)=>b[1]-a[1]);
-
-      return `
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:16px 0 8px">RULE ADHERENCE</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">
-          <div class="card" style="padding:10px;border-left:3px solid ${C.pos}">
-            <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">FOLLOWED RULES</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.pos}">${yes.length}</div>
-            <div style="font-size:10px;color:${yesPnl>=0?C.pos:C.neg};margin-top:2px">${yesPnl>=0?"+$":"-$"}${Math.abs(yesPnl).toFixed(0)}</div>
-          </div>
-          <div class="card" style="padding:10px;border-left:3px solid ${C.warn}">
-            <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">PARTIAL</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.warn}">${partial.length}</div>
-            <div style="font-size:10px;color:${partialPnl>=0?C.pos:C.neg};margin-top:2px">${partialPnl>=0?"+$":"-$"}${Math.abs(partialPnl).toFixed(0)}</div>
-          </div>
-          <div class="card" style="padding:10px;border-left:3px solid ${C.neg}">
-            <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">DEVIATED</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.neg}">${no.length}</div>
-            <div style="font-size:10px;color:${noPnl>=0?C.pos:C.neg};margin-top:2px">${noPnl>=0?"+$":"-$"}${Math.abs(noPnl).toFixed(0)}</div>
-          </div>
-        </div>
-        <div class="card" style="padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:10px;color:${C.textSec}">ADHERENCE RATE</span>
-            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${adherencePct>=70?C.pos:adherencePct>=50?C.warn:C.neg}">${adherencePct}%</span>
-          </div>
-          <div style="height:4px;background:${C.borderVis};border-radius:2px"><div style="height:100%;width:${adherencePct}%;background:${adherencePct>=70?C.pos:adherencePct>=50?C.warn:C.neg};border-radius:2px"></div></div>
-          <div style="font-size:10px;color:${C.textSec};margin-top:6px">P&L when rules followed: <span style="font-family:'IBM Plex Mono',monospace;color:${yesPnl>=0?C.pos:C.neg}">${yesPnl>=0?"+$":"-$"}${Math.abs(yesPnl).toFixed(0)}</span> vs deviated: <span style="font-family:'IBM Plex Mono',monospace;color:${noPnl>=0?C.pos:C.neg}">${noPnl>=0?"+$":"-$"}${Math.abs(noPnl).toFixed(0)}</span></div>
-        </div>
-        ${breakRows.length ? `
-        <div style="font-size:10px;color:${C.textSec};margin-bottom:6px;letter-spacing:.06em">TOP DEVIATION REASONS</div>
-        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
-          ${breakRows.map(([reason, count])=>`
-            <div class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
-              <span style="font-size:11px;color:${C.text}">${reason}</span>
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.neg}">${count}x</span>
-            </div>`).join("")}
-        </div>` : ""}
-      `;
-    })()}
-
-    ${(() => {
-      const withMAE = closed.filter(t=>t.mae!==null&&t.mae!==undefined);
-      const withMFE = closed.filter(t=>t.mfe!==null&&t.mfe!==undefined);
-      if (!withMAE.length && !withMFE.length) return `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:16px 0 8px">MAE / MFE ANALYSIS</div><div class="card" style="padding:12px;opacity:.5;font-size:11px;color:${C.textSec}">No MAE/MFE data yet — fill in when closing trades via OptionStrat Price History.</div>`;
-
-      const winners = closed.filter(t=>(t.realizedPnl||0)>0);
-      const losers = closed.filter(t=>(t.realizedPnl||0)<=0);
-
-      const avgMAE = arr => arr.filter(t=>t.mae).length ? arr.filter(t=>t.mae).reduce((s,t)=>s+t.mae,0)/arr.filter(t=>t.mae).length : null;
-      const avgMFE = arr => arr.filter(t=>t.mfe).length ? arr.filter(t=>t.mfe).reduce((s,t)=>s+t.mfe,0)/arr.filter(t=>t.mfe).length : null;
-
-      // MFE efficiency: how much of the best possible move did you capture?
-      const mfeEff = closed.filter(t=>t.mfe && t.premiumCollected && t.realizedPnl!==null).map(t=>{
-        const maxCapture = t.premiumCollected - t.mfe; // best possible P&L
-        return maxCapture > 0 ? (t.realizedPnl / maxCapture * 100) : null;
-      }).filter(v=>v!==null);
-      const avgMfeEff = mfeEff.length ? mfeEff.reduce((a,b)=>a+b,0)/mfeEff.length : null;
-
-      return `
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:16px 0 8px">MAE / MFE ANALYSIS</div>
-        <div class="g2" style="margin-bottom:8px">
-          <div class="card" style="padding:12px">
-            <div class="lbl">Avg MAE — Winners</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:${C.pos}">${avgMAE(winners)!==null?"$"+avgMAE(winners).toFixed(0):"—"}</div>
-            <div style="font-size:9px;color:${C.textSec};margin-top:3px">Worst spread seen on winning trades</div>
-          </div>
-          <div class="card" style="padding:12px">
-            <div class="lbl">Avg MAE — Losers</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:${C.neg}">${avgMAE(losers)!==null?"$"+avgMAE(losers).toFixed(0):"—"}</div>
-            <div style="font-size:9px;color:${C.textSec};margin-top:3px">Worst spread seen on losing trades</div>
-          </div>
-          <div class="card" style="padding:12px">
-            <div class="lbl">Avg MFE</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:${C.text}">${avgMFE(closed)!==null?"$"+avgMFE(closed).toFixed(0):"—"}</div>
-            <div style="font-size:9px;color:${C.textSec};margin-top:3px">Best spread seen across all trades</div>
-          </div>
-          <div class="card" style="padding:12px">
-            <div class="lbl">MFE Efficiency</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:${avgMfeEff!==null&&avgMfeEff<50?C.warn:C.pos}">${avgMfeEff!==null?avgMfeEff.toFixed(0)+"%":"—"}</div>
-            <div style="font-size:9px;color:${C.textSec};margin-top:3px">% of max possible profit captured</div>
-          </div>
-        </div>
-        <div style="font-size:10px;color:${C.textSec};line-height:1.7;font-style:italic">MFE efficiency below 50% suggests you may be closing too early. High MAE on winners means you're holding through drawdowns that eventually recover.</div>
-      `;
-    })()}
+    ${buildBreakdown(closed, t=>t.ticker, "BY TICKER")}
+    ${buildBreakdown(closed, t=>t.strategyType||t.tradeType?.replace('⭐ ',''), "BY STRATEGY / TRADE TYPE")}
+    ${buildBreakdown(closed, t=>t.entryType, "BY ENTRY TYPE")}
   `;
+}
+
+// ── 2. RISK ─────────────────────────────────────────────────────────────────
+function renderStatsRisk(closed) {
+  if (!closed.length) return emptyState("RISK MANAGEMENT","No closed trades yet.");
+  const wins = closed.filter(t=>(t.realizedPnl||0)>0);
+  const losses = closed.filter(t=>(t.realizedPnl||0)<=0);
+  const withRisk = closed.filter(t=>maxRisk(t)!==null && maxRisk(t)>0);
+  const acct = STATE.accountBalance || 0;
+
+  // Core risk metrics
+  const risks = withRisk.map(t=>maxRisk(t));
+  const avgR = risks.length ? risks.reduce((a,b)=>a+b,0)/risks.length : 0;
+  const maxR = risks.length ? Math.max(...risks) : 0;
+  const maxRTrade = withRisk.find(t=>maxRisk(t)===maxR);
+  const avgRPct = acct>0 && avgR>0 ? (avgR/acct*100) : null;
+
+  // Drawdown
+  const dd = calcDrawdown(closed);
+  // Streaks
+  const st = streaks(closed);
+
+  // Largest win/loss
+  const bestTrade = wins.length ? wins.reduce((a,b)=>(a.realizedPnl||0)>(b.realizedPnl||0)?a:b) : null;
+  const worstTrade = losses.length ? losses.reduce((a,b)=>(a.realizedPnl||0)<(b.realizedPnl||0)?a:b) : null;
+
+  // Position sizing buckets
+  let sizingHTML = "";
+  if (withRisk.length && acct > 0) {
+    const sizeBuckets = {"0-1%":[],"1-2%":[],"2-3%":[],"3-5%":[],"5%+":[]};
+    withRisk.forEach(t=>{
+      const p = maxRisk(t)/acct*100;
+      const b = p<=1?"0-1%":p<=2?"1-2%":p<=3?"2-3%":p<=5?"3-5%":"5%+";
+      sizeBuckets[b].push(t);
+    });
+    const sizeRows = Object.entries(sizeBuckets).filter(([,arr])=>arr.length);
+    if (sizeRows.length) {
+      sizingHTML = sectionHdr("RISK PER TRADE (% OF ACCOUNT)") + `<div style="display:flex;flex-direction:column;gap:5px">
+        ${sizeRows.map(([label,arr])=>{
+          const w = arr.filter(t=>(t.realizedPnl||0)>0).length;
+          const bwr = Math.round(w/arr.length*100);
+          const bp = arr.reduce((s,t)=>s+(t.realizedPnl||0),0);
+          const bc = bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
+          return `<div class="card" style="padding:10px 14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${label}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bp>=0?C.pos:C.neg}">${fmt$(bp)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+              <span style="font-size:10px;color:${C.textSec}">${w}W / ${arr.length-w}L · ${arr.length} trades</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
+            </div>
+            <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
+          </div>`;
+        }).join("")}
+      </div>`;
+    }
+  }
+
+  const riskCoverage = withRisk.length < closed.length ? `<div style="font-size:9px;color:${C.textMut};margin-top:6px">${closed.length - withRisk.length} trades excluded — missing strike/premium data</div>` : "";
+
+  return `
+    <div class="g2" style="margin-bottom:12px">
+      ${kpiCard("Avg Risk/Trade", risks.length?"$"+avgR.toFixed(0):"—", C.text, "Average max risk per trade")}
+      ${kpiCard("Max Single Risk", risks.length?"$"+maxR.toFixed(0):"—", C.neg, maxRTrade?maxRTrade.ticker:"")}
+      ${kpiCard("Avg Risk % Acct", avgRPct!==null?avgRPct.toFixed(1)+"%":"—", avgRPct!==null?(avgRPct>5?C.neg:avgRPct>2?C.warn:C.pos):C.textSec, acct>0?"Of $"+acct.toLocaleString()+" balance":"Set account balance in settings")}
+      ${kpiCard("Max Drawdown", dd.maxDD>0?"$"+dd.maxDD.toFixed(0):"$0", C.neg, dd.ddPct>0?dd.ddPct.toFixed(1)+"% from peak":"")}
+      ${kpiCard("Largest Win", bestTrade?fmt$(bestTrade.realizedPnl):"—", C.pos, bestTrade?bestTrade.ticker:"")}
+      ${kpiCard("Largest Loss", worstTrade?fmt$(worstTrade.realizedPnl):"—", C.neg, worstTrade?worstTrade.ticker:"")}
+    </div>
+
+    ${sectionHdr("STREAKS")}
+    <div class="g2" style="margin-bottom:8px">
+      ${kpiCard("Best Win Streak", st.maxWin+"", C.pos, "Consecutive winners")}
+      ${kpiCard("Worst Loss Streak", st.maxLoss+"", C.neg, "Consecutive losers")}
+    </div>
+
+    ${sizingHTML}
+    ${riskCoverage}
+
+    ${insightText("Position sizing over 2% of account per trade significantly increases portfolio volatility. Consistent sizing improves expectancy realization. Max drawdown shows your worst peak-to-trough decline.")}
+  `;
+}
+
+// ── 3. R:R ──────────────────────────────────────────────────────────────────
+function renderStatsRR(closed) {
+  if (!closed.length) return emptyState("RISK : REWARD","No closed trades yet.");
+  const wins = closed.filter(t=>(t.realizedPnl||0)>0);
+  const losses = closed.filter(t=>(t.realizedPnl||0)<=0);
+  const wr = closed.length ? wins.length/closed.length : 0;
+  const avgWin = wins.length ? wins.reduce((s,t)=>s+(t.realizedPnl||0),0)/wins.length : 0;
+  const avgLoss = losses.length ? losses.reduce((s,t)=>s+(t.realizedPnl||0),0)/losses.length : 0;
+  const sumWins = wins.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const sumLosses = losses.reduce((s,t)=>s+(t.realizedPnl||0),0);
+
+  const profitFactor = sumLosses!==0 ? sumWins/Math.abs(sumLosses) : (sumWins>0?999:0);
+  const payoffRatio = avgLoss!==0 ? avgWin/Math.abs(avgLoss) : 0;
+  const ev = (wr*avgWin) + ((1-wr)*avgLoss);
+  const kelly = payoffRatio>0 ? ((wr) - ((1-wr)/payoffRatio))*100 : 0;
+
+  // R-multiple distribution
+  const withRisk = closed.filter(t=>maxRisk(t)!==null && maxRisk(t)>0);
+  const rMultiples = withRisk.map(t=>({ r: (t.realizedPnl||0)/maxRisk(t), pnl: t.realizedPnl||0, ticker: t.ticker }));
+
+  const rBuckets = {">2R":[], "1R–2R":[], "0–1R":[], "-0.5R–0":[], "<-0.5R":[]};
+  rMultiples.forEach(m=>{
+    if(m.r>2) rBuckets[">2R"].push(m);
+    else if(m.r>=1) rBuckets["1R–2R"].push(m);
+    else if(m.r>=0) rBuckets["0–1R"].push(m);
+    else if(m.r>=-0.5) rBuckets["-0.5R–0"].push(m);
+    else rBuckets["<-0.5R"].push(m);
+  });
+  const avgRMult = rMultiples.length ? rMultiples.reduce((s,m)=>s+m.r,0)/rMultiples.length : null;
+
+  // Planned vs Actual
+  const withTPSL = closed.filter(t=>t.spreadTPPct && t.spreadSLPct && maxRisk(t)>0);
+  let plannedVsActualHTML = "";
+  if (withTPSL.length >= 2) {
+    const plannedRRs = withTPSL.map(t=>{
+      const tpPct = parseFloat(t.spreadTPPct)||0;
+      const slPct = parseFloat(t.spreadSLPct)||0;
+      const reward = t.premiumCollected * (tpPct/100);
+      const risk = t.premiumCollected * (slPct/100);
+      return risk>0 ? reward/risk : null;
+    }).filter(v=>v!==null);
+    const actualRRs = withTPSL.map(t=>{
+      const risk = maxRisk(t);
+      return risk>0 ? (t.realizedPnl||0)/risk : null;
+    }).filter(v=>v!==null);
+    const avgPlanned = plannedRRs.length ? plannedRRs.reduce((a,b)=>a+b,0)/plannedRRs.length : 0;
+    const avgActual = actualRRs.length ? actualRRs.reduce((a,b)=>a+b,0)/actualRRs.length : 0;
+    plannedVsActualHTML = `
+      ${sectionHdr("PLANNED vs ACTUAL R:R")}
+      <div class="g2" style="margin-bottom:8px">
+        ${kpiCard("Avg Planned R:R", avgPlanned.toFixed(2)+"x", C.text, withTPSL.length+" trades with TP/SL data")}
+        ${kpiCard("Avg Actual R:R", avgActual.toFixed(2)+"x", avgActual>=avgPlanned?C.pos:C.neg, avgActual>=avgPlanned?"Executing as planned":"Underperforming plan")}
+      </div>`;
+  }
+
+  return `
+    <div class="g2" style="margin-bottom:12px">
+      ${kpiCard("Profit Factor", profitFactor>=999?"∞":profitFactor.toFixed(2)+"x", profitFactor>=2?C.pos:profitFactor>=1.5?C.warn:C.neg, "Gross wins / gross losses")}
+      ${kpiCard("Expected Value", fmt$(ev), ev>=0?C.pos:C.neg, "Per trade expectancy")}
+      ${kpiCard("Avg R:R", payoffRatio.toFixed(2)+"x", payoffRatio>=1.5?C.pos:payoffRatio>=1?C.warn:C.neg, "Avg win / avg loss")}
+      ${kpiCard("Payoff Ratio", payoffRatio.toFixed(2)+"x", C.text, "Same as R:R — reward per unit risk")}
+      ${kpiCard("Kelly %", kelly.toFixed(1)+"%", kelly>0?C.pos:C.neg, kelly>0?"Optimal allocation of capital":"Negative edge — reduce size")}
+      ${kpiCard("Risk Data", withRisk.length+"/"+closed.length, C.text, "Trades with strike & premium data")}
+    </div>
+
+    ${rMultiples.length ? `
+    ${sectionHdr("R-MULTIPLE DISTRIBUTION")}
+    ${avgRMult!==null?`<div style="font-size:10px;color:${C.textSec};margin-bottom:8px">Avg R-Multiple: <span style="font-family:'IBM Plex Mono',monospace;color:${avgRMult>=0?C.pos:C.neg}">${avgRMult.toFixed(2)}R</span></div>`:""}
+    <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
+      ${Object.entries(rBuckets).map(([label,arr])=>{
+        if(!arr.length) return `<div class="card" style="padding:10px 14px;opacity:.3"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${C.textSec}">${label} — 0 trades</span></div>`;
+        const bp = arr.reduce((s,m)=>s+m.pnl,0);
+        const colors = {">2R":C.pos,"1R–2R":C.pos,"0–1R":C.warn,"-0.5R–0":C.warn,"<-0.5R":C.neg};
+        return `<div class="card" style="padding:10px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${colors[label]}">${label}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bp>=0?C.pos:C.neg}">${fmt$(bp)}</span>
+          </div>
+          <span style="font-size:10px;color:${C.textSec}">${arr.length} trades</span>
+        </div>`;
+      }).join("")}
+    </div>` : ""}
+
+    ${plannedVsActualHTML}
+
+    ${insightText("Profit factor above 1.5 indicates a robust edge. Kelly criterion suggests optimal position sizing — use half-Kelly for safety. Expected value is the single most important metric for long-term profitability.")}
+  `;
+}
+
+// ── 4. MAE / MFE ────────────────────────────────────────────────────────────
+function renderStatsMAEMFE(closed) {
+  if (!closed.length) return emptyState("MAE / MFE ANALYSIS","No closed trades yet.");
+  const winners = closed.filter(t=>(t.realizedPnl||0)>0);
+  const losers = closed.filter(t=>(t.realizedPnl||0)<=0);
+  const withMAE = closed.filter(t=>getMAE(t)!==null);
+  const withMFE = closed.filter(t=>getMFE(t)!==null);
+
+  if (!withMAE.length && !withMFE.length) return emptyState("MAE / MFE ANALYSIS","No MAE/MFE data yet — fill in when closing trades via OptionStrat Price History, or let auto-tracking populate from live quotes.");
+
+  const avgMAE = arr => { const f=arr.filter(t=>getMAE(t)!==null); return f.length ? f.reduce((s,t)=>s+getMAE(t),0)/f.length : null; };
+  const avgMFE = arr => { const f=arr.filter(t=>getMFE(t)!==null); return f.length ? f.reduce((s,t)=>s+getMFE(t),0)/f.length : null; };
+
+  const mfeEff = closed.filter(t=>getMFE(t)>0 && t.realizedPnl!==null).map(t=>{
+    const bestProfit = getMFE(t); // already normalized to $ profit
+    return bestProfit > 0 ? ((t.realizedPnl||0)/bestProfit*100) : null;
+  }).filter(v=>v!==null);
+  const avgMfeEff = mfeEff.length ? mfeEff.reduce((a,b)=>a+b,0)/mfeEff.length : null;
+
+  // MAE distribution
+  function distTable(arr, getter, label) {
+    const filtered = arr.filter(t=>getter(t)!==null);
+    if (!filtered.length) return "";
+    const buckets = {"$0–50":[],"$51–100":[],"$101–200":[],"$201–500":[],"$500+":[]};
+    filtered.forEach(t=>{
+      const v = getter(t);
+      const b = v<=50?"$0–50":v<=100?"$51–100":v<=200?"$101–200":v<=500?"$201–500":"$500+";
+      buckets[b].push(t);
+    });
+    const rows = Object.entries(buckets).filter(([,a])=>a.length);
+    if (!rows.length) return "";
+    return sectionHdr(label) + `<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
+      ${rows.map(([lbl,arr2])=>{
+        const w = arr2.filter(t=>(t.realizedPnl||0)>0).length;
+        const bwr = Math.round(w/arr2.length*100);
+        const bp = arr2.reduce((s,t)=>s+(t.realizedPnl||0),0);
+        const bc = bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
+        return `<div class="card" style="padding:10px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${lbl}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bp>=0?C.pos:C.neg}">${fmt$(bp)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+            <span style="font-size:10px;color:${C.textSec}">${w}W / ${arr2.length-w}L · ${arr2.length} trades</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
+          </div>
+          <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  }
+
+  // Optimal stop-loss table
+  let optStopHTML = "";
+  const winMAEs = winners.filter(t=>getMAE(t)!==null);
+  if (winMAEs.length >= 3) {
+    const levels = [50,100,150,200,300,500];
+    optStopHTML = sectionHdr("OPTIMAL STOP PLACEMENT") + `
+      <div class="card" style="padding:12px;margin-bottom:8px">
+        <div style="font-size:10px;color:${C.textSec};margin-bottom:8px">If your stop was at $X, how many winners would survive?</div>
+        <table style="width:100%"><thead><tr><th>STOP AT</th><th>WINNERS KEPT</th><th>% SAFE</th></tr></thead><tbody>
+        ${levels.map(l=>{
+          const safe = winMAEs.filter(t=>getMAE(t)<=l).length;
+          const pctSafe = Math.round(safe/winMAEs.length*100);
+          const col = pctSafe>=90?C.pos:pctSafe>=70?C.warn:C.neg;
+          return `<tr class="trow"><td>$${l}</td><td>${safe}/${winMAEs.length}</td><td style="color:${col}">${pctSafe}%</td></tr>`;
+        }).join("")}
+        </tbody></table>
+      </div>`;
+  }
+
+  // Left on the table
+  const leftOnTable = winners.filter(t=>getMFE(t)>0).map(t=>{
+    const bestProfit = getMFE(t); // normalized to $ profit
+    return bestProfit > (t.realizedPnl||0) ? bestProfit - (t.realizedPnl||0) : null;
+  }).filter(v=>v!==null);
+  const avgLeft = leftOnTable.length ? leftOnTable.reduce((a,b)=>a+b,0)/leftOnTable.length : null;
+
+  return `
+    <div class="g2" style="margin-bottom:12px">
+      ${kpiCard("Avg MAE — Winners", avgMAE(winners)!==null?"$"+avgMAE(winners).toFixed(0):"—", C.pos, "Worst drawdown on winning trades")}
+      ${kpiCard("Avg MAE — Losers", avgMAE(losers)!==null?"$"+avgMAE(losers).toFixed(0):"—", C.neg, "Worst drawdown on losing trades")}
+      ${kpiCard("Avg MFE", avgMFE(closed)!==null?"$"+avgMFE(closed).toFixed(0):"—", C.text, "Best spread price seen")}
+      ${kpiCard("MFE Efficiency", avgMfeEff!==null?avgMfeEff.toFixed(0)+"%":"—", avgMfeEff!==null&&avgMfeEff<50?C.warn:C.pos, "% of max possible profit captured")}
+    </div>
+
+    ${avgLeft!==null?`<div class="card" style="padding:12px;margin-bottom:8px;border-left:3px solid ${C.warn}">
+      <div style="font-size:10px;color:${C.textSec}">AVG PROFIT LEFT ON TABLE (WINNERS)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.warn};margin-top:4px">$${avgLeft.toFixed(0)}</div>
+      <div style="font-size:9px;color:${C.textSec};margin-top:3px">MFE minus realized P&L — how much more you could have captured</div>
+    </div>`:""}
+
+    ${distTable(closed, getMAE, "MAE DISTRIBUTION")}
+    ${distTable(closed, getMFE, "MFE DISTRIBUTION")}
+    ${optStopHTML}
+
+    ${insightText("If most winners experience MAE under $100 but your stops are wider, you could tighten stops without losing winners. MFE efficiency below 50% means you're capturing less than half of the available move.")}
+  `;
+}
+
+// ── 5. STRATEGIES ───────────────────────────────────────────────────────────
+function renderStatsStrategies(closed) {
+  if (!closed.length) return emptyState("STRATEGY ANALYSIS","No closed trades yet.");
+
+  // Strategy map with enhanced metrics
+  const stratMap = {};
+  closed.forEach(t=>{
+    const k = t.strategyType||t.tradeType?.replace('⭐ ','')||"Unknown";
+    if(!stratMap[k]) stratMap[k]={wins:0,losses:0,pnl:0,count:0,trades:[],holdDays:0};
+    stratMap[k].count++;
+    stratMap[k].pnl+=(t.realizedPnl||0);
+    stratMap[k].trades.push(t);
+    if((t.realizedPnl||0)>0) stratMap[k].wins++; else stratMap[k].losses++;
+    if(t.entryDate && t.exitDate) stratMap[k].holdDays += Math.max(0, Math.ceil((new Date(t.exitDate)-new Date(t.entryDate))/86400000));
+  });
+  const stratRows = Object.entries(stratMap).sort((a,b)=>b[1].pnl-a[1].pnl);
+
+  // Strategy x DTE matrix
+  const matrix = {};
+  const activeStrats = new Set();
+  const activeDTEs = new Set();
+  closed.forEach(t=>{
+    const strat = t.strategyType||t.tradeType?.replace('⭐ ','')||"Unknown";
+    const dte = dteBucket(t.dteAtEntry||0);
+    const key = strat+"|"+dte;
+    if(!matrix[key]) matrix[key]={wins:0,losses:0,pnl:0,count:0};
+    matrix[key].count++;
+    matrix[key].pnl+=(t.realizedPnl||0);
+    if((t.realizedPnl||0)>0) matrix[key].wins++; else matrix[key].losses++;
+    activeStrats.add(strat);
+    activeDTEs.add(dte);
+  });
+  const dteOrder = DTE_BUCKETS.filter(b=>activeDTEs.has(b));
+  const stratOrder = [...activeStrats].sort((a,b)=>(stratMap[b]?.pnl||0)-(stratMap[a]?.pnl||0));
+
+  // DTE optimization
+  const dtePnl = {};
+  DTE_BUCKETS.forEach(b=>dtePnl[b]={pnl:0,count:0});
+  closed.forEach(t=>{ const b=dteBucket(t.dteAtEntry||0); dtePnl[b].count++; dtePnl[b].pnl+=(t.realizedPnl||0); });
+  const bestDTE = Object.entries(dtePnl).filter(([,v])=>v.count>=2).sort((a,b)=>(b[1].pnl/b[1].count)-(a[1].pnl/a[1].count))[0];
+
+  // Time decay efficiency
+  const tdeMap = {};
+  DTE_BUCKETS.forEach(b=>tdeMap[b]={totalPnl:0,totalDays:0,count:0});
+  closed.forEach(t=>{
+    if(!t.entryDate||!t.exitDate) return;
+    const days = Math.max(1, Math.ceil((new Date(t.exitDate)-new Date(t.entryDate))/86400000));
+    const b = dteBucket(t.dteAtEntry||0);
+    tdeMap[b].totalPnl+=(t.realizedPnl||0);
+    tdeMap[b].totalDays+=days;
+    tdeMap[b].count++;
+  });
+
+  return `
+    ${sectionHdr("STRATEGY RANKING")}
+    <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
+      ${stratRows.map(([k,v])=>{
+        const bwr = v.count ? Math.round(v.wins/v.count*100) : 0;
+        const bc = bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
+        const avgP = v.pnl/v.count;
+        const sumW = v.trades.filter(t=>(t.realizedPnl||0)>0).reduce((s,t)=>s+(t.realizedPnl||0),0);
+        const sumL = v.trades.filter(t=>(t.realizedPnl||0)<=0).reduce((s,t)=>s+(t.realizedPnl||0),0);
+        const pf = sumL!==0 ? (sumW/Math.abs(sumL)).toFixed(2)+"x" : (sumW>0?"∞":"0");
+        const avgHold = v.count ? Math.round(v.holdDays/v.count) : 0;
+        return `<div class="card" style="padding:10px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${k}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${v.pnl>=0?C.pos:C.neg}">${fmt$(v.pnl)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+            <span style="font-size:10px;color:${C.textSec}">${v.wins}W / ${v.losses}L · ${v.count} trades</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
+          </div>
+          <div style="height:2px;background:${C.borderVis};border-radius:1px;margin-bottom:6px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
+          <div style="display:flex;gap:12px;font-size:9px;color:${C.textSec}">
+            <span>Avg: <span style="font-family:'IBM Plex Mono',monospace;color:${avgP>=0?C.pos:C.neg}">${fmt$(avgP)}</span></span>
+            <span>PF: <span style="font-family:'IBM Plex Mono',monospace;color:${C.text}">${pf}</span></span>
+            <span>Hold: <span style="font-family:'IBM Plex Mono',monospace;color:${C.text}">${avgHold}d</span></span>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+
+    ${stratOrder.length && dteOrder.length ? `
+    ${sectionHdr("STRATEGY × DTE MATRIX")}
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px">
+      <table style="width:100%;min-width:${dteOrder.length*80+140}px">
+        <thead><tr><th style="text-align:left">STRATEGY</th>${dteOrder.map(d=>`<th>${d.replace(" DTE","")}</th>`).join("")}<th>TOTAL</th></tr></thead>
+        <tbody>
+          ${stratOrder.map(strat=>{
+            const total = stratMap[strat];
+            const twr = total.count ? Math.round(total.wins/total.count*100) : 0;
+            return `<tr class="trow">
+              <td style="font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis">${strat}</td>
+              ${dteOrder.map(dte=>{
+                const cell = matrix[strat+"|"+dte];
+                if(!cell || !cell.count) return `<td style="color:${C.textMut};font-size:10px">—</td>`;
+                const cwr = Math.round(cell.wins/cell.count*100);
+                const cc = cwr>=70?C.pos:cwr>=50?C.warn:C.neg;
+                return `<td><span style="color:${cc};font-size:10px">${cwr}%</span> <span style="color:${cell.pnl>=0?C.pos:C.neg};font-size:9px">${fmt$(cell.pnl)}</span></td>`;
+              }).join("")}
+              <td><span style="color:${twr>=70?C.pos:twr>=50?C.warn:C.neg};font-size:10px">${twr}%</span> <span style="color:${total.pnl>=0?C.pos:C.neg};font-size:9px">${fmt$(total.pnl)}</span></td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>` : ""}
+
+    ${bestDTE ? `
+    <div class="card" style="padding:14px;border-left:3px solid ${C.pos};margin-bottom:8px">
+      <div style="font-size:10px;color:${C.textSec};margin-bottom:4px">OPTIMAL DTE RANGE</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.pos}">${bestDTE[0]}</div>
+      <div style="font-size:10px;color:${C.textSec};margin-top:4px">Avg P&L: <span style="font-family:'IBM Plex Mono',monospace;color:${C.pos}">${fmt$(bestDTE[1].pnl/bestDTE[1].count)}</span>/trade across ${bestDTE[1].count} trades</div>
+    </div>` : ""}
+
+    ${sectionHdr("TIME DECAY EFFICIENCY (P&L / DAY HELD)")}
+    <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
+      ${DTE_BUCKETS.map(b=>{
+        const d = tdeMap[b];
+        if(!d.count) return "";
+        const ppd = d.totalDays>0 ? d.totalPnl/d.totalDays : 0;
+        return `<div class="card" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${C.text}">${b}</span>
+          <div style="text-align:right">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${ppd>=0?C.pos:C.neg}">${fmt$(ppd)}/day</span>
+            <span style="font-size:9px;color:${C.textSec};margin-left:8px">${d.count} trades</span>
+          </div>
+        </div>`;
+      }).filter(Boolean).join("")}
+    </div>
+
+    ${insightText("The strategy × DTE matrix reveals which setups perform best at specific time horizons. Focus on cells with high win rates and positive P&L. Time decay efficiency shows your dollar capture per calendar day — higher is better.")}
+  `;
+}
+
+// ── 6. DISCIPLINE ───────────────────────────────────────────────────────────
+function renderStatsDiscipline(closed) {
+  if (!closed.length) return emptyState("DISCIPLINE","No closed trades yet.");
+
+  // Discipline score
+  const withAdherence = closed.filter(t=>t.ruleAdherence);
+  const yes = withAdherence.filter(t=>t.ruleAdherence.startsWith("Yes"));
+  const partial = withAdherence.filter(t=>t.ruleAdherence.startsWith("Partial"));
+  const no = withAdherence.filter(t=>t.ruleAdherence.startsWith("No"));
+  const adherencePct = withAdherence.length ? Math.round(yes.length/withAdherence.length*100) : null;
+
+  const withThesis = closed.filter(t=>t.thesisAccuracy);
+  const correct = withThesis.filter(t=>t.thesisAccuracy==="Correct"||t.thesisAccuracy==="Yes");
+  const partialT = withThesis.filter(t=>t.thesisAccuracy==="Partially Correct"||t.thesisAccuracy==="Partial");
+  const wrong = withThesis.filter(t=>t.thesisAccuracy==="Wrong"||t.thesisAccuracy==="No");
+  const thesisPct = withThesis.length ? Math.round(correct.length/withThesis.length*100) : null;
+
+  let discScore = null;
+  if (adherencePct !== null && thesisPct !== null) discScore = Math.round(adherencePct*0.6 + thesisPct*0.4);
+  else if (adherencePct !== null) discScore = adherencePct;
+
+  const scoreCol = discScore!==null ? (discScore>=70?C.pos:discScore>=50?C.warn:C.neg) : C.textSec;
+
+  const yesPnl = yes.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const noPnl = no.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const partialPnl = partial.reduce((s,t)=>s+(t.realizedPnl||0),0);
+
+  // Rule break reasons
+  const breakReasons = {};
+  no.forEach(t=>{ if(t.ruleBreak) breakReasons[t.ruleBreak]=(breakReasons[t.ruleBreak]||0)+1; });
+  const breakRows = Object.entries(breakReasons).sort((a,b)=>b[1]-a[1]);
+
+  // Exit reason analysis
+  const exitMap = {};
+  closed.forEach(t=>{
+    const r = t.exitReason||"Unknown";
+    if(!exitMap[r]) exitMap[r]={wins:0,losses:0,pnl:0,count:0};
+    exitMap[r].count++;
+    exitMap[r].pnl+=(t.realizedPnl||0);
+    if((t.realizedPnl||0)>0) exitMap[r].wins++; else exitMap[r].losses++;
+  });
+
+  // Thesis accuracy P&L
+  const correctPnl = correct.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const partialTPnl = partialT.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const wrongPnl = wrong.reduce((s,t)=>s+(t.realizedPnl||0),0);
+
+  // Lessons learned
+  const lessons = {};
+  closed.forEach(t=>{ if(t.lessonLearned && t.lessonLearned.trim()) lessons[t.lessonLearned.trim()]=(lessons[t.lessonLearned.trim()]||0)+1; });
+  const lessonRows = Object.entries(lessons).sort((a,b)=>b[1]-a[1]);
+
+  return `
+    ${discScore!==null ? `
+    <div class="card" style="padding:16px;text-align:center;margin-bottom:12px">
+      <div class="lbl">DISCIPLINE SCORE</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:36px;color:${scoreCol}">${discScore}%</div>
+      <div style="height:4px;background:${C.borderVis};border-radius:2px;margin-top:8px"><div style="height:100%;width:${discScore}%;background:${scoreCol};border-radius:2px"></div></div>
+      <div style="font-size:9px;color:${C.textSec};margin-top:6px">${adherencePct!==null&&thesisPct!==null?"60% rule adherence + 40% thesis accuracy":"Based on rule adherence"}</div>
+    </div>` : ""}
+
+    ${withAdherence.length ? `
+    ${sectionHdr("RULE ADHERENCE")}
+    <div class="g3" style="margin-bottom:8px">
+      <div class="card" style="padding:10px;border-left:3px solid ${C.pos}">
+        <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">FOLLOWED</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.pos}">${yes.length}</div>
+        <div style="font-size:10px;color:${yesPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(yesPnl)}</div>
+      </div>
+      <div class="card" style="padding:10px;border-left:3px solid ${C.warn}">
+        <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">PARTIAL</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.warn}">${partial.length}</div>
+        <div style="font-size:10px;color:${partialPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(partialPnl)}</div>
+      </div>
+      <div class="card" style="padding:10px;border-left:3px solid ${C.neg}">
+        <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">DEVIATED</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.neg}">${no.length}</div>
+        <div style="font-size:10px;color:${noPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(noPnl)}</div>
+      </div>
+    </div>
+    <div class="card" style="padding:12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:10px;color:${C.textSec}">ADHERENCE RATE</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${adherencePct>=70?C.pos:adherencePct>=50?C.warn:C.neg}">${adherencePct}%</span>
+      </div>
+      <div style="height:4px;background:${C.borderVis};border-radius:2px"><div style="height:100%;width:${adherencePct}%;background:${adherencePct>=70?C.pos:adherencePct>=50?C.warn:C.neg};border-radius:2px"></div></div>
+      <div style="font-size:10px;color:${C.textSec};margin-top:6px">Rules followed: <span style="font-family:'IBM Plex Mono',monospace;color:${yesPnl>=0?C.pos:C.neg}">${fmt$(yesPnl)}</span> vs deviated: <span style="font-family:'IBM Plex Mono',monospace;color:${noPnl>=0?C.pos:C.neg}">${fmt$(noPnl)}</span></div>
+    </div>
+    ${breakRows.length ? `
+    <div style="font-size:10px;color:${C.textSec};margin-bottom:6px;letter-spacing:.06em">TOP DEVIATION REASONS</div>
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+      ${breakRows.map(([reason,count])=>`<div class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:11px;color:${C.text}">${reason}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.neg}">${count}x</span>
+      </div>`).join("")}
+    </div>` : ""}
+    ` : emptyState("RULE ADHERENCE","No adherence data yet — fill in when closing trades.")}
+
+    ${withThesis.length ? `
+    ${sectionHdr("THESIS ACCURACY")}
+    <div class="g3" style="margin-bottom:8px">
+      <div class="card" style="padding:10px;border-left:3px solid ${C.pos}">
+        <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">CORRECT</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.pos}">${correct.length}</div>
+        <div style="font-size:10px;color:${correctPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(correctPnl)}</div>
+      </div>
+      <div class="card" style="padding:10px;border-left:3px solid ${C.warn}">
+        <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">PARTIAL</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.warn}">${partialT.length}</div>
+        <div style="font-size:10px;color:${partialTPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(partialTPnl)}</div>
+      </div>
+      <div class="card" style="padding:10px;border-left:3px solid ${C.neg}">
+        <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">WRONG</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:${C.neg}">${wrong.length}</div>
+        <div style="font-size:10px;color:${wrongPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(wrongPnl)}</div>
+      </div>
+    </div>
+    ` : emptyState("THESIS ACCURACY","No thesis data yet — rate your thesis accuracy when closing trades.")}
+
+    ${buildBreakdown(closed, t=>t.exitReason, "BY EXIT REASON")}
+
+    ${lessonRows.length ? `
+    ${sectionHdr("LESSONS LEARNED")}
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+      ${lessonRows.slice(0,10).map(([lesson,count])=>`<div class="card" style="padding:10px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <span style="font-size:11px;color:${C.text};line-height:1.5">${lesson}</span>
+          ${count>1?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${C.warn};white-space:nowrap">${count}x</span>`:""}
+        </div>
+      </div>`).join("")}
+    </div>` : ""}
+
+    ${insightText("Consistent rule adherence is the strongest predictor of long-term profitability. Your discipline score combines adherence and thesis accuracy into a single metric — aim for 70%+.")}
+  `;
+}
+
+// ── 7. AI ANALYSIS ──────────────────────────────────────────────────────────
+function buildAIContext() {
+  const closed = STATE.trades.filter(t=>t.status!=="Open");
+  const open = STATE.trades.filter(t=>t.status==="Open");
+
+  // Closed trade stats
+  const wins = closed.filter(t=>(t.realizedPnl||0)>0);
+  const losses = closed.filter(t=>(t.realizedPnl||0)<=0);
+  const totalPnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
+  const wr = closed.length ? Math.round(wins.length/closed.length*100) : 0;
+  const avgWin = wins.length ? wins.reduce((s,t)=>s+(t.realizedPnl||0),0)/wins.length : 0;
+  const avgLoss = losses.length ? losses.reduce((s,t)=>s+(t.realizedPnl||0),0)/losses.length : 0;
+  const dd = closed.length ? calcDrawdown(closed) : {maxDD:0};
+
+  // Strategy breakdown
+  const stratMap = {};
+  closed.forEach(t=>{
+    const k = t.strategyType||t.tradeType?.replace('⭐ ','')||"Unknown";
+    if(!stratMap[k]) stratMap[k]={wins:0,losses:0,pnl:0,count:0};
+    stratMap[k].count++; stratMap[k].pnl+=(t.realizedPnl||0);
+    if((t.realizedPnl||0)>0) stratMap[k].wins++; else stratMap[k].losses++;
+  });
+
+  // DTE breakdown
+  const dteStats = {};
+  closed.forEach(t=>{
+    const b = dteBucket(t.dteAtEntry||0);
+    if(!dteStats[b]) dteStats[b]={wins:0,losses:0,pnl:0,count:0};
+    dteStats[b].count++; dteStats[b].pnl+=(t.realizedPnl||0);
+    if((t.realizedPnl||0)>0) dteStats[b].wins++; else dteStats[b].losses++;
+  });
+
+  // Adherence
+  const withAdh = closed.filter(t=>t.ruleAdherence);
+  const adhYes = withAdh.filter(t=>t.ruleAdherence.startsWith("Yes"));
+
+  let ctx = `Trading Performance Summary:
+- Total Closed Trades: ${closed.length}
+- Win Rate: ${wr}%
+- Total P&L: $${totalPnl.toFixed(0)}
+- Avg Win: $${avgWin.toFixed(0)} | Avg Loss: $${Math.abs(avgLoss).toFixed(0)}
+- Payoff Ratio: ${avgLoss!==0?(avgWin/Math.abs(avgLoss)).toFixed(2):"N/A"}
+- Max Drawdown: $${dd.maxDD.toFixed(0)}
+- Account Balance: $${(STATE.accountBalance||0).toLocaleString()}
+
+Strategy Breakdown:
+${Object.entries(stratMap).sort((a,b)=>b[1].count-a[1].count).map(([k,v])=>`  ${k}: ${v.count} trades, ${Math.round(v.wins/v.count*100)}% WR, $${v.pnl.toFixed(0)} P&L`).join("\n")}
+
+DTE Breakdown:
+${Object.entries(dteStats).filter(([,v])=>v.count).map(([k,v])=>`  ${k}: ${v.count} trades, ${Math.round(v.wins/v.count*100)}% WR, $${v.pnl.toFixed(0)} P&L`).join("\n")}
+
+${withAdh.length ? `Rule Adherence: ${adhYes.length}/${withAdh.length} followed (${Math.round(adhYes.length/withAdh.length*100)}%)` : "No rule adherence data."}
+
+Recent closed trades (last 5):
+${closed.slice(-5).map(t=>`  ${t.ticker} ${t.tradeType?.replace('⭐ ','')} ${t.dteAtEntry||"?"}DTE → ${fmt$(t.realizedPnl||0)} (${t.exitReason||"?"})`).join("\n")}`;
+
+  // Open positions context
+  if (open.length) {
+    ctx += `\n\nCurrent Open Positions (${open.length}):`;
+    open.forEach(t=>{
+      const dl = daysLeft(t.expiry);
+      const q = STATE.quotes[t.ticker];
+      const price = q ? q.price : null;
+      const mae = t._autoMAE?.pnl != null ? t._autoMAE.pnl : null;
+      const mfe = t._autoMFE?.pnl != null ? t._autoMFE.pnl : null;
+      const mr = maxRisk(t);
+      const livePnl = q && t.premiumCollected ? (t.premiumCollected - (q.price > t.shortStrike ? (q.price - t.shortStrike) * (t.contracts||1) * 100 : 0)) : null;
+      ctx += `\n  ${t.ticker} ${t.tradeType?.replace('⭐ ','')} ${t.longStrike}/${t.shortStrike} exp ${t.expiry} (${dl}d left)`;
+      ctx += `\n    Premium: $${(t.premiumCollected||0).toFixed(0)}`;
+      if (mr) ctx += ` | Max Risk: $${mr.toFixed(0)}`;
+      if (price) ctx += ` | Stock: $${price.toFixed(2)}`;
+      if (mae !== null) ctx += ` | MAE: $${mae.toFixed(0)}`;
+      if (mfe !== null) ctx += ` | MFE: $${mfe.toFixed(0)}`;
+      if (t.thesis) ctx += `\n    Thesis: ${t.thesis}`;
+      if (t.spreadTPPct) ctx += ` | TP: ${t.spreadTPPct}%`;
+      if (t.spreadSLPct) ctx += ` | SL: ${t.spreadSLPct}%`;
+      if ((t.journal||[]).length) {
+        const lastNote = t.journal[t.journal.length-1];
+        ctx += `\n    Last note: "${lastNote.text}" (${new Date(lastNote.date).toLocaleDateString()})`;
+      }
+    });
+  }
+
+  return ctx;
+}
+
+function renderAIChatMessages() {
+  if (!aiMessages.length) return `<div style="font-size:11px;color:${C.textSec};line-height:1.7;padding:8px 0">
+    Click <strong>ANALYZE</strong> to get a full analysis, or type a question below to chat with your AI trade coach.
+  </div>`;
+
+  return aiMessages.map(m=>{
+    if (m.role === "user") {
+      return `<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+        <div style="background:${C.posDim};border:1px solid ${C.pos}33;border-radius:10px 10px 2px 10px;padding:8px 12px;max-width:80%;font-size:11px;color:${C.text};line-height:1.6">${m.display||m.content}</div>
+      </div>`;
+    } else {
+      return `<div style="display:flex;justify-content:flex-start;margin-bottom:10px">
+        <div style="background:${C.bgCard};border:1px solid ${C.border};border-radius:10px 10px 10px 2px;padding:10px 14px;max-width:90%;font-size:11px;color:${C.textSec};line-height:1.8">${m.display||m.content}</div>
+      </div>`;
+    }
+  }).join("");
+}
+
+function renderStatsAI(closed) {
+  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
+
+  return `
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.pos};letter-spacing:.1em">AI TRADE COACH</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">Conversational analysis of your stats + open positions</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          ${aiMessages.length?`<button class="btn btn-g" style="padding:6px 10px;font-size:9px;color:${C.textSec}" onclick="aiMessages=[];renderStatsContent()">CLEAR</button>`:""}
+          <button class="btn btn-p" style="padding:8px 16px" onclick="aiSendMessage('analyze')">ANALYZE</button>
+        </div>
+      </div>
+
+      ${!ANTHROPIC_KEY ? `<div id="ai-key-setup">
+        <div style="color:${C.warn};font-size:11px;margin-bottom:8px">API key required to use AI Trade Coach</div>
+        <div style="display:flex;gap:6px">
+          <input type="password" id="ai-api-key" placeholder="Enter Anthropic API key" style="flex:1;padding:8px;font-size:11px">
+          <button class="btn btn-p" style="padding:6px 14px" onclick="localStorage.setItem('anthropic_api_key',document.getElementById('ai-api-key').value);renderStatsContent()">SAVE</button>
+        </div>
+      </div>` : `
+      <div id="ai-chat-messages" style="max-height:400px;overflow-y:auto;margin-bottom:12px;padding:4px 0">
+        ${renderAIChatMessages()}
+      </div>
+      <div id="ai-typing" style="display:none;font-size:10px;color:${C.warn};margin-bottom:8px">Thinking...</div>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="ai-chat-input" placeholder="Ask a follow-up question..." style="flex:1;padding:8px;font-size:11px" onkeydown="if(event.key==='Enter'){event.preventDefault();aiSendMessage();}">
+        <button class="btn btn-p" style="padding:8px 14px;font-size:10px" onclick="aiSendMessage()">SEND</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <button class="btn btn-g" style="padding:4px 8px;font-size:9px;color:${C.textMut}" onclick="aiSendMessage('review positions')">Review positions</button>
+        <button class="btn btn-g" style="padding:4px 8px;font-size:9px;color:${C.textMut}" onclick="aiSendMessage('what should I focus on')">Focus areas</button>
+        <button class="btn btn-g" style="padding:4px 8px;font-size:9px;color:${C.textMut}" onclick="aiSendMessage('assess my risk')">Risk check</button>
+      </div>
+      `}
+    </div>
+  `;
+}
+
+async function aiSendMessage(preset) {
+  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
+  if (!ANTHROPIC_KEY) { renderStatsContent(); return; }
+
+  let userText = "";
+  if (preset === "analyze") {
+    userText = "Analyze my full trading performance. Focus on: 1) What's working well, 2) Key weaknesses or red flags, 3) Specific strategy/DTE recommendations, 4) Risk management assessment, 5) Top 3 action items. Also review my current open positions and flag any that need attention.";
+  } else if (preset === "review positions") {
+    userText = "Review each of my current open positions individually. For each one, assess: is the thesis still valid? Should I hold, exit, or roll? Any risk concerns based on DTE remaining and current price action?";
+  } else if (preset === "what should I focus on") {
+    userText = "Based on my stats, what are the top 3 things I should focus on to improve my trading? Be specific with data references.";
+  } else if (preset === "assess my risk") {
+    userText = "Assess my current risk exposure across all open positions. Am I over-concentrated? Is my position sizing appropriate for my account? Any immediate red flags?";
+  } else {
+    const inp = document.getElementById("ai-chat-input");
+    if (!inp) return;
+    userText = inp.value.trim();
+    if (!userText) return;
+    inp.value = "";
+  }
+
+  // Add user message to chat
+  aiMessages.push({ role: "user", content: userText, display: userText.replace(/</g,"&lt;") });
+
+  // Re-render chat to show user message
+  const chatEl = document.getElementById("ai-chat-messages");
+  const typingEl = document.getElementById("ai-typing");
+  if (chatEl) chatEl.innerHTML = renderAIChatMessages();
+  if (typingEl) typingEl.style.display = "block";
+  if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+
+  // Build system + context
+  const ctx = buildAIContext();
+  const systemPrompt = `You are an expert options trading coach. You have access to this trader's complete performance data and current open positions. Be direct, specific, and data-driven. Reference specific numbers. Format your response with clear headers using ** for bold. Keep it concise but insightful.
+
+Here is the trader's current data:
+
+${ctx}`;
+
+  // Build messages array for API — include system context as first user message if it's the first message
+  const apiMessages = [];
+  aiMessages.forEach((m, i) => {
+    if (i === 0 && m.role === "user") {
+      // First user message gets the full context prepended
+      apiMessages.push({ role: "user", content: systemPrompt + "\n\nUser question: " + m.content });
+    } else {
+      apiMessages.push({ role: m.role, content: m.content });
+    }
+  });
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2000,
+        system: "You are an expert options trading coach. Be direct, specific, data-driven. Use ** for bold headers. Keep responses concise but insightful.",
+        messages: apiMessages
+      })
+    });
+    const data = await resp.json();
+    if (data.content && data.content[0]) {
+      const rawText = data.content[0].text;
+      const displayText = rawText
+        .replace(/</g,"&lt;")
+        .replace(/\*\*(.*?)\*\*/g, `<strong style="color:${C.text}">$1</strong>`)
+        .replace(/\n/g, "<br>");
+      aiMessages.push({ role: "assistant", content: rawText, display: displayText });
+    } else {
+      const errMsg = data.error?.message || "Unknown error";
+      aiMessages.push({ role: "assistant", content: errMsg, display: `<span style="color:${C.neg}">Error: ${errMsg}</span>` });
+    }
+  } catch(e) {
+    aiMessages.push({ role: "assistant", content: e.message, display: `<span style="color:${C.neg}">Error: ${e.message}</span>` });
+  }
+
+  if (typingEl) typingEl.style.display = "none";
+  if (chatEl) {
+    chatEl.innerHTML = renderAIChatMessages();
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
 }
 
 function renderForecast() {
@@ -2812,8 +3635,9 @@ function openExitModal(id) {
   document.getElementById("ef-exitDate").value = new Date().toISOString().slice(0,10);
   document.getElementById("ef-pnl").value = "";
   document.getElementById("ef-deltaClose").value = "";
-  document.getElementById("ef-mae").value = "";
-  document.getElementById("ef-mfe").value = "";
+  // Pre-fill MAE/MFE from auto-tracking if available
+  document.getElementById("ef-mae").value = t._autoMAE?.pnl != null ? Math.abs(t._autoMAE.pnl).toFixed(0) : "";
+  document.getElementById("ef-mfe").value = t._autoMFE?.pnl != null ? t._autoMFE.pnl.toFixed(0) : "";
   document.getElementById("ef-lesson").value = "";
   document.getElementById("ef-ruleAdherence").value = "";
   document.getElementById("ef-ruleBreak").value = "";
@@ -2895,6 +3719,28 @@ function addJournal() {
     ...t, journal: [...(t.journal||[]), {text:txt, date:new Date().toISOString()}]
   } : t);
   save(); renderDiary();
+}
+
+function quickAddNote(tradeId) {
+  const inp = document.getElementById("qn-input-" + tradeId);
+  if (!inp) return;
+  const txt = inp.value.trim();
+  if (!txt) return;
+  STATE.trades = STATE.trades.map(t => t.id===tradeId ? {
+    ...t, journal: [...(t.journal||[]), {text:txt, date:new Date().toISOString()}]
+  } : t);
+  save(); renderPositions();
+  // Re-expand the notes panel after re-render
+  setTimeout(()=>{ const p=document.getElementById("qn-panel-"+tradeId); if(p){p.style.display="block";} const a=document.getElementById("qn-arrow-"+tradeId); if(a)a.textContent="▼"; },50);
+}
+
+function toggleQuickNotes(tradeId) {
+  const panel = document.getElementById("qn-panel-" + tradeId);
+  const arrow = document.getElementById("qn-arrow-" + tradeId);
+  if (!panel) return;
+  const show = panel.style.display === "none";
+  panel.style.display = show ? "block" : "none";
+  if (arrow) arrow.textContent = show ? "▼" : "▶";
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
