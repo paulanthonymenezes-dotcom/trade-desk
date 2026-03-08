@@ -569,6 +569,7 @@ let STATE = {
   autoExitAuthToken: "", // shared secret with VPS
   autoExitPaper: true, // paper trading mode (safety default)
   autoExitLog: [], // { tradeId, ticker, reason, price, timestamp, result }
+  tradingRules: [], // { id, text, source, date } — persistent rules for AI memory
   theme: "original"
 };
 let editingTradeId = null;
@@ -2923,6 +2924,14 @@ ${closed.slice(-5).map(t=>`  ${t.ticker} ${t.tradeType?.replace('⭐ ','')} ${t.
     });
   }
 
+  // Trading rules / AI memory
+  if ((STATE.tradingRules||[]).length) {
+    ctx += `\n\nTrader's Personal Rules (IMPORTANT — always respect and reference these):`;
+    STATE.tradingRules.forEach((r,i)=>{
+      ctx += `\n  ${i+1}. ${r.text}`;
+    });
+  }
+
   return ctx;
 }
 
@@ -2967,7 +2976,7 @@ function renderStatsAI(closed) {
           <button class="btn btn-p" style="padding:6px 14px" onclick="localStorage.setItem('anthropic_api_key',document.getElementById('ai-api-key').value);renderStatsContent()">SAVE</button>
         </div>
       </div>` : `
-      <div id="ai-chat-messages" style="max-height:400px;overflow-y:auto;margin-bottom:12px;padding:4px 0">
+      <div id="ai-chat-messages" style="max-height:calc(100vh - 340px);min-height:200px;overflow-y:auto;margin-bottom:12px;padding:4px 0">
         ${renderAIChatMessages()}
       </div>
       <div id="ai-typing" style="display:none;font-size:10px;color:${C.warn};margin-bottom:8px">Thinking...</div>
@@ -2981,6 +2990,31 @@ function renderStatsAI(closed) {
         <button class="btn btn-g" style="padding:4px 8px;font-size:9px;color:${C.textMut}" onclick="aiSendMessage('assess my risk')">Risk check</button>
       </div>
       `}
+    </div>
+
+    <!-- Trading Rules / AI Memory -->
+    <div class="card" style="padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;cursor:pointer" onclick="toggleRulesPanel()">
+        <div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.warn};letter-spacing:.1em">MY TRADING RULES</div>
+          <div style="font-size:9px;color:${C.textMut};margin-top:2px">Persistent rules the AI remembers across sessions</div>
+        </div>
+        <span id="rules-arrow" style="color:${C.textMut};font-size:12px">${(STATE.tradingRules||[]).length ? "▼" : "▶"}</span>
+      </div>
+      <div id="rules-panel" style="display:${(STATE.tradingRules||[]).length ? "block" : "none"}">
+        ${(STATE.tradingRules||[]).length ? (STATE.tradingRules||[]).map((r,i)=>`
+          <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid ${C.bgHover}">
+            <div style="flex:1">
+              <div style="font-size:11px;color:${C.text};line-height:1.5">${r.text}</div>
+              <div style="font-size:8px;color:${C.textMut};margin-top:2px">${r.source ? r.source + " · " : ""}${new Date(r.date).toLocaleDateString()}</div>
+            </div>
+            <button onclick="deleteRule(${i})" style="background:none;border:none;color:${C.textMut};font-size:14px;cursor:pointer;padding:0 4px;line-height:1" title="Remove rule">×</button>
+          </div>`).join("") : `<div style="font-size:10px;color:${C.textMut};padding:8px 0">No rules yet. Add rules from AI conversations or manually below.</div>`}
+        <div style="display:flex;gap:6px;margin-top:10px">
+          <input type="text" id="new-rule-input" placeholder="Add a trading rule..." style="flex:1;padding:7px 10px;font-size:10px">
+          <button class="btn btn-p" style="padding:7px 12px;font-size:9px;white-space:nowrap" onclick="addRule()">+ RULE</button>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -3018,7 +3052,9 @@ async function aiSendMessage(preset) {
 
   // Build system + context
   const ctx = buildAIContext();
-  const systemPrompt = `You are an expert options trading coach. You have access to this trader's complete performance data and current open positions. Be direct, specific, and data-driven. Reference specific numbers. Format your response with clear headers using ** for bold. Keep it concise but insightful.
+  const systemPrompt = `You are an expert options trading coach. You have access to this trader's complete performance data, current open positions, and their personal trading rules. Be direct, specific, and data-driven. Reference specific numbers. Format your response with clear headers using ** for bold. Keep it concise but insightful.
+
+IMPORTANT: The trader has personal trading rules listed below. Always factor these into your analysis and recommendations. If you notice a position or pattern that violates their rules, call it out. When you give advice that could become a permanent rule, suggest it clearly with the prefix "SUGGESTED RULE:" so the trader can save it.
 
 Here is the trader's current data:
 
@@ -3054,10 +3090,18 @@ ${ctx}`;
     const data = await resp.json();
     if (data.content && data.content[0]) {
       const rawText = data.content[0].text;
-      const displayText = rawText
+      let displayText = rawText
         .replace(/</g,"&lt;")
         .replace(/\*\*(.*?)\*\*/g, `<strong style="color:${C.text}">$1</strong>`)
         .replace(/\n/g, "<br>");
+      // Detect "SUGGESTED RULE:" lines and add save buttons
+      displayText = displayText.replace(/SUGGESTED RULE:\s*(.+?)(<br>|$)/gi, (match, rule, tail) => {
+        const cleanRule = rule.replace(/<[^>]*>/g, '').trim();
+        return `<div style="background:${C.warnDim};border:1px solid ${C.warn}33;border-radius:4px;padding:6px 10px;margin:6px 0;display:flex;align-items:flex-start;gap:8px">
+          <span style="font-size:11px;color:${C.warn};line-height:1.5;flex:1">${rule}</span>
+          <button onclick="saveRuleFromAI('${cleanRule.replace(/'/g,"\\'")}')" style="background:${C.warn};color:${C.bg};border:none;border-radius:3px;padding:3px 8px;font-size:9px;font-family:'IBM Plex Mono',monospace;font-weight:700;cursor:pointer;white-space:nowrap">+ SAVE</button>
+        </div>${tail}`;
+      });
       aiMessages.push({ role: "assistant", content: rawText, display: displayText });
     } else {
       const errMsg = data.error?.message || "Unknown error";
@@ -3072,6 +3116,54 @@ ${ctx}`;
     chatEl.innerHTML = renderAIChatMessages();
     chatEl.scrollTop = chatEl.scrollHeight;
   }
+}
+
+function toggleRulesPanel() {
+  const panel = document.getElementById("rules-panel");
+  const arrow = document.getElementById("rules-arrow");
+  if (!panel) return;
+  const show = panel.style.display === "none";
+  panel.style.display = show ? "block" : "none";
+  if (arrow) arrow.textContent = show ? "▼" : "▶";
+}
+
+function addRule(text, source) {
+  const inp = document.getElementById("new-rule-input");
+  const ruleText = text || (inp ? inp.value.trim() : "");
+  if (!ruleText) return;
+  if (!STATE.tradingRules) STATE.tradingRules = [];
+  STATE.tradingRules.push({
+    id: Date.now(),
+    text: ruleText,
+    source: source || "Manual",
+    date: new Date().toISOString()
+  });
+  save();
+  renderStatsContent();
+  // Re-expand rules panel after re-render
+  setTimeout(()=>{
+    const p = document.getElementById("rules-panel");
+    if (p) p.style.display = "block";
+    const a = document.getElementById("rules-arrow");
+    if (a) a.textContent = "▼";
+  }, 50);
+}
+
+function deleteRule(index) {
+  if (!STATE.tradingRules) return;
+  STATE.tradingRules.splice(index, 1);
+  save();
+  renderStatsContent();
+  setTimeout(()=>{
+    const p = document.getElementById("rules-panel");
+    if (p) p.style.display = "block";
+    const a = document.getElementById("rules-arrow");
+    if (a) a.textContent = "▼";
+  }, 50);
+}
+
+function saveRuleFromAI(ruleText) {
+  addRule(ruleText, "AI Coach");
 }
 
 function renderForecast() {
