@@ -112,6 +112,8 @@ table{width:100%;border-collapse:collapse}
 }
 @media(min-width:1400px){#app-layout{grid-template-columns:1fr 560px}}
 @media(min-width:1700px){#app-layout{grid-template-columns:1fr 680px}}
+#chart-tv-open{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-secondary);text-decoration:none;display:flex;align-items:center;gap:4px}
+#chart-tv-open:hover{color:var(--positive)}
 </style>
 <script src="https://s3.tradingview.com/tv.js" async></script>
 </head>
@@ -206,6 +208,7 @@ table{width:100%;border-collapse:collapse}
   <div id="chart-panel-inner">
     <div id="chart-ticker-bar">
       <span id="chart-ticker-display">--</span>
+      <a id="chart-tv-open" href="https://www.tradingview.com/chart/" target="_blank" rel="noopener">Open in TradingView ↗</a>
       <div id="chart-timeframe-btns">
         <button class="chart-tf-btn active" onclick="setChartTF('D',this)">1D</button>
         <button class="chart-tf-btn" onclick="setChartTF('60',this)">1H</button>
@@ -654,6 +657,8 @@ function selectChartTicker(ticker) {
   _tvCurrentTicker = ticker;
   const display = document.getElementById('chart-ticker-display');
   if (display) display.textContent = ticker;
+  const tvLink = document.getElementById('chart-tv-open');
+  if (tvLink) tvLink.href = 'https://www.tradingview.com/chart/?symbol=' + ticker;
   const panel = document.getElementById('chart-panel');
   if (!panel || getComputedStyle(panel).display === 'none') return;
   _loadOrUpdateTVChart(ticker, _tvCurrentTF);
@@ -731,6 +736,42 @@ function _showChartPanel(show) {
   } else {
     panel.classList.add('chart-hidden');
   }
+}
+
+// ── Auto-sync chart to visible card ──────────────────────────────────────────
+let _scrollSyncBound = false;
+
+function _initCardScrollSync() {
+  // Attach scroll listener once, re-scan cards each call
+  if (!_scrollSyncBound) {
+    _scrollSyncBound = true;
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(() => { _syncChartToVisibleCard(); ticking = false; });
+      }
+    }, { passive: true });
+  }
+  // Run once immediately
+  requestAnimationFrame(() => _syncChartToVisibleCard());
+}
+
+function _syncChartToVisibleCard() {
+  const panel = document.getElementById('chart-panel');
+  if (!panel || panel.classList.contains('chart-hidden')) return;
+  const cards = document.querySelectorAll('.card[data-chart-ticker]');
+  if (!cards.length) return;
+  const viewMid = window.innerHeight / 2;
+  let bestCard = null, bestDist = Infinity;
+  cards.forEach(card => {
+    const rect = card.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+    const cardMid = rect.top + rect.height / 2;
+    const dist = Math.abs(cardMid - viewMid);
+    if (dist < bestDist) { bestDist = dist; bestCard = card; }
+  });
+  if (bestCard) selectChartTicker(bestCard.dataset.chartTicker);
 }
 
 // ── Supabase Persistence ─────────────────────────────────────────────────────
@@ -1482,7 +1523,7 @@ function renderWatchlist() {
     const openPos = STATE.trades.filter(t=>t.status==="Open"&&t.ticker===ticker);
     const hasPos = openPos.length > 0;
 
-    return `<div class="card" style="padding:14px">
+    return `<div class="card" data-chart-ticker="${ticker}" style="padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:${q?10:0}px">
         <div style="display:flex;align-items:center;gap:10px">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:${hasPos?C.pos:C.text};cursor:pointer" onclick="selectChartTicker('${ticker}')" title="View chart">${ticker}</div>
@@ -1570,6 +1611,7 @@ function renderWatchlist() {
       ` : `<div style="font-size:11px;color:${C.textSec}">Loading...</div>`}
     </div>`;
   }).join("");
+  requestAnimationFrame(() => _initCardScrollSync());
 }
 
 
@@ -1963,7 +2005,7 @@ function renderPositions() {
       if (!hasSR) warnings.push("S/R");
     }
 
-    return `<div class="card" id="trade-${t.id}" style="border:1px solid ${warnings.length?C.warnDim:C.border}">
+    return `<div class="card" id="trade-${t.id}" data-chart-ticker="${t.ticker}" style="border:1px solid ${warnings.length?C.warnDim:C.border}">
 
       <!-- Header: ticker + price + DTE -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
@@ -2191,6 +2233,7 @@ function renderPositions() {
     </div>`;
   }).join("");
   renderSnapshot();
+  requestAnimationFrame(() => _initCardScrollSync());
 }
 
 function renderTrades() {
