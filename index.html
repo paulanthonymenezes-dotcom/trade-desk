@@ -220,10 +220,17 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Premium Collected ($)</label><input id="tf-premium" type="number" placeholder="450"></div>
       <div class="frow"><label>Status</label><select id="tf-status"><option>Open</option><option>Closed</option><option>Rolled</option><option>Expired</option></select></div>
     </div>
-    <div class="g3">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
       <div class="frow"><label>Delta at Entry</label><input id="tf-deltaEntry" type="number" step="0.01" placeholder="e.g. -0.18"></div>
       <div class="frow"><label>POP at Entry (%)</label><input id="tf-pop" type="number" placeholder="e.g. 78"></div>
       <div class="frow"><label>Entry Type</label><select id="tf-entryType"><option value="">Select...</option></select></div>
+      <div class="frow"><label>Asset Class</label><select id="tf-assetClass">
+        <option value="Options">Options</option>
+        <option value="FX">FX</option>
+        <option value="Stock">Stock</option>
+        <option value="Futures">Futures</option>
+        <option value="Crypto">Crypto</option>
+      </select></div>
     </div>
 
     <!-- REQUIRED EXIT RULES -->
@@ -2294,6 +2301,8 @@ function renderStatsOverview(closed) {
     </div>
 
     ${buildBreakdown(closed, t=>t.ticker, "BY TICKER")}
+    ${buildBreakdown(closed, t=>getSector(t.ticker)||"Unknown", "BY SECTOR")}
+    ${buildBreakdown(closed, t=>t.assetClass||"Options", "BY ASSET CLASS")}
     ${buildBreakdown(closed, t=>t.strategyType||t.tradeType?.replace('⭐ ',''), "BY STRATEGY / TRADE TYPE")}
     ${buildBreakdown(closed, t=>t.entryType, "BY ENTRY TYPE")}
   `;
@@ -2892,10 +2901,13 @@ ${Object.entries(stratMap).sort((a,b)=>b[1].count-a[1].count).map(([k,v])=>`  ${
 DTE Breakdown:
 ${Object.entries(dteStats).filter(([,v])=>v.count).map(([k,v])=>`  ${k}: ${v.count} trades, ${Math.round(v.wins/v.count*100)}% WR, $${v.pnl.toFixed(0)} P&L`).join("\n")}
 
+Sector Breakdown:
+${(()=>{const sm={};closed.forEach(t=>{const s=getSector(t.ticker)||"Unknown";if(!sm[s])sm[s]={wins:0,losses:0,pnl:0,count:0};sm[s].count++;sm[s].pnl+=(t.realizedPnl||0);if((t.realizedPnl||0)>0)sm[s].wins++;else sm[s].losses++;});return Object.entries(sm).sort((a,b)=>b[1].pnl-a[1].pnl).map(([k,v])=>\`  \${k}: \${v.count} trades, \${Math.round(v.wins/v.count*100)}% WR, $\${v.pnl.toFixed(0)} P&L\`).join("\n")||"  No sector data";})()}
+
 ${withAdh.length ? `Rule Adherence: ${adhYes.length}/${withAdh.length} followed (${Math.round(adhYes.length/withAdh.length*100)}%)` : "No rule adherence data."}
 
 Recent closed trades (last 5):
-${closed.slice(-5).map(t=>`  ${t.ticker} ${t.tradeType?.replace('⭐ ','')} ${t.dteAtEntry||"?"}DTE → ${fmt$(t.realizedPnl||0)} (${t.exitReason||"?"})`).join("\n")}`;
+${closed.slice(-5).map(t=>`  ${t.ticker} ${t.tradeType?.replace('⭐ ','')} [${t.assetClass||"Options"}] ${t.dteAtEntry||"?"}DTE → ${fmt$(t.realizedPnl||0)} (${t.exitReason||"?"})`).join("\n")}`;
 
   // Open positions context
   if (open.length) {
@@ -3592,6 +3604,7 @@ function openTradeModal(id=null) {
   document.getElementById("tf-deltaEntry").value = t?.deltaEntry||"";
   updateSRPicks(t?.ticker||"");
   document.getElementById("tf-pop").value = t?.pop||"";
+  document.getElementById("tf-assetClass").value = t?.assetClass||"Options";
   document.getElementById("tf-thesis").value = t?.thesis||"";
   // Show existing chart if any
   pendingChartDataUrl = null;
@@ -3684,6 +3697,7 @@ function saveTrade() {
     deltaEntry: document.getElementById("tf-deltaEntry").value,
     pop: document.getElementById("tf-pop").value,
     entryType: document.getElementById("tf-entryType").value,
+    assetClass: document.getElementById("tf-assetClass").value,
     thesis: document.getElementById("tf-thesis").value,
     chartLink: pendingChartDataUrl === "CLEARED" ? '' : (pendingChartDataUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : '')),
   };
