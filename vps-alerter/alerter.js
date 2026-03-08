@@ -1796,11 +1796,11 @@ cron.schedule('0 10-15 * * 1-5', () => {
 // Market close summary at 4:05 PM ET
 cron.schedule('5 16 * * 1-5', sendMarketClose, { timezone: 'America/New_York' });
 
-// Daily Brief at 9:25 AM ET (5 min before open)
-cron.schedule('25 9 * * 1-5', sendDailyBrief, { timezone: 'America/New_York' });
+// Daily Brief at 7:00 AM ET
+cron.schedule('0 7 * * 1-5', sendDailyBrief, { timezone: 'America/New_York' });
 
-// Post-Session Journal Prompt at 4:10 PM ET (right after close)
-cron.schedule('10 16 * * 1-5', sendEODPrompt, { timezone: 'America/New_York' });
+// Post-Session Journal Prompt at 6:00 PM ET
+cron.schedule('0 18 * * 1-5', sendEODPrompt, { timezone: 'America/New_York' });
 
 // ── Startup ─────────────────────────────────────────────────────────────────
 console.log('═══════════════════════════════════════════════════════════');
@@ -1808,7 +1808,7 @@ console.log('  Trading Desk Alert Server v2');
 console.log('  Stock checks: every 60s | Spread checks: every 5 min');
 console.log('  Telegram commands: /open /close /status /pnl /sl /ssl /tp /brief /journal');
 console.log('  Hourly summaries: 10 AM - 3 PM ET');
-console.log('  Daily brief: 9:25 AM ET | Journal prompt: 4:10 PM ET');
+console.log('  Daily brief: 7:00 AM ET | Journal prompt: 6:00 PM ET');
 console.log('═══════════════════════════════════════════════════════════');
 
 // Start Telegram command listener (runs 24/7)
