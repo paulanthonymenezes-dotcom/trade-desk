@@ -93,7 +93,27 @@ table{width:100%;border-collapse:collapse}
 .section{display:none}
 .section.active{display:block}
 .stats-pill.active{background:var(--positive)!important;color:var(--bg-primary)!important;font-weight:700;border-color:var(--positive)!important}
+/* ── TradingView Chart Panel ──────────────────────────────────────────────── */
+#app-layout{display:block}
+#chart-panel{display:none}
+#chart-panel-inner{position:sticky;top:60px;height:calc(100vh - 80px)}
+#tv-chart-container{width:100%;height:calc(100% - 44px);border:1px solid var(--border-subtle);border-radius:4px;overflow:hidden;background:var(--bg-card)}
+#chart-ticker-bar{display:flex;align-items:center;gap:8px;padding:8px 0 8px;font-family:'IBM Plex Mono',monospace;font-size:11px}
+#chart-ticker-display{color:var(--positive);font-weight:600;font-size:14px;letter-spacing:.1em}
+#chart-timeframe-btns{display:flex;gap:4px;margin-left:auto}
+.chart-tf-btn{background:none;border:1px solid var(--border-visible);color:var(--text-secondary);font-family:'IBM Plex Mono',monospace;font-size:9px;padding:3px 7px;border-radius:2px;cursor:pointer;letter-spacing:.06em}
+.chart-tf-btn.active{border-color:var(--positive);color:var(--positive)}
+.chart-tf-btn:hover{border-color:var(--text-secondary)}
+#chart-panel.chart-hidden{display:none!important}
+@media(min-width:1200px){
+  #app-layout{display:grid;grid-template-columns:1fr 480px;gap:20px;max-width:1700px;margin:0 auto;padding:0 20px}
+  #main{max-width:none;margin:0}
+  #chart-panel{display:block;padding-top:12px;padding-bottom:120px}
+}
+@media(min-width:1400px){#app-layout{grid-template-columns:1fr 560px}}
+@media(min-width:1700px){#app-layout{grid-template-columns:1fr 680px}}
 </style>
+<script src="https://s3.tradingview.com/tv.js" async></script>
 </head>
 <body>
 
@@ -105,6 +125,7 @@ table{width:100%;border-collapse:collapse}
   <button onclick="openSettings()" style="background:none;border:none;color:var(--text-secondary);font-size:18px">⚙</button>
 </div>
 
+<div id="app-layout">
 <div id="main">
 
   <!-- MARKET TAB -->
@@ -178,6 +199,23 @@ table{width:100%;border-collapse:collapse}
     <div id="forecast-content"></div>
   </div>
 
+</div>
+
+<!-- TradingView Chart Panel (desktop only) -->
+<div id="chart-panel" class="chart-hidden">
+  <div id="chart-panel-inner">
+    <div id="chart-ticker-bar">
+      <span id="chart-ticker-display">--</span>
+      <div id="chart-timeframe-btns">
+        <button class="chart-tf-btn active" onclick="setChartTF('D',this)">1D</button>
+        <button class="chart-tf-btn" onclick="setChartTF('60',this)">1H</button>
+        <button class="chart-tf-btn" onclick="setChartTF('15',this)">15M</button>
+        <button class="chart-tf-btn" onclick="setChartTF('W',this)">1W</button>
+      </div>
+    </div>
+    <div id="tv-chart-container"></div>
+  </div>
+</div>
 </div>
 
 <!-- Bottom Nav -->
@@ -604,6 +642,96 @@ let pollTimer = null;
 let currentDiaryId = null;
 let statsSubTab = "overview";
 let aiMessages = []; // conversation history for AI chat
+
+// ── TradingView Chart Panel ──────────────────────────────────────────────────
+let _tvWidget = null;
+let _tvCurrentTicker = null;
+let _tvCurrentTF = 'D';
+const CHART_TABS = ['positions', 'market'];
+
+function selectChartTicker(ticker) {
+  if (!ticker || ticker === _tvCurrentTicker) return;
+  _tvCurrentTicker = ticker;
+  const display = document.getElementById('chart-ticker-display');
+  if (display) display.textContent = ticker;
+  const panel = document.getElementById('chart-panel');
+  if (!panel || getComputedStyle(panel).display === 'none') return;
+  _loadOrUpdateTVChart(ticker, _tvCurrentTF);
+}
+
+function setChartTF(interval, btn) {
+  _tvCurrentTF = interval;
+  document.querySelectorAll('.chart-tf-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (_tvCurrentTicker) _loadOrUpdateTVChart(_tvCurrentTicker, interval);
+}
+
+function _loadOrUpdateTVChart(ticker, interval) {
+  const container = document.getElementById('tv-chart-container');
+  if (!container) return;
+  if (typeof TradingView === 'undefined') {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:11px;font-family:\'IBM Plex Mono\',monospace">Loading chart...</div>';
+    setTimeout(() => _loadOrUpdateTVChart(ticker, interval), 1000);
+    return;
+  }
+  container.innerHTML = '';
+  const containerId = 'tv-chart-' + Date.now();
+  const innerDiv = document.createElement('div');
+  innerDiv.id = containerId;
+  innerDiv.style.width = '100%';
+  innerDiv.style.height = '100%';
+  container.appendChild(innerDiv);
+  try {
+    _tvWidget = new TradingView.widget({
+      container_id: containerId,
+      symbol: ticker,
+      interval: interval,
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      toolbar_bg: '#0b1622',
+      enable_publishing: false,
+      hide_top_toolbar: false,
+      hide_side_toolbar: true,
+      hide_legend: false,
+      save_image: false,
+      allow_symbol_change: true,
+      width: '100%',
+      height: '100%',
+      overrides: {
+        'paneProperties.background': '#0a0a0f',
+        'paneProperties.backgroundType': 'solid',
+        'paneProperties.vertGridProperties.color': '#1a1a2e',
+        'paneProperties.horzGridProperties.color': '#1a1a2e',
+        'scalesProperties.textColor': '#6b7280',
+        'scalesProperties.lineColor': '#1a1a2e',
+      },
+      disabled_features: [
+        'use_localstorage_for_settings',
+        'header_symbol_search',
+        'header_compare',
+        'header_undo_redo',
+        'header_screenshot',
+        'header_fullscreen_button',
+        'go_to_date',
+      ],
+      enabled_features: ['hide_left_toolbar_by_default'],
+    });
+  } catch(e) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--negative);font-size:11px">Chart error</div>';
+  }
+}
+
+function _showChartPanel(show) {
+  const panel = document.getElementById('chart-panel');
+  if (!panel) return;
+  if (show) {
+    panel.classList.remove('chart-hidden');
+    if (_tvCurrentTicker) _loadOrUpdateTVChart(_tvCurrentTicker, _tvCurrentTF);
+  } else {
+    panel.classList.add('chart-hidden');
+  }
+}
 
 // ── Supabase Persistence ─────────────────────────────────────────────────────
 const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
@@ -1316,6 +1444,8 @@ function renderKPIs() {
 }
 
 function renderWatchlist() {
+  // Auto-select first watchlist ticker for chart if none selected
+  if (!_tvCurrentTicker && STATE.watchlist.length) selectChartTicker(STATE.watchlist[0]);
   const el = document.getElementById("watchlist-cards");
   el.innerHTML = STATE.watchlist.map(ticker => {
     const q = STATE.quotes[ticker];
@@ -1355,7 +1485,7 @@ function renderWatchlist() {
     return `<div class="card" style="padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:${q?10:0}px">
         <div style="display:flex;align-items:center;gap:10px">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:${hasPos?C.pos:C.text}">${ticker}</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:${hasPos?C.pos:C.text};cursor:pointer" onclick="selectChartTicker('${ticker}')" title="View chart">${ticker}</div>
           ${hasPos?`<span style="font-size:9px;color:${C.pos};border:1px solid ${C.pos}33;padding:1px 5px;border-radius:2px">LIVE</span>`:""}
           ${earnDays!==null?`<span style="font-size:9px;color:${C.warn};border:1px solid ${C.warn}33;padding:1px 5px;border-radius:2px">EARN ${earnDays}d</span>`:""}
           ${sectorBadge(ticker)}
@@ -1685,6 +1815,8 @@ function scrollToTrade(id) {
   if (!card) return;
   const y = card.getBoundingClientRect().top + window.scrollY - 60;
   window.scrollTo({ top: y, behavior: 'smooth' });
+  const trade = STATE.trades.find(t => t.id === id);
+  if (trade) selectChartTicker(trade.ticker);
 }
 
 function renderSnapshot() {
@@ -1801,6 +1933,8 @@ function renderPositions() {
   const open = STATE.trades.filter(t=>t.status==="Open");
   const el = document.getElementById("positions-cards");
   if (!open.length) { el.innerHTML = `<div style="text-align:center;padding:40px;color:${C.textSec};font-family:'IBM Plex Mono',monospace;font-size:11px">NO OPEN POSITIONS<br><br><button class="btn btn-p" onclick="openTradeModal()">+ LOG FIRST TRADE</button></div>`; document.getElementById("positions-snapshot").innerHTML=""; return; }
+  // Auto-select first open position ticker for chart
+  if (!_tvCurrentTicker && open.length) selectChartTicker(open[0].ticker);
 
   el.innerHTML = open.map(t => {
     const q = STATE.quotes[t.ticker];
@@ -2029,6 +2163,7 @@ function renderPositions() {
         <input type="file" id="quick-chart-${t.id}" accept="image/*" style="display:none" onchange="handleQuickChart(this,${t.id})">
         <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="quickChartUpload(${t.id})">📷</button>
         <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="openTradeModal(${t.id})">✎</button>
+        <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="selectChartTicker('${t.ticker}')" title="View chart">📊</button>
       </div>
 
       <!-- Quick Notes -->
@@ -3568,6 +3703,7 @@ function switchTab(name, btn) {
   if (name==="diary" && !currentDiaryId) renderDiaryList();
   if (name==="stats") renderStats();
   if (name==="forecast") renderForecast();
+  _showChartPanel(CHART_TABS.includes(name));
 }
 
 // ── Watchlist ─────────────────────────────────────────────────────────────────
@@ -4851,6 +4987,7 @@ function confirmIBKRImport() {
     if (STATE.theme !== 'original') document.documentElement.dataset.theme = STATE.theme;
   }
   renderAll();
+  _showChartPanel(true); // positions tab is default, show chart
   refreshAll();
   pollTimer = setInterval(refreshAll, POLL_INTERVAL);
 })();
