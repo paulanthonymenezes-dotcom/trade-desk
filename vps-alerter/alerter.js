@@ -567,6 +567,7 @@ async function handleCommand(text) {
       case '/no': return await cmdConfirmTrade(false);
       case '/brief': return await sendDailyBrief();
       case '/journal': return await sendEODPrompt();
+      case '/schedule': return await cmdSchedule();
       case '/help': return await cmdHelp();
       default: {
         // Check if it's a ticker command like /nvda /cat etc
@@ -600,7 +601,8 @@ async function cmdHelp() {
     `/tp TICKER PRICE — Chart take profit\n\n` +
     `<b>Daily</b>\n` +
     `/brief — Morning daily brief\n` +
-    `/journal — Post-session journal prompt\n\n` +
+    `/journal — Post-session journal prompt\n` +
+    `/schedule — Show automated message schedule\n\n` +
     `<b>Screenshot</b>\n` +
     `📸 Send a screenshot → auto-parse → /yes to confirm\n\n` +
     `<b>Examples</b>\n` +
@@ -610,6 +612,27 @@ async function cmdHelp() {
     `<i>/close NFLX 1200</i>\n` +
     `<i>/sl NVDA 192 — thesis broken</i>\n` +
     `<i>/ssl NVDA 4.50 — hard stop (911)</i>`
+  );
+}
+
+async function cmdSchedule() {
+  tg(
+    `<b>📅 Automated Schedule (Weekdays)</b>\n\n` +
+    `<b>7:00 AM</b> — ☀️ Daily Brief\n` +
+    `  Positions, account, risk, watchlist targets, flags\n\n` +
+    `<b>9:30 AM</b> — 🟢 Market Open\n` +
+    `  Position count, SL/TP status, alert server active\n\n` +
+    `<b>10 AM–3 PM</b> — 🕐 Hourly Summary\n` +
+    `  Each position: price, change, spread, SL/TP distance, P&L\n\n` +
+    `<b>4:05 PM</b> — 🔴 Market Close\n` +
+    `  End-of-day P&L for each position + total\n\n` +
+    `<b>6:00 PM</b> — 📝 Journal Prompt\n` +
+    `  Reply with your thoughts → saved as daily journal\n\n` +
+    `<b>Real-time (every 60s during market)</b>\n` +
+    `  ⚠️ Strike proximity warnings\n` +
+    `  🛑 Stop loss / take profit triggers\n` +
+    `  📊 Spread SL/TP alerts\n` +
+    `  🔔 Watchlist entry target hits`
   );
 }
 
