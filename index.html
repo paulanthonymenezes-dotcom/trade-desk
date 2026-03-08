@@ -2886,6 +2886,17 @@ function buildAIContext() {
   const withAdh = closed.filter(t=>t.ruleAdherence);
   const adhYes = withAdh.filter(t=>t.ruleAdherence.startsWith("Yes"));
 
+  // Sector breakdown (computed outside template literal to avoid nested backtick issues)
+  const sectorMap = {};
+  closed.forEach(t=>{
+    const s = getSector(t.ticker)||"Unknown";
+    if(!sectorMap[s]) sectorMap[s]={wins:0,losses:0,pnl:0,count:0};
+    sectorMap[s].count++; sectorMap[s].pnl+=(t.realizedPnl||0);
+    if((t.realizedPnl||0)>0) sectorMap[s].wins++; else sectorMap[s].losses++;
+  });
+  const sectorText = Object.entries(sectorMap).sort((a,b)=>b[1].pnl-a[1].pnl)
+    .map(([k,v])=>"  "+k+": "+v.count+" trades, "+Math.round(v.wins/v.count*100)+"% WR, $"+v.pnl.toFixed(0)+" P&L").join("\n") || "  No sector data";
+
   let ctx = `Trading Performance Summary:
 - Total Closed Trades: ${closed.length}
 - Win Rate: ${wr}%
@@ -2902,7 +2913,7 @@ DTE Breakdown:
 ${Object.entries(dteStats).filter(([,v])=>v.count).map(([k,v])=>`  ${k}: ${v.count} trades, ${Math.round(v.wins/v.count*100)}% WR, $${v.pnl.toFixed(0)} P&L`).join("\n")}
 
 Sector Breakdown:
-${(()=>{const sm={};closed.forEach(t=>{const s=getSector(t.ticker)||"Unknown";if(!sm[s])sm[s]={wins:0,losses:0,pnl:0,count:0};sm[s].count++;sm[s].pnl+=(t.realizedPnl||0);if((t.realizedPnl||0)>0)sm[s].wins++;else sm[s].losses++;});return Object.entries(sm).sort((a,b)=>b[1].pnl-a[1].pnl).map(([k,v])=>\`  \${k}: \${v.count} trades, \${Math.round(v.wins/v.count*100)}% WR, $\${v.pnl.toFixed(0)} P&L\`).join("\n")||"  No sector data";})()}
+${sectorText}
 
 ${withAdh.length ? `Rule Adherence: ${adhYes.length}/${withAdh.length} followed (${Math.round(adhYes.length/withAdh.length*100)}%)` : "No rule adherence data."}
 
