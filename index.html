@@ -3524,20 +3524,28 @@ async function aiSendMessage(preset) {
   if (!ANTHROPIC_KEY) { renderStatsContent(true); return; }
 
   let userText = "";
+  let useSonnet = false; // default to Haiku, upgrade to Sonnet for deep analysis
   if (preset === "analyze") {
     userText = "Analyze my full trading performance. Focus on: 1) What's working well, 2) Key weaknesses or red flags, 3) Specific strategy/DTE recommendations, 4) Risk management assessment, 5) Top 3 action items. Also review my current open positions and flag any that need attention.";
+    useSonnet = true;
   } else if (preset === "review positions") {
     userText = "Review each of my current open positions individually. For each one, assess: is the thesis still valid? Should I hold, exit, or roll? Any risk concerns based on DTE remaining and current price action?";
+    useSonnet = true;
   } else if (preset === "what should I focus on") {
     userText = "Based on my stats, what are the top 3 things I should focus on to improve my trading? Be specific with data references.";
+    useSonnet = true;
   } else if (preset === "assess my risk") {
     userText = "Assess my current risk exposure across all open positions. Am I over-concentrated? Is my position sizing appropriate for my account? Any immediate red flags?";
+    useSonnet = true;
   } else {
     const inp = document.getElementById("ai-chat-input");
     if (!inp) return;
     userText = inp.value.trim();
     if (!userText) return;
     inp.value = "";
+    // Upgrade to Sonnet for complex follow-up questions
+    const lower = userText.toLowerCase();
+    if (lower.includes("analyze") || lower.includes("review all") || lower.includes("deep dive") || lower.includes("compare") || lower.includes("backtest") || lower.includes("strategy") || lower.includes("what should i")) useSonnet = true;
   }
 
   // Add user message to chat
@@ -3547,7 +3555,7 @@ async function aiSendMessage(preset) {
   const chatEl = document.getElementById("ai-chat-messages");
   const typingEl = document.getElementById("ai-typing");
   if (chatEl) chatEl.innerHTML = renderAIChatMessages();
-  if (typingEl) typingEl.style.display = "block";
+  if (typingEl) { typingEl.textContent = useSonnet ? "Thinking (Sonnet)..." : "Thinking (Haiku)..."; typingEl.style.display = "block"; }
   if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
 
   // Build system + context
@@ -3581,8 +3589,8 @@ ${ctx}`;
         "anthropic-dangerous-direct-browser-access": "true"
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2000,
+        model: useSonnet ? "claude-sonnet-4-20250514" : "claude-haiku-4-5-20251001",
+        max_tokens: useSonnet ? 2000 : 1200,
         system: "You are an expert options trading coach. Be direct, specific, data-driven. Use ** for bold headers. Keep responses concise but insightful.",
         messages: apiMessages
       })
@@ -3602,7 +3610,8 @@ ${ctx}`;
           <button onclick="saveRuleFromAI('${cleanRule.replace(/'/g,"\\'")}')" style="background:${C.warn};color:${C.bg};border:none;border-radius:3px;padding:3px 8px;font-size:9px;font-family:'IBM Plex Mono',monospace;font-weight:700;cursor:pointer;white-space:nowrap">+ SAVE</button>
         </div>${tail}`;
       });
-      aiMessages.push({ role: "assistant", content: rawText, display: displayText });
+      const modelBadge = `<span style="display:inline-block;font-size:8px;padding:1px 5px;border-radius:3px;background:${useSonnet ? '#7c3aed33' : '#06b6d433'};color:${useSonnet ? '#a78bfa' : '#06b6d4'};font-family:'IBM Plex Mono',monospace;letter-spacing:.05em;margin-bottom:6px">${useSonnet ? 'SONNET' : 'HAIKU'}</span><br>`;
+      aiMessages.push({ role: "assistant", content: rawText, display: modelBadge + displayText });
     } else {
       const errMsg = data.error?.message || "Unknown error";
       aiMessages.push({ role: "assistant", content: errMsg, display: `<span style="color:${C.neg}">Error: ${errMsg}</span>` });
