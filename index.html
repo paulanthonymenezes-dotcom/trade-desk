@@ -358,6 +358,22 @@ table{width:100%;border-collapse:collapse}
   </div>
 </div>
 
+<!-- PRE-TRADE CHECKLIST MODAL -->
+<div id="checklist-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:480px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div id="checklist-title" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--warning);letter-spacing:.1em">PRE-TRADE CHECKLIST</div>
+      <button onclick="closeChecklistModal()" style="background:none;border:none;color:var(--text-secondary);font-size:22px">×</button>
+    </div>
+    <div id="checklist-summary" style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;padding:10px;background:var(--bg-primary);border-radius:4px;font-family:'IBM Plex Mono',monospace"></div>
+    <div id="checklist-items" style="margin-bottom:16px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-g" onclick="closeChecklistModal()" style="flex:1">CANCEL</button>
+      <button class="btn btn-warn" onclick="confirmChecklist()" style="flex:1">CONFIRM TRADE</button>
+    </div>
+  </div>
+</div>
+
 <!-- EXIT MODAL -->
 <div id="exit-modal" class="overlay" style="display:none">
   <div class="modal" style="max-width:460px">
@@ -4375,9 +4391,118 @@ function calcSpreadTP() {
   el.textContent = tp ? `= $${tp}` : "";
 }
 
+// ── Pre-trade checklist (browser) ────────────────────────────────────────────
+function runBrowserChecklist(trade) {
+  const flags = [];
+  const checks = [];
+  const open = STATE.trades.filter(t => t.status === 'Open' && !(t.tradeType||'').startsWith('Stock'));
+  const closed = STATE.trades.filter(t => t.status !== 'Open');
+  const acct = STATE.accountBalance || 0;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const maxLoss = (width * 100 * trade.contracts) - trade.premiumCollected;
+  const rr = trade.premiumCollected > 0 ? maxLoss / trade.premiumCollected : 999;
+
+  // 1. Max loss vs account
+  if (acct > 0) {
+    const pct = (maxLoss / acct * 100);
+    if (pct > 5) flags.push({ severity:'warn', msg:`Max loss $${maxLoss.toFixed(0)} = ${pct.toFixed(1)}% of account` });
+    else checks.push(`Max loss ${pct.toFixed(1)}% of account`);
+  }
+
+  // 2. Sector concentration
+  const sector = getSector(trade.ticker);
+  if (sector) {
+    const sameSector = open.filter(t => getSector(t.ticker) === sector);
+    if (sameSector.length >= 2) flags.push({ severity:'warn', msg:`${sameSector.length} open trades in ${sector} already` });
+    else checks.push(`${sector} — ${sameSector.length} existing`);
+  }
+
+  // 3. Duplicate ticker
+  const dup = open.find(t => t.ticker === trade.ticker);
+  if (dup) flags.push({ severity:'warn', msg:`Already have open ${dup.tradeType} on ${trade.ticker}` });
+
+  // 4. R:R ratio
+  if (rr > 3) flags.push({ severity:'warn', msg:`R:R ${rr.toFixed(1)}:1 — risking $${maxLoss.toFixed(0)} to make $${trade.premiumCollected}` });
+  else checks.push(`R:R ${rr.toFixed(1)}:1`);
+
+  // 5. DTE
+  const dte = trade.dteAtEntry || 0;
+  if (dte <= 1) flags.push({ severity:'info', msg:`0-1 DTE — aggressive expiry` });
+  else if (dte > 45) flags.push({ severity:'info', msg:`${dte} DTE — unusually long for credit spread` });
+  else checks.push(`${dte} DTE`);
+
+  // 6. Position count
+  if (open.length >= 5) flags.push({ severity:'warn', msg:`${open.length} open positions — adding another` });
+  else checks.push(`${open.length} open positions`);
+
+  // 7. Total portfolio risk
+  if (acct > 0) {
+    const existingRisk = open.reduce((s,t) => {
+      const w = Math.abs((t.shortStrike||0)-(t.longStrike||0));
+      return s + (w * (t.contracts||1) * 100 - (t.premiumCollected||0));
+    }, 0);
+    const totalRisk = existingRisk + maxLoss;
+    const totalPct = (totalRisk / acct * 100);
+    if (totalPct > 25) flags.push({ severity:'warn', msg:`Total portfolio risk $${totalRisk.toFixed(0)} = ${totalPct.toFixed(0)}% of account` });
+    else checks.push(`Total risk ${totalPct.toFixed(0)}% of account`);
+  }
+
+  // 8. Historical ticker win rate
+  const tickerTrades = closed.filter(t => t.ticker === trade.ticker);
+  if (tickerTrades.length >= 3) {
+    const wins = tickerTrades.filter(t => (t.realizedPnl||0) > 0).length;
+    const wr = Math.round(wins/tickerTrades.length*100);
+    if (wr < 50) flags.push({ severity:'warn', msg:`${wr}% win rate on ${trade.ticker} (${wins}/${tickerTrades.length})` });
+    else checks.push(`${wr}% win rate on ${trade.ticker}`);
+  }
+
+  // 9. Wide spread
+  if (width > 10) flags.push({ severity:'info', msg:`$${width} wide spread` });
+
+  return { flags, checks, maxLoss, rr, width };
+}
+
+function showChecklist(ticker, trade, result) {
+  const { flags, checks, maxLoss } = result;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const perSpread = (trade.premiumCollected / (100 * trade.contracts)).toFixed(2);
+
+  document.getElementById('checklist-title').textContent = 'PRE-TRADE CHECKLIST — ' + ticker;
+  document.getElementById('checklist-summary').innerHTML =
+    `${trade.tradeType || 'Spread'}<br>` +
+    `${trade.shortStrike}/${trade.longStrike} x${trade.contracts}<br>` +
+    `Expiry: ${trade.expiry} (${trade.dteAtEntry||0} DTE)<br>` +
+    `Premium: $${trade.premiumCollected} ($${perSpread}/spread)<br>` +
+    `Max Loss: $${maxLoss.toFixed(0)}`;
+
+  let html = '';
+  flags.forEach(f => {
+    const icon = f.severity === 'warn' ? '⚠️' : 'ℹ️';
+    const color = f.severity === 'warn' ? C.warn : C.textSec;
+    html += `<div style="padding:6px 10px;margin-bottom:4px;border-left:3px solid ${color};background:${C.bgHover};border-radius:0 3px 3px 0;font-size:11px;color:${color}">${icon} ${f.msg}</div>`;
+  });
+  checks.forEach(c => {
+    html += `<div style="padding:6px 10px;margin-bottom:4px;border-left:3px solid ${C.pos};background:${C.bgHover};border-radius:0 3px 3px 0;font-size:11px;color:${C.pos}">✅ ${c}</div>`;
+  });
+
+  document.getElementById('checklist-items').innerHTML = html;
+  document.getElementById('checklist-modal').style.display = 'flex';
+}
+
+function closeChecklistModal() {
+  document.getElementById('checklist-modal').style.display = 'none';
+}
+
+function confirmChecklist() {
+  closeChecklistModal();
+  _doSaveTrade();
+}
+
 function handleSaveTrade() {
   saveTrade();
 }
+
+let _pendingSaveTrade = null; // holds trade data while checklist is showing
 
 function saveTrade() {
   const ticker = document.getElementById("tf-ticker").value.trim().toUpperCase();
@@ -4423,6 +4548,28 @@ function saveTrade() {
     thesis: document.getElementById("tf-thesis").value,
     chartLink: pendingChartDataUrl === "CLEARED" ? '' : (pendingChartDataUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : '')),
   };
+
+  // Run pre-trade checklist for NEW trades (not edits)
+  if (!editingTradeId && status === "Open" && newTrade.shortStrike && newTrade.longStrike) {
+    const entryD = new Date(newTrade.entryDate), expiryD = new Date(newTrade.expiry);
+    newTrade.dteAtEntry = Math.ceil((expiryD - entryD) / 86400000);
+    const result = runBrowserChecklist(newTrade);
+    if (result.flags.length > 0) {
+      _pendingSaveTrade = newTrade;
+      showChecklist(ticker, newTrade, result);
+      return; // wait for user to confirm or cancel
+    }
+  }
+
+  _doSaveTrade(newTrade);
+}
+
+function _doSaveTrade(newTrade) {
+  if (!newTrade) newTrade = _pendingSaveTrade;
+  _pendingSaveTrade = null;
+  if (!newTrade) return;
+  const ticker = newTrade.ticker;
+
   if (editingTradeId) {
     const prev = STATE.trades.find(x=>x.id===editingTradeId);
     newTrade.rolls = prev.rolls||[]; newTrade.journal = prev.journal||[];
@@ -4441,10 +4588,10 @@ function saveTrade() {
     STATE.trades = STATE.trades.map(x=>x.id===editingTradeId?newTrade:x);
   } else {
     const entryD = new Date(newTrade.entryDate), expiryD = new Date(newTrade.expiry);
-    newTrade.id = STATE.nextId++;
-    newTrade.dteAtEntry = Math.ceil((expiryD-entryD)/86400000);
-    newTrade.rolls=[]; newTrade.journal=[]; newTrade.realizedPnl=null; newTrade.exitDate=null;
-    newTrade.exitReason=""; newTrade.thesisAccuracy=""; newTrade.lessonLearned=""; newTrade.createdAt=new Date().toISOString().slice(0,10);
+    if (!newTrade.id) newTrade.id = STATE.nextId++;
+    if (!newTrade.dteAtEntry) newTrade.dteAtEntry = Math.ceil((expiryD-entryD)/86400000);
+    newTrade.rolls=newTrade.rolls||[]; newTrade.journal=newTrade.journal||[]; newTrade.realizedPnl=newTrade.realizedPnl||null; newTrade.exitDate=newTrade.exitDate||null;
+    newTrade.exitReason=newTrade.exitReason||""; newTrade.thesisAccuracy=newTrade.thesisAccuracy||""; newTrade.lessonLearned=newTrade.lessonLearned||""; newTrade.createdAt=newTrade.createdAt||new Date().toISOString().slice(0,10);
     // Auto-generate entry chart from candle data if no manual upload
     if (!newTrade.chartLink && STATE.candles[ticker]) {
       const autoChart = renderTradeChart(ticker, newTrade.entryDate, null, { short: newTrade.shortStrike, long: newTrade.longStrike });

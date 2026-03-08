@@ -16,6 +16,8 @@ const MDA_BASE = "https://api.marketdata.app/v1";
 const TG_BOT = "8441592699:AAE8T_GQhcPTrD7xT4PnKV6igMoTUxK6xRE";
 const TG_CHAT = "6155190874";
 
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+
 const SPREAD_CHECK_INTERVAL = 5 * 60 * 1000; // 5 min between spread refreshes
 const STOCK_CHECK_INTERVAL = 60 * 1000;       // 60s between stock checks
 
@@ -29,6 +31,129 @@ let prevSpreadCache = {};    // previous hour's spreads for change tracking
 let prevQuoteCache = {};     // previous hour's stock prices for change tracking
 let lastSpreadFetch = 0;
 let tgOffset = 0;            // Telegram polling offset
+let pendingTrade = null;     // Pending trade from screenshot, awaiting /yes confirmation
+
+// ── Sector lookup (mirrors index.html SECTOR_LOOKUP) ────────────────────────
+const SECTOR_MAP = {
+  AAPL:"Technology",MSFT:"Technology",NVDA:"Technology",AMD:"Technology",TSLA:"Technology",
+  GOOGL:"Technology",GOOG:"Technology",META:"Technology",AMZN:"Consumer Discretionary",
+  NFLX:"Communication Services",CRM:"Technology",ORCL:"Technology",ADBE:"Technology",
+  QCOM:"Technology",INTC:"Technology",MU:"Technology",AVGO:"Technology",TSM:"Technology",
+  JPM:"Financials",BAC:"Financials",GS:"Financials",MS:"Financials",C:"Financials",
+  WFC:"Financials",V:"Financials",MA:"Financials",PYPL:"Financials",HOOD:"Financials",
+  XOM:"Energy",CVX:"Energy",OXY:"Energy",USO:"ETF",
+  JNJ:"Healthcare",PFE:"Healthcare",MRNA:"Healthcare",ABBV:"Healthcare",UNH:"Healthcare",
+  KO:"Consumer Staples",PEP:"Consumer Staples",WMT:"Consumer Staples",COST:"Consumer Discretionary",
+  NKE:"Consumer Discretionary",MCD:"Consumer Discretionary",
+  CAT:"Industrials",BA:"Industrials",GE:"Industrials",
+  PLTR:"Technology",YINN:"ETF",SPY:"ETF",QQQ:"ETF",VIX:"ETF",
+};
+
+function getSector(ticker, state) {
+  return state?.sectors?.[ticker] || SECTOR_MAP[ticker] || "";
+}
+
+// ── Pre-trade checklist ─────────────────────────────────────────────────────
+function runPreTradeChecklist(trade, state) {
+  const flags = []; // { severity: 'warn'|'info', msg }
+  const checks = []; // { pass: bool, msg }
+  const open = (state.trades || []).filter(t => t.status === 'Open' && !(t.tradeType || '').startsWith('Stock'));
+  const closed = (state.trades || []).filter(t => t.status !== 'Open');
+  const acct = state.accountBalance || 0;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const maxLoss = (width * 100 * trade.contracts) - trade.premiumCollected;
+  const rr = trade.premiumCollected > 0 ? maxLoss / trade.premiumCollected : 999;
+
+  // 1. Max loss vs account
+  if (acct > 0) {
+    const pct = (maxLoss / acct * 100);
+    if (pct > 5) flags.push({ severity: 'warn', msg: `Max loss $${maxLoss.toFixed(0)} = ${pct.toFixed(1)}% of account` });
+    else checks.push({ pass: true, msg: `Max loss ${pct.toFixed(1)}% of account` });
+  }
+
+  // 2. Sector concentration
+  const sector = getSector(trade.ticker, state);
+  if (sector) {
+    const sameSector = open.filter(t => getSector(t.ticker, state) === sector);
+    if (sameSector.length >= 2) flags.push({ severity: 'warn', msg: `${sameSector.length} open trades in ${sector} already` });
+    else checks.push({ pass: true, msg: `${sector} — ${sameSector.length} existing` });
+  }
+
+  // 3. Duplicate ticker
+  const dup = open.find(t => t.ticker === trade.ticker);
+  if (dup) flags.push({ severity: 'warn', msg: `Already have open ${dup.tradeType} on ${trade.ticker}` });
+
+  // 4. R:R ratio
+  if (rr > 3) flags.push({ severity: 'warn', msg: `R:R ${rr.toFixed(1)}:1 (risking $${maxLoss.toFixed(0)} to make $${trade.premiumCollected})` });
+  else checks.push({ pass: true, msg: `R:R ${rr.toFixed(1)}:1` });
+
+  // 5. DTE
+  const dte = trade.dteAtEntry || 0;
+  if (dte <= 1) flags.push({ severity: 'info', msg: `0-1 DTE — aggressive expiry` });
+  else if (dte > 45) flags.push({ severity: 'info', msg: `${dte} DTE — unusually long for credit spread` });
+  else checks.push({ pass: true, msg: `${dte} DTE` });
+
+  // 6. Position count
+  if (open.length >= 5) flags.push({ severity: 'warn', msg: `${open.length} open positions — adding another` });
+  else checks.push({ pass: true, msg: `${open.length} open positions` });
+
+  // 7. Total portfolio risk
+  if (acct > 0) {
+    const existingRisk = open.reduce((s, t) => {
+      const w = Math.abs((t.shortStrike || 0) - (t.longStrike || 0));
+      return s + (w * (t.contracts || 1) * 100 - (t.premiumCollected || 0));
+    }, 0);
+    const totalRisk = existingRisk + maxLoss;
+    const totalPct = (totalRisk / acct * 100);
+    if (totalPct > 25) flags.push({ severity: 'warn', msg: `Total portfolio risk $${totalRisk.toFixed(0)} = ${totalPct.toFixed(0)}% of account` });
+    else checks.push({ pass: true, msg: `Total risk ${totalPct.toFixed(0)}% of account` });
+  }
+
+  // 8. Historical ticker win rate
+  const tickerTrades = closed.filter(t => t.ticker === trade.ticker);
+  if (tickerTrades.length >= 3) {
+    const wins = tickerTrades.filter(t => (t.realizedPnl || 0) > 0).length;
+    const wr = Math.round(wins / tickerTrades.length * 100);
+    if (wr < 50) flags.push({ severity: 'warn', msg: `${wr}% win rate on ${trade.ticker} (${wins}/${tickerTrades.length})` });
+    else checks.push({ pass: true, msg: `${wr}% win rate on ${trade.ticker}` });
+  }
+
+  // 9. Wide spread
+  if (width > 10) flags.push({ severity: 'info', msg: `$${width} wide spread` });
+
+  return { flags, checks, maxLoss, rr, width };
+}
+
+function formatChecklist(ticker, trade, result) {
+  const { flags, checks, maxLoss } = result;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const perSpread = (trade.premiumCollected / (100 * trade.contracts)).toFixed(2);
+
+  let msg = `📋 <b>PRE-TRADE CHECKLIST — ${ticker}</b>\n\n` +
+    `${trade.tradeType}\n` +
+    `${trade.shortStrike}/${trade.longStrike} x${trade.contracts}\n` +
+    `Expiry: ${trade.expiry} (${trade.dteAtEntry} DTE)\n` +
+    `Premium: $${trade.premiumCollected.toFixed(0)} ($${perSpread}/spread)\n` +
+    `Max Loss: $${maxLoss.toFixed(0)}\n`;
+
+  if (flags.length > 0) {
+    msg += '\n';
+    flags.forEach(f => {
+      msg += f.severity === 'warn' ? `⚠️ ${f.msg}\n` : `ℹ️ ${f.msg}\n`;
+    });
+  }
+
+  if (checks.length > 0) {
+    msg += '\n';
+    checks.forEach(c => { msg += `✅ ${c.msg}\n`; });
+  }
+
+  if (flags.length > 0) {
+    msg += `\nReply /yes to confirm or /no to cancel`;
+  }
+
+  return msg;
+}
 
 // ── Telegram Send ───────────────────────────────────────────────────────────
 async function tg(msg) {
@@ -133,6 +258,8 @@ async function refreshAllSpreads(trades) {
       const sv = await fetchSpreadValue(trade);
       if (sv) {
         spreadCache[trade.id] = sv;
+        // Persist to trade object so dashboard has it on load
+        trade._liveSpread = { mid: sv.mid, high: sv.high, low: sv.low, delta: sv.shortDelta, ts: sv.ts, _fetchedAt: Date.now() };
         console.log(`  ${trade.ticker} ${trade.shortStrike}/${trade.longStrike}: $${sv.mid.toFixed(2)} (${sv.ts})`);
       }
     } catch (e) {
@@ -162,7 +289,9 @@ async function fetchQuotes(tickers) {
         price,
         change: price - prevClose,
         changePct: prevClose ? ((price - prevClose) / prevClose) * 100 : 0,
-        volume: meta.regularMarketVolume || 0
+        volume: meta.regularMarketVolume || 0,
+        dayHigh: meta.regularMarketDayHigh || null,
+        dayLow: meta.regularMarketDayLow || null
       };
     } catch (e) {
       console.error(`[QUOTE] ${ticker}: ${e.message}`);
@@ -359,9 +488,35 @@ async function pollTelegram() {
     for (const update of data.result) {
       tgOffset = update.update_id + 1;
       const msg = update.message;
-      if (!msg?.text || String(msg.chat?.id) !== TG_CHAT) continue;
+      if (!msg || String(msg.chat?.id) !== TG_CHAT) continue;
 
+      // Handle photo messages (screenshot-to-trade)
+      if (msg.photo && msg.photo.length > 0) {
+        await handleScreenshot(msg);
+        continue;
+      }
+
+      if (!msg.text) continue;
       const text = msg.text.trim();
+
+      // Handle premium reply for pending screenshot trade
+      if (pendingTrade?.needsPremium && /^\d+(\.\d+)?$/.test(text)) {
+        const premium = parseFloat(text);
+        pendingTrade.premium = premium;
+        pendingTrade.needsPremium = false;
+        const width = Math.abs(pendingTrade.shortStrike - pendingTrade.longStrike);
+        const maxLoss = (width * 100 * pendingTrade.contracts) - premium;
+        const perSpread = (premium / (100 * pendingTrade.contracts)).toFixed(2);
+        tg(
+          `📋 <b>Updated — ${pendingTrade.ticker}</b>\n\n` +
+          `${pendingTrade.shortStrike}/${pendingTrade.longStrike} x${pendingTrade.contracts}\n` +
+          `Premium: $${premium.toFixed(0)} ($${perSpread}/spread)\n` +
+          `Max loss: $${maxLoss.toFixed(0)}\n\n` +
+          `<b>Open this trade?</b>\n/yes — confirm\n/no — cancel`
+        );
+        continue;
+      }
+
       if (text.startsWith('/')) {
         await handleCommand(text);
       }
@@ -383,8 +538,13 @@ async function handleCommand(text) {
       case '/spreads': return await cmdSpreads();
       case '/pnl': return await cmdPnl();
       case '/sl': return await cmdUpdateField(parts, 'slPrice', 'Price Stop Loss');
-      case '/ssl': return await cmdUpdateField(parts, 'spreadSL', 'Spread Stop Loss');
+      case '/ssl': return await cmdSpreadLevel(parts, 'sl');
+      case '/stp': return await cmdSpreadLevel(parts, 'tp');
       case '/tp': return await cmdUpdateField(parts, 'tpPrice', 'Take Profit');
+      case '/open': return await cmdOpen(parts);
+      case '/close': return await cmdClose(parts);
+      case '/yes': return await cmdConfirmTrade(true, parts.slice(1));
+      case '/no': return await cmdConfirmTrade(false);
       case '/help': return await cmdHelp();
       default: {
         // Check if it's a ticker command like /nvda /cat etc
@@ -404,15 +564,27 @@ async function handleCommand(text) {
 async function cmdHelp() {
   tg(
     `<b>Trading Desk Commands</b>\n\n` +
+    `<b>Positions</b>\n` +
+    `/open TICKER SHORT/LONGP EXPIRY QTY PREMIUM\n` +
+    `/close TICKER [PNL]\n` +
     `/status — All positions overview\n` +
     `/spreads — Live spread values\n` +
     `/pnl — P&L summary\n` +
-    `/sl TICKER PRICE — Price stop loss\n` +
-    `/ssl TICKER VALUE — Spread stop loss (911)\n` +
-    `/tp TICKER PRICE — Take profit\n` +
     `/{ticker} — Detail on one position\n\n` +
-    `<i>/sl NVDA 192 — thesis broken, get out</i>\n` +
-    `<i>/ssl NVDA 4.50 — spread can't go above this</i>`
+    `<b>Risk Management</b>\n` +
+    `/sl TICKER PRICE — Chart stop loss\n` +
+    `/ssl TICKER %  — Spread stop loss (e.g. /ssl NVDA 75)\n` +
+    `/stp TICKER %  — Spread take profit (e.g. /stp NVDA 50)\n` +
+    `/tp TICKER PRICE — Chart take profit\n\n` +
+    `<b>Screenshot</b>\n` +
+    `📸 Send a screenshot → auto-parse → /yes to confirm\n\n` +
+    `<b>Examples</b>\n` +
+    `<i>/open NFLX 950/940P 3/7 5 2500</i>\n` +
+    `<i>/open AAPL 220/215P 0dte 3 900</i>\n` +
+    `<i>/open TSLA 280/270P fri 2 1200</i>\n` +
+    `<i>/close NFLX 1200</i>\n` +
+    `<i>/sl NVDA 192 — thesis broken</i>\n` +
+    `<i>/ssl NVDA 4.50 — hard stop (911)</i>`
   );
 }
 
@@ -435,26 +607,36 @@ async function cmdStatus() {
     const spread = spreadCache[t.id];
     const price = q ? `$${q.price.toFixed(2)}` : '?';
     const chg = q ? `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%` : '';
-    const prox = q ? `${((q.price - t.shortStrike) / q.price * 100).toFixed(1)}%` : '?';
     const pnlData = unrealizedPnl(t, q?.price);
     const pnlUp = pnlData ? pnlData.pnl >= 0 : true;
     const status = !q ? '⚪' : pnlData ? (pnlUp ? '🟢' : '🔴') : (q.price < t.shortStrike ? '🔴' : '🟢');
-    const spreadStr = spread ? `$${spread.mid.toFixed(2)}` : '-';
     const pnlStr = pnlData ? `${pnlData.pnl >= 0 ? '+' : '-'}$${Math.abs(pnlData.pnl).toFixed(0)}` : '';
 
-    // Distance to SL/TP
-    const slDist = (t.slPrice && q) ? `SL:$${t.slPrice} (${(q.price - parseFloat(t.slPrice)).toFixed(1)} away)` : '';
-    const sslDist = (t.spreadSL && spread) ? `SSL:$${t.spreadSL} ($${(parseFloat(t.spreadSL) - spread.mid).toFixed(2)} away)` : '';
-    const tpDist = (t.tpPrice && q) ? `TP:$${t.tpPrice} (${(parseFloat(t.tpPrice) - q.price).toFixed(1)} away)` : '';
+    // Daily high/low
+    const range = (q?.dayLow && q?.dayHigh) ? `L:$${q.dayLow.toFixed(2)} H:$${q.dayHigh.toFixed(2)}` : '';
 
     // Daily implied move from IV
-    const impliedMove = (spread?.iv && q) ? `±$${(q.price * spread.iv * Math.sqrt(1/252)).toFixed(2)}/day` : '';
+    const impliedMove = (spread?.iv && q) ? `±$${(q.price * spread.iv * Math.sqrt(1/252)).toFixed(2)}` : '';
+
+    // Chart SL / Spread SL / TP with % distance
+    const slPct = (t.slPrice && q) ? ` (${((q.price - parseFloat(t.slPrice)) / q.price * 100).toFixed(1)}%)` : '';
+    const tpPct = (t.tpPrice && q) ? ` (${((parseFloat(t.tpPrice) - q.price) / q.price * 100).toFixed(1)}%)` : '';
+    const chartSL = t.slPrice ? `Chart SL: $${t.slPrice}${slPct}` : '';
+    const spreadTPAway = (t.spreadTP && spread) ? ((spread.mid - parseFloat(t.spreadTP)) / spread.mid * 100).toFixed(0) : null;
+    const spreadTP = (t.spreadTP && spread) ? `Spread TP: $${t.spreadTP} (${spreadTPAway}% away)` : '';
+    const spreadSLAway = (t.spreadSL && spread) ? ((parseFloat(t.spreadSL) - spread.mid) / spread.mid * 100).toFixed(0) : null;
+    const spreadSL = (t.spreadSL && spread) ? `Spread SL: $${t.spreadSL} (${spreadSLAway}% away)` : '';
+    const tpStr = t.tpPrice ? `TP: $${t.tpPrice}${tpPct}` : '';
 
     let line = `${status} <b>${t.ticker}</b> ${price} (${chg})`;
     line += `\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE`;
-    line += `\n   Spread: ${spreadStr} | P&L: ${pnlStr} | Prox: ${prox}`;
+    if (range) line += `\n   ${range}`;
+    if (chartSL) line += `\n   ${chartSL}`;
+    if (spreadTP) line += `\n   ${spreadTP}`;
+    if (spreadSL) line += `\n   ${spreadSL}`;
+    if (tpStr) line += `\n   ${tpStr}`;
     if (impliedMove) line += `\n   IV Move: ${impliedMove}`;
-    if (slDist || sslDist || tpDist) line += `\n   ${[slDist, sslDist, tpDist].filter(Boolean).join('\n   ')}`;
+    if (pnlStr) line += `\n   P&L: ${pnlStr}`;
 
     return line;
   });
@@ -585,6 +767,7 @@ async function cmdTicker(ticker) {
     }
 
     if (t.slPrice) msg += `\n🛑 Price SL: $${t.slPrice}`;
+    if (t.spreadTP) msg += `\n🎯 Spread TP: $${t.spreadTP}`;
     if (t.spreadSL) msg += `\n🚨 Spread SL: $${t.spreadSL}`;
     if (t.tpPrice) msg += `\n✅ TP: $${t.tpPrice}`;
 
@@ -592,6 +775,565 @@ async function cmdTicker(ticker) {
 
     tg(msg);
   }
+}
+
+// ── Screenshot-to-Trade (Claude Vision) ──────────────────────────────────
+async function handleScreenshot(msg) {
+  try {
+    tg('📸 Analyzing screenshot...');
+
+    // Get the highest resolution photo
+    const photo = msg.photo[msg.photo.length - 1];
+    const fileResp = await fetch(`https://api.telegram.org/bot${TG_BOT}/getFile?file_id=${photo.file_id}`);
+    const fileData = await fileResp.json();
+    if (!fileData.ok) throw new Error('Failed to get file info');
+
+    // Download the image
+    const imageUrl = `https://api.telegram.org/file/bot${TG_BOT}/${fileData.result.file_path}`;
+    const imageResp = await fetch(imageUrl);
+    const imageBuffer = Buffer.from(await imageResp.arrayBuffer());
+    const base64Image = imageBuffer.toString('base64');
+    const mediaType = fileData.result.file_path.endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+    // Load state to check open positions
+    const state = await loadState();
+    const openTickers = (state.trades || []).filter(t => t.status === 'Open').map(t => t.ticker);
+
+    // Send to Claude for parsing — include open positions for context
+    const parsed = await parseScreenshotWithClaude(base64Image, mediaType, msg.caption || '', openTickers);
+    if (!parsed) {
+      return tg('Could not parse trade details from screenshot. Try /open or /close manually.');
+    }
+
+    // Auto-detect close: ticker matches an open position → assume close (unless caption says "adding" or "new")
+    const caption = (msg.caption || '').toLowerCase();
+    const isAdding = caption.includes('adding') || caption.includes('new') || caption.includes('open');
+    const isClose = parsed.action === 'close' ||
+      (openTickers.includes(parsed.ticker) && !isAdding);
+
+    console.log(`[SCREENSHOT] ticker=${parsed.ticker} action=${parsed.action} openTickers=[${openTickers}] isClose=${isClose} isAdding=${isAdding}`);
+
+    if (isClose && openTickers.includes(parsed.ticker)) {
+      // It's a CLOSE — confirm closing the position
+      const pnlStr = parsed.realizedPnl != null
+        ? `\nRealized P&L: ${parsed.realizedPnl >= 0 ? '+' : '-'}$${Math.abs(parsed.realizedPnl).toFixed(0)}`
+        : '';
+
+      pendingTrade = {
+        ...parsed,
+        action: 'close',
+        timestamp: Date.now()
+      };
+
+      tg(
+        `📋 <b>Parsed CLOSE from screenshot:</b>\n\n` +
+        `Ticker: <b>${parsed.ticker}</b>\n` +
+        `${parsed.shortStrike}/${parsed.longStrike} x${parsed.contracts}${pnlStr}\n\n` +
+        `<b>Close this position?</b>\n/yes — confirm (today's date)\n/yes yesterday — use yesterday's date\n/yes 3/5 — specify date\n/no — cancel`
+      );
+      return;
+    }
+
+    // It's an OPEN
+    parsed.action = 'open';
+
+    // If premium is missing, ask for it
+    if (!parsed.premium) {
+      pendingTrade = { ...parsed, timestamp: Date.now(), needsPremium: true };
+      tg(
+        `📋 <b>Parsed from screenshot:</b>\n\n` +
+        `Ticker: <b>${parsed.ticker}</b>\n` +
+        `Type: ${parsed.tradeType}\n` +
+        `Strikes: ${parsed.shortStrike}/${parsed.longStrike} x${parsed.contracts}\n` +
+        `Expiry: ${parsed.expiry} (${parsed.dte} DTE)\n\n` +
+        `⚠️ Could not determine premium.\n` +
+        `Reply with the total premium (e.g. <i>2500</i>)`
+      );
+      return;
+    }
+
+    // Store as pending trade
+    pendingTrade = {
+      ...parsed,
+      timestamp: Date.now()
+    };
+
+    const width = Math.abs(parsed.shortStrike - parsed.longStrike);
+    const maxLoss = (width * 100 * parsed.contracts) - parsed.premium;
+    const perSpread = (parsed.premium / (100 * parsed.contracts)).toFixed(2);
+
+    tg(
+      `📋 <b>Parsed from screenshot:</b>\n\n` +
+      `Ticker: <b>${parsed.ticker}</b>\n` +
+      `Type: ${parsed.tradeType}\n` +
+      `Strikes: ${parsed.shortStrike}/${parsed.longStrike} x${parsed.contracts}\n` +
+      `Expiry: ${parsed.expiry} (${parsed.dte} DTE)\n` +
+      `Premium: $${parsed.premium.toFixed(0)} ($${perSpread}/spread)\n` +
+      `Max loss: $${maxLoss.toFixed(0)}\n\n` +
+      `<b>Open this trade?</b>\n/yes — confirm\n/no — cancel`
+    );
+  } catch (e) {
+    console.error('[SCREENSHOT]', e.message);
+    tg(`Screenshot error: ${e.message}\nTry /open manually.`);
+  }
+}
+
+async function parseScreenshotWithClaude(base64Image, mediaType, caption, openTickers = []) {
+  const today = formatDate(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })));
+
+  const prompt = `You are parsing a screenshot from a trading platform (IBKR, OptionStrat, TastyTrade, or similar) to extract option spread trade details.
+
+FIRST: Determine if this screenshot shows OPENING a new position or CLOSING an existing position.
+Signs of a CLOSE/EXIT:
+- IBKR: "BOT" (bought back) the short leg AND "SLD" (sold) the long leg to close
+- Shows "Realized P&L" or "Realized PnL"
+- Trade confirmation showing a closing transaction
+- The action is REVERSING the spread (buying back what was sold, selling what was bought)
+Signs of an OPEN/ENTRY:
+- IBKR: "SLD" (sold) the short leg AND "BOT" (bought) the long leg to open
+- Shows "Credit" received for opening
+- Order preview or new position setup
+
+Return ONLY valid JSON, no markdown, no explanation:
+{
+  "action": "open" or "close",
+  "ticker": "AAPL",
+  "side": "P" or "C",
+  "shortStrike": 220,
+  "longStrike": 215,
+  "contracts": 3,
+  "premium": 900,
+  "realizedPnl": null,
+  "expiry": "2026-03-14"
+}
+
+CRITICAL RULES:
+- action: "open" if entering a new position, "close" if exiting/closing
+- This is a CREDIT SPREAD (two legs). IBKR shows each leg on a separate line — you must combine them.
+- ticker: the stock symbol (uppercase)
+- side: "P" for puts, "C" for calls. Look for "PUT" or "CALL" in the option description.
+- shortStrike: the SHORT strike (higher strike for puts, lower for calls)
+- longStrike: the LONG strike (lower strike for puts, higher for calls)
+- contracts: number of spreads (both legs should have same quantity)
+- premium: NET TOTAL credit collected in dollars (for OPENS only). Set null for closes.
+  * If you see per-contract credit like $2.50 with 3 contracts, premium = 250 × 3 = 750
+- realizedPnl: the realized P&L in dollars (for CLOSES only). Positive = profit, negative = loss. Set null for opens.
+  * IBKR may show this as "Realized PnL" or you can calculate from the closing prices
+- expiry: in YYYY-MM-DD format. IBKR format is often "20MAR26" or "MAR 20 '26" = 2026-03-20. Today is ${today}.
+
+Currently open positions: ${openTickers.length > 0 ? openTickers.join(', ') : 'none'}
+If the ticker matches an open position, it's MORE LIKELY a close. Look carefully for closing indicators.
+
+If the caption says anything, use it as additional context: "${caption}"
+
+If you cannot determine a field with confidence, set it to null. Return ONLY the JSON object.`;
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Image } },
+          { type: 'text', text: prompt }
+        ]
+      }]
+    })
+  });
+
+  if (!r.ok) {
+    const err = await r.text();
+    throw new Error(`Claude API ${r.status}: ${err}`);
+  }
+
+  const data = await r.json();
+  const text = data.content?.[0]?.text || '';
+  console.log('[CLAUDE]', text);
+
+  // Parse the JSON response
+  let parsed;
+  try {
+    // Try to extract JSON from the response (in case Claude wraps it)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON found');
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    console.error('[CLAUDE-PARSE]', e.message, text);
+    return null;
+  }
+
+  // Validate required fields
+  if (!parsed.ticker || !parsed.shortStrike || !parsed.longStrike) {
+    tg(`⚠️ Could not extract all fields:\n${JSON.stringify(parsed, null, 2)}`);
+    return null;
+  }
+
+  // Default contracts to 1 if not found
+  if (!parsed.contracts) parsed.contracts = 1;
+
+  // Calculate derived fields
+  const side = (parsed.side || 'P').toUpperCase();
+  const tradeType = side === 'P' ? 'Bull Put Spread' : 'Bear Call Spread';
+  const expiry = parsed.expiry || today;
+  const expiryDate = new Date(expiry + 'T16:00:00-05:00');
+  const entryDateObj = new Date(today + 'T09:30:00-05:00');
+  const dte = Math.ceil((expiryDate - entryDateObj) / 86400000);
+
+  return {
+    action: parsed.action || 'open',
+    ticker: parsed.ticker.toUpperCase(),
+    tradeType,
+    side,
+    shortStrike: parsed.shortStrike,
+    longStrike: parsed.longStrike,
+    contracts: parsed.contracts,
+    premium: parsed.premium || 0,
+    realizedPnl: parsed.realizedPnl || null,
+    expiry,
+    dte
+  };
+}
+
+async function cmdConfirmTrade(confirmed, extraArgs = []) {
+  if (!pendingTrade) {
+    return tg('No pending trade to confirm. Send a screenshot or use /open.');
+  }
+
+  // Expire pending trades after 5 minutes
+  if (Date.now() - pendingTrade.timestamp > 5 * 60 * 1000) {
+    pendingTrade = null;
+    return tg('Pending trade expired. Send a new screenshot.');
+  }
+
+  if (!confirmed) {
+    pendingTrade = null;
+    return tg('Trade cancelled.');
+  }
+
+  const p = pendingTrade;
+  pendingTrade = null;
+
+  if (p.action === 'close') {
+    // Close the position — pass optional date from /yes yesterday or /yes 3/5
+    const pnlStr = p.realizedPnl != null ? String(p.realizedPnl) : '';
+    const parts = ['/close', p.ticker];
+    if (pnlStr) parts.push(pnlStr);
+    const dateArg = extraArgs.join(' ').trim(); // e.g. "yesterday", "3/5", "March 4"
+    if (dateArg) parts.push(dateArg);
+    return await cmdClose(parts);
+  }
+
+  // Open a new position (skip checklist since user already confirmed)
+  const openParts = p.openParts || ['/open', p.ticker, `${p.shortStrike}/${p.longStrike}${p.side}`, p.expiry, String(p.contracts), String(p.premium)];
+  return await cmdOpen(openParts, true);
+}
+
+// ── Parse expiry date from shorthand ──────────────────────────────────────
+function parseExpiry(input, allowPast = false) {
+  const lower = input.toLowerCase();
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  if (lower === '0dte') {
+    return formatDate(et);
+  }
+
+  // Day names: fri, mon, tue, wed, thu
+  const dayMap = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  const nextPrefix = lower.startsWith('next-');
+  const dayName = nextPrefix ? lower.slice(5) : lower;
+
+  if (dayMap[dayName] !== undefined) {
+    const target = dayMap[dayName];
+    const current = et.getDay();
+    let daysAhead = target - current;
+    if (daysAhead <= 0) daysAhead += 7;
+    if (nextPrefix && daysAhead <= 7) daysAhead += 7;
+    const d = new Date(et);
+    d.setDate(d.getDate() + daysAhead);
+    return formatDate(d);
+  }
+
+  // M/D or MM/DD format (assumes current year, or next year if date has passed — unless allowPast)
+  if (/^\d{1,2}\/\d{1,2}$/.test(input)) {
+    const [m, d] = input.split('/').map(Number);
+    let year = et.getFullYear();
+    if (!allowPast) {
+      const candidate = new Date(year, m - 1, d);
+      if (candidate < et) year++;
+    }
+    return `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  // "March 4", "Mar 4", "march4", "mar4" etc.
+  const monthMap = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+    january: 1, february: 2, march: 3, april: 4, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
+  const monthMatch = lower.match(/^([a-z]+)\s*(\d{1,2})$/);
+  if (monthMatch && monthMap[monthMatch[1]]) {
+    const m = monthMap[monthMatch[1]];
+    const d = parseInt(monthMatch[2]);
+    let year = et.getFullYear();
+    return `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  // Full date YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
+
+  return null;
+}
+
+function formatDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ── /open TICKER SHORT/LONGP EXPIRY QTY PREMIUM ──────────────────────────
+async function cmdOpen(parts, skipChecklist) {
+  // /open NFLX 950/940P 3/7 5 2500
+  if (parts.length < 6) {
+    return tg(
+      `<b>Usage:</b> /open TICKER SHORT/LONGP EXPIRY QTY PREMIUM\n\n` +
+      `<b>Examples:</b>\n` +
+      `/open NFLX 950/940P 3/7 5 2500\n` +
+      `/open AAPL 220/215P 0dte 3 900\n` +
+      `/open TSLA 280/270P fri 2 1200\n` +
+      `/open MSFT 430/440C next-fri 4 1600\n\n` +
+      `<b>Expiry formats:</b> 3/7, 0dte, fri, next-fri, 2026-03-07`
+    );
+  }
+
+  const ticker = parts[1].toUpperCase();
+
+  // Parse strikes + side: 950/940P or 430/440C
+  const strikeMatch = parts[2].match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)(P|C)$/i);
+  if (!strikeMatch) {
+    return tg(`Invalid strikes: ${parts[2]}\nFormat: SHORT/LONGP or SHORT/LONGC\nExample: 950/940P`);
+  }
+  const shortStrike = parseFloat(strikeMatch[1]);
+  const longStrike = parseFloat(strikeMatch[2]);
+  const side = strikeMatch[3].toUpperCase();
+  const tradeType = side === 'P' ? 'Bull Put Spread' : 'Bear Call Spread';
+
+  // Parse expiry
+  const expiry = parseExpiry(parts[3]);
+  if (!expiry) {
+    return tg(`Invalid expiry: ${parts[3]}\nFormats: 3/7, 0dte, fri, next-fri, 2026-03-07`);
+  }
+
+  const contracts = parseInt(parts[4]);
+  if (isNaN(contracts) || contracts <= 0) {
+    return tg(`Invalid quantity: ${parts[4]}`);
+  }
+
+  const premium = parseFloat(parts[5]);
+  if (isNaN(premium) || premium <= 0) {
+    return tg(`Invalid premium: ${parts[5]}`);
+  }
+
+  // Load state
+  const state = await loadState();
+  const today = formatDate(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })));
+  const expiryDate = new Date(expiry + 'T16:00:00-05:00');
+  const entryDateObj = new Date(today + 'T09:30:00-05:00');
+  const dte = Math.ceil((expiryDate - entryDateObj) / 86400000);
+
+  const newTrade = {
+    ticker,
+    tradeType,
+    shortStrike,
+    longStrike,
+    contracts,
+    premiumCollected: premium,
+    entryDate: today,
+    expiry,
+    status: 'Open',
+    deltaEntry: '',
+    pop: '',
+    entryType: '',
+    thesis: '',
+    chartLink: '',
+    tpPrice: '',
+    slPrice: '',
+    tpLevel: '',
+    slLevel: '',
+    dteAtEntry: dte,
+    createdAt: today,
+    exitDate: null,
+    realizedPnl: null,
+    exitReason: '',
+    ruleAdherence: '',
+    ruleBreak: '',
+    thesisAccuracy: '',
+    deltaClose: '',
+    mae: '',
+    mfe: '',
+    lessonLearned: '',
+    sentiment: side === 'P' ? 'Bullish' : 'Bearish',
+    strategyType: '',
+    earningsFlag: '',
+    spreadSL: '',
+    rolls: [],
+    journal: [],
+    _autoMAE: { pnl: null, price: null, date: null, src: null },
+    _autoMFE: { pnl: null, price: null, date: null, src: null }
+  };
+
+  // Run pre-trade checklist
+  if (!skipChecklist) {
+    const result = runPreTradeChecklist(newTrade, state);
+    const checklistMsg = formatChecklist(ticker, newTrade, result);
+
+    if (result.flags.length > 0) {
+      // Gate: store as pending and wait for /yes
+      pendingTrade = {
+        ticker, shortStrike, longStrike, side, contracts, premium, expiry, tradeType, dteAtEntry: dte,
+        openParts: parts, // store original parts for re-execution
+        timestamp: Date.now()
+      };
+      return tg(checklistMsg);
+    } else {
+      // No flags — show clean checklist and proceed
+      tg(checklistMsg);
+    }
+  }
+
+  // Create trade
+  if (!state.nextId) state.nextId = Math.max(...(state.trades || []).map(t => t.id || 0)) + 1;
+  newTrade.id = state.nextId++;
+  if (!state.trades) state.trades = [];
+  state.trades.push(newTrade);
+
+  await saveState(state);
+  lastState = state;
+
+  const width = Math.abs(shortStrike - longStrike);
+  const maxLoss = (width * 100 * contracts) - premium;
+  const perSpread = (premium / (100 * contracts)).toFixed(2);
+
+  tg(
+    `✅ <b>TRADE OPENED — ${ticker}</b>\n\n` +
+    `${tradeType}\n` +
+    `${shortStrike}/${longStrike} x${contracts}\n` +
+    `Expiry: ${expiry} (${dte} DTE)\n` +
+    `Premium: $${premium.toFixed(0)} ($${perSpread}/spread)\n` +
+    `Max loss: $${maxLoss.toFixed(0)}\n\n` +
+    `<i>Set stops:\n/sl ${ticker} PRICE\n/ssl ${ticker} VALUE\n/tp ${ticker} PRICE</i>`
+  );
+}
+
+// ── /close TICKER [PNL] [DATE] ────────────────────────────────────────────
+async function cmdClose(parts) {
+  if (parts.length < 2) {
+    return tg(`<b>Usage:</b> /close TICKER [PNL] [DATE]\n\nExamples:\n/close NFLX\n/close NFLX 1200\n/close NFLX -800 3/6\n/close NFLX 1200 yesterday`);
+  }
+
+  const ticker = parts[1].toUpperCase();
+  const realizedPnl = parts[2] ? parseFloat(parts[2]) : null;
+
+  // Parse optional date (3rd or 4th arg)
+  const today = formatDate(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })));
+  let closeDate = today;
+  // Date could be multi-word like "March 4" — join remaining parts
+  const dateFromPos3 = parts.slice(3).join(' ').trim() || null;
+  const dateArg = dateFromPos3 || (parts[2] && isNaN(parseFloat(parts[2])) ? parts[2] : null);
+  if (dateArg) {
+    const lower = dateArg.toLowerCase();
+    if (lower === 'yesterday') {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      d.setDate(d.getDate() - 1);
+      closeDate = formatDate(d);
+    } else {
+      const parsed = parseExpiry(dateArg, true); // allowPast=true for close dates
+      if (parsed) closeDate = parsed;
+    }
+  }
+
+  const state = await loadState();
+  const trades = (state.trades || []).filter(t => t.status === 'Open' && t.ticker === ticker);
+  if (!trades.length) return tg(`No open position for ${ticker}`);
+
+  let closed = 0;
+  for (const t of trades) {
+    t.status = 'Closed';
+    t.exitDate = closeDate;
+    if (realizedPnl !== null && !isNaN(realizedPnl)) {
+      t.realizedPnl = realizedPnl;
+    }
+    closed++;
+
+    // Clean up spread cache
+    delete spreadCache[t.id];
+    delete prevSpreadCache[t.id];
+  }
+
+  await saveState(state);
+  lastState = state;
+
+  const pnlStr = realizedPnl !== null ? `\nRealized P&L: ${realizedPnl >= 0 ? '+' : '-'}$${Math.abs(realizedPnl).toFixed(0)}` : '\n<i>Tip: /close TICKER PNL to record P&L</i>';
+
+  tg(
+    `🔒 <b>TRADE CLOSED — ${ticker}</b>\n\n` +
+    `${closed} position(s) closed on ${today}${pnlStr}\n\n` +
+    `<i>Dashboard will update on next refresh</i>`
+  );
+}
+
+async function cmdSpreadLevel(parts, type) {
+  // /ssl NVDA 75  → spread SL at 75% of premium
+  // /stp NVDA 50  → spread TP at 50% of premium
+  const cmd = type === 'tp' ? '/stp' : '/ssl';
+  const label = type === 'tp' ? 'Spread TP' : 'Spread SL';
+  if (parts.length < 3) {
+    return tg(`<b>Usage:</b> ${cmd} TICKER PERCENT\nExample: ${cmd} NVDA ${type === 'tp' ? '50' : '75'}\n\nSets ${label} as a % of premium collected.`);
+  }
+
+  const ticker = parts[1].toUpperCase();
+  const pct = parseFloat(parts[2]);
+  if (isNaN(pct) || pct <= 0) return tg(`Invalid percentage: ${parts[2]}`);
+
+  const state = await loadState();
+  const trades = (state.trades || []).filter(t => t.status === 'Open' && t.ticker === ticker);
+  if (!trades.length) return tg(`No open position for ${ticker}`);
+
+  let updated = 0;
+  for (const t of trades) {
+    const premium = t.premiumCollected || 0;
+    const contracts = t.contracts || 1;
+    if (!premium) continue;
+    const perSpread = premium / (100 * contracts);
+
+    if (type === 'tp') {
+      // TP: buy back when spread decays to this value (e.g. 50% → keep 50% profit)
+      const val = perSpread * (1 - pct / 100);
+      t.spreadTP = val.toFixed(2);
+      t.spreadTPPct = String(pct);
+    } else {
+      // SL: close when spread rises to this value (e.g. 75% loss of premium)
+      const val = perSpread * (pct / 100);
+      t.spreadSL = val.toFixed(2);
+      t.spreadSLPct = String(pct);
+    }
+    updated++;
+  }
+
+  await saveState(state);
+  lastState = state;
+
+  const t = trades[0];
+  const dollarVal = type === 'tp' ? t.spreadTP : t.spreadSL;
+  const emoji = type === 'tp' ? '🎯' : '🚨';
+
+  tg(
+    `${emoji} <b>${ticker} ${label} set</b>\n\n` +
+    `${pct}% → $${dollarVal}/spread\n` +
+    `<i>Dashboard will update on next refresh</i>`
+  );
 }
 
 async function cmdUpdateField(parts, field, label) {
@@ -650,43 +1392,44 @@ async function sendHourlySummary() {
       if (!q) return `  ${t.ticker}: no data`;
 
       const spread = spreadCache[t.id];
-      const prevSpread = prevSpreadCache[t.id];
-      const prevPrice = prevQuoteCache[t.ticker];
+      const dl = daysLeft(t.expiry);
       const pnlData = unrealizedPnl(t, q.price);
       const icon = pnlData ? (pnlData.pnl >= 0 ? '🟢' : '🔴') : '⚪';
+      const chg = `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(1)}%`;
 
-      // Price change since last hour
-      const priceChg = prevPrice ? q.price - prevPrice : null;
-      const priceChgStr = priceChg != null ? ` (${priceChg >= 0 ? '↑' : '↓'}$${Math.abs(priceChg).toFixed(2)}/hr)` : '';
+      let line = `${icon} <b>${t.ticker}</b> $${q.price.toFixed(2)} (${chg})`;
+      line += `\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE`;
 
-      // Spread change since last hour
-      const spreadChg = (spread && prevSpread) ? spread.mid - prevSpread.mid : null;
-      const spreadChgStr = spreadChg != null ? ` (${spreadChg > 0 ? '↑' : spreadChg < 0 ? '↓' : '→'}$${Math.abs(spreadChg).toFixed(2)})` : '';
+      // Daily range
+      if (q.dayLow && q.dayHigh) line += `\n   L:$${q.dayLow.toFixed(2)} H:$${q.dayHigh.toFixed(2)}`;
 
-      let line = `${icon} <b>${t.ticker}</b>${priceChgStr}`;
-
-      // Spread + change
-      if (spread) line += `\n   Sprd: $${spread.mid.toFixed(2)}${spreadChgStr}`;
-
-      // Distance to price SL
+      // Chart SL with % distance
       if (t.slPrice) {
-        const slDist = q.price - parseFloat(t.slPrice);
-        const impliedMove = spread?.iv ? q.price * spread.iv * Math.sqrt(1/252) : null;
-        const slMoves = impliedMove ? ` (${(slDist / impliedMove).toFixed(1)}x IV move)` : '';
-        line += `\n   SL: $${slDist.toFixed(1)} away${slMoves}`;
+        const slPct = ((q.price - parseFloat(t.slPrice)) / q.price * 100).toFixed(1);
+        line += `\n   Chart SL: $${t.slPrice} (${slPct}%)`;
       }
 
-      // Distance to spread SL (911)
+      // Spread TP with % away
+      if (t.spreadTP && spread) {
+        const away = ((spread.mid - parseFloat(t.spreadTP)) / spread.mid * 100).toFixed(0);
+        line += `\n   Spread TP: $${t.spreadTP} (${away}% away)`;
+      }
+
+      // Spread SL with % away
       if (t.spreadSL && spread) {
-        const sslDist = parseFloat(t.spreadSL) - spread.mid;
-        line += `\n   SSL: $${sslDist.toFixed(2)} from hard stop`;
+        const away = ((parseFloat(t.spreadSL) - spread.mid) / spread.mid * 100).toFixed(0);
+        line += `\n   Spread SL: $${t.spreadSL} (${away}% away)`;
       }
 
-      // Distance to TP
+      // TP with % distance
       if (t.tpPrice) {
-        const tpDist = parseFloat(t.tpPrice) - q.price;
-        line += `\n   TP: $${tpDist.toFixed(1)} away`;
+        const tpPct = ((parseFloat(t.tpPrice) - q.price) / q.price * 100).toFixed(1);
+        line += `\n   TP: $${t.tpPrice} (${tpPct}%)`;
       }
+
+      // IV implied move
+      const impliedMove = (spread?.iv && q) ? `±$${(q.price * spread.iv * Math.sqrt(1/252)).toFixed(2)}` : '';
+      if (impliedMove) line += `\n   IV Move: ${impliedMove}`;
 
       // P&L
       if (pnlData) {
@@ -847,6 +1590,29 @@ async function runCheck() {
     // Check all alerts
     const alertCount = checkAlerts(state, quotes);
 
+    // Track MAE/MFE for all open trades
+    let maeMfeChanged = false;
+    for (const t of openTrades) {
+      const q = quotes[t.ticker];
+      if (!q) continue;
+      const pnlData = unrealizedPnl(t, q.price);
+      if (!pnlData) continue;
+      const pnl = pnlData.pnl;
+      const today = getETDate();
+      const src = pnlData.source;
+      if (!t._autoMAE) t._autoMAE = { pnl: null, price: null, date: null, src: null };
+      if (!t._autoMFE) t._autoMFE = { pnl: null, price: null, date: null, src: null };
+      if (t._autoMAE.pnl === null || pnl < t._autoMAE.pnl) {
+        t._autoMAE = { pnl, price: q.price, date: today, src };
+        maeMfeChanged = true;
+      }
+      if (t._autoMFE.pnl === null || pnl > t._autoMFE.pnl) {
+        t._autoMFE = { pnl, price: q.price, date: today, src };
+        maeMfeChanged = true;
+      }
+    }
+    if (maeMfeChanged) await saveState(state);
+
     // Log
     const prices = tickers.map(t => `${t}:${quotes[t]?.price?.toFixed(2) || '?'}`).join(' ');
     const spreadCount = Object.keys(spreadCache).length;
@@ -894,7 +1660,7 @@ cron.schedule('5 16 * * 1-5', sendMarketClose, { timezone: 'America/New_York' })
 console.log('═══════════════════════════════════════════════════════════');
 console.log('  Trading Desk Alert Server v2');
 console.log('  Stock checks: every 60s | Spread checks: every 5 min');
-console.log('  Telegram commands: /help /status /spreads /pnl /sl /tp');
+console.log('  Telegram commands: /open /close /status /pnl /sl /ssl /tp');
 console.log('  Hourly summaries: 10 AM - 3 PM ET');
 console.log('═══════════════════════════════════════════════════════════');
 
