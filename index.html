@@ -307,6 +307,18 @@ table{width:100%;border-collapse:collapse}
       <div id="exit-modal-title" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--warning);letter-spacing:.1em">CLOSE POSITION</div>
       <button onclick="closeExitModal()" style="background:none;border:none;color:var(--text-secondary);font-size:22px">×</button>
     </div>
+    <!-- Partial close row (shown when trade has >1 contract) -->
+    <div id="ef-partial-row" style="display:none;margin-bottom:12px">
+      <div class="g2">
+        <div class="frow">
+          <label>Contracts to Close</label>
+          <input id="ef-contracts" type="number" min="1" oninput="updatePartialInfo()">
+        </div>
+        <div style="display:flex;align-items:center">
+          <span id="ef-partial-info" style="font-size:10px;color:var(--text-secondary);font-family:'IBM Plex Mono',monospace"></span>
+        </div>
+      </div>
+    </div>
     <div class="g2">
       <div class="frow"><label>Close As</label><select id="ef-status"><option>Closed</option><option>Rolled</option><option>Expired</option></select></div>
       <div class="frow"><label>Exit Date</label><input id="ef-exitDate" type="date"></div>
@@ -324,8 +336,13 @@ table{width:100%;border-collapse:collapse}
     </div>
     <div style="font-size:9px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6">MAE = highest debit seen (worst case). MFE = lowest debit seen (best case). Enter as dollar value e.g. $8.00 spread = 800.</div>
     <div class="g2">
-      <div class="frow"><label>Exit Reason</label><select id="ef-reason"><option value="">Select...</option></select></div>
+      <div class="frow"><label>Exit Reason</label><select id="ef-reason" onchange="onExitReasonChange(this.value)"><option value="">Select...</option></select></div>
       <div class="frow"><label>Thesis Accuracy</label><select id="ef-accuracy"><option value="">Was your read correct?</option><option>Correct</option><option>Partially Correct</option><option>Wrong</option></select></div>
+    </div>
+    <!-- Assignment info (shown when exit reason = Assigned) -->
+    <div id="ef-assignment-info" style="display:none;background:var(--warning-faint);border:1px solid var(--warning-dim);border-radius:3px;padding:8px 12px;margin-bottom:12px;font-size:10px;color:var(--warning);line-height:1.6">
+      📋 A <b>Stock</b> position will be auto-created for the assigned shares.<br>
+      <span id="ef-assignment-detail"></span>
     </div>
     <div style="background:var(--bg-primary);border:1px solid var(--border-visible);border-radius:4px;padding:12px;margin-bottom:12px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-secondary);letter-spacing:.1em;margin-bottom:10px">RULE ADHERENCE</div>
@@ -526,7 +543,7 @@ const STORAGE_KEY = "trading_desk_v3_html";
 const POLL_INTERVAL = 90000;
 
 const ENTRY_TYPES = ["Uptrend / Momentum","Reversal","News / Event","IV Play","Support Bounce","Breakout","Scalp","Earnings Play","Other"];
-const EXIT_REASONS = ["Profit Target Hit","Stop Loss Hit","Rolled","Expired Worthless","Closed Early","Earnings Risk","Same-Day Scalp","Other"];
+const EXIT_REASONS = ["Profit Target Hit","Stop Loss Hit","Rolled","Expired Worthless","Closed Early","Earnings Risk","Same-Day Scalp","Assigned","Liquidated","Other"];
 
 // Trade types — ⭐ = core strategies
 const TRADE_TYPES = [
@@ -1143,6 +1160,8 @@ const _alertedThisCycle = new Set(); // prevent duplicate alerts per refresh
 
 function checkAlerts() {
   STATE.trades.filter(t=>t.status==="Open").forEach(t => {
+    // Skip stock trades — options alerts only
+    if ((t.tradeType||"").startsWith("Stock")) return;
     const q = STATE.quotes[t.ticker];
     if (!q) return;
     const prox = ((q.price - t.shortStrike)/q.price)*100;
@@ -1576,6 +1595,15 @@ function intrinsicSpreadValue(trade, stockPrice) {
 
 // Calculate unrealized P&L using real spread price (or intrinsic fallback)
 function liveUnrealizedPnl(trade, stockPrice) {
+  // Stock trades: simple price difference × shares
+  if ((trade.tradeType||"").startsWith("Stock")) {
+    if (!stockPrice || !trade.shortStrike) return null;
+    const shares = trade.contracts || 0;
+    if (trade.tradeType === "Stock Long") return (stockPrice - trade.shortStrike) * shares;
+    if (trade.tradeType === "Stock Short") return (trade.shortStrike - stockPrice) * shares;
+    return null;
+  }
+
   const premium = trade.premiumCollected || 0;
   const contracts = trade.contracts || 1;
 
@@ -1666,7 +1694,8 @@ function renderSnapshot() {
 
   const rows = open.map(t => {
     const q = STATE.quotes[t.ticker];
-    const dl = daysLeft(t.expiry);
+    const isStk = (t.tradeType||"").startsWith("Stock");
+    const dl = isStk ? null : daysLeft(t.expiry);
     const sector = getSector(t.ticker);
     const priceFmt = q ? `$${q.price.toFixed(2)}` : "—";
     const priceColor = q ? (q.changePct >= 0 ? C.pos : C.neg) : C.textSec;
@@ -1676,7 +1705,15 @@ function renderSnapshot() {
     // SL breached = FULL RED, TP hit = FULL GREEN, between = proportional
     let healthPct = 50, healthColor = C.textMut, healthTitle = "no quote";
     let breached = false, tpHit = false;
-    if (q) {
+    if (isStk && q) {
+      // Stock trade: simple P&L-based health
+      const pnl = liveUnrealizedPnl(t, q.price);
+      if (pnl !== null) {
+        healthPct = pnl >= 0 ? Math.min(95, 50 + pnl / (t.shortStrike * t.contracts) * 5000) : Math.max(5, 50 + pnl / (t.shortStrike * t.contracts) * 5000);
+        healthColor = pnl >= 0 ? C.pos : C.neg;
+        healthTitle = (pnl >= 0 ? "+$" : "-$") + Math.abs(pnl).toFixed(0);
+      }
+    } else if (q) {
       const sl = t.slPrice ? parseFloat(t.slPrice) : null;
       const tp = t.tpPrice ? parseFloat(t.tpPrice) : null;
       breached = sl && q.price <= sl;
@@ -1735,7 +1772,7 @@ function renderSnapshot() {
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec}">
           <span>${t.tradeType || "Spread"}</span>
           <span style="color:${C.textMut}">|</span>
-          <span>${t.longStrike}/${t.shortStrike}</span>
+          ${isStk ? `<span>${t.contracts} shares @ $${t.shortStrike}</span>` : `<span>${t.longStrike}/${t.shortStrike}</span>
           <span style="color:${C.textMut}">|</span>
           <span>${t.contracts}x</span>
           <span style="color:${C.textMut}">|</span>
@@ -1743,7 +1780,7 @@ function renderSnapshot() {
           <span style="color:${C.textMut}">|</span>
           ${t.tpPrice ? `<span style="color:${C.pos}">TP $${parseFloat(t.tpPrice).toFixed(0)}</span>` : `<span style="color:${C.warn}">no TP</span>`}
           <span style="color:${C.textMut}">|</span>
-          ${t.slPrice ? `<span style="color:${C.neg}">SL $${parseFloat(t.slPrice).toFixed(0)}</span>` : `<span style="color:${C.warn}">no SL</span>`}
+          ${t.slPrice ? `<span style="color:${C.neg}">SL $${parseFloat(t.slPrice).toFixed(0)}</span>` : `<span style="color:${C.warn}">no SL</span>`}`}
         </div>
       </div>
       <div style="display:flex;align-items:center;width:50px">
@@ -1767,11 +1804,16 @@ function renderPositions() {
 
   el.innerHTML = open.map(t => {
     const q = STATE.quotes[t.ticker];
-    const dl = daysLeft(t.expiry);
-    const maxLoss = (t.shortStrike - t.longStrike) * t.contracts * 100 - t.premiumCollected;
-    const prox = q ? ((q.price - t.shortStrike) / q.price * 100) : null;
+    const isStock = (t.tradeType||"").startsWith("Stock");
+    const dl = isStock ? null : daysLeft(t.expiry);
+    const maxLoss = isStock ? null : (t.shortStrike - t.longStrike) * t.contracts * 100 - t.premiumCollected;
+    const prox = (!isStock && q) ? ((q.price - t.shortStrike) / q.price * 100) : null;
     const proxColor = prox===null?C.textMut:prox<2?C.neg:prox<5?C.warn:C.pos;
     const proxWidth = prox===null?50:Math.max(0,Math.min(prox/10*100,100));
+
+    // Child trades (partial closes)
+    const childTrades = STATE.trades.filter(c=>c.parentTradeId===t.id && c.status!=="Open");
+    const closedContracts = childTrades.reduce((s,c)=>s+c.contracts,0);
 
     // S/R levels
     const sr = STATE.srLevels?.[t.ticker] || {};
@@ -1779,11 +1821,13 @@ function renderPositions() {
     const resistances = [sr.r1,sr.r2,sr.r3].filter(v=>v);
     const hasSR = supports.length > 0 || resistances.length > 0;
 
-    // Warnings
+    // Warnings (stock trades only need basic checks)
     const warnings = [];
-    if (!t.tpPrice) warnings.push("TP");
-    if (!t.slPrice) warnings.push("SL");
-    if (!hasSR) warnings.push("S/R");
+    if (!isStock) {
+      if (!t.tpPrice) warnings.push("TP");
+      if (!t.slPrice) warnings.push("SL");
+      if (!hasSR) warnings.push("S/R");
+    }
 
     return `<div class="card" id="trade-${t.id}" style="border:1px solid ${warnings.length?C.warnDim:C.border}">
 
@@ -1795,11 +1839,15 @@ function renderPositions() {
             ${q ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:${q.changePct>=0?C.pos:C.neg}">$${q.price.toFixed(2)}</div>
             <div style="font-size:10px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>${q.source==="mda-delayed"?`<span style="font-size:8px;color:${C.warn};border:1px solid ${C.warn}44;padding:1px 4px;border-radius:2px">DELAYED</span>`:""}` : `<div style="font-size:10px;color:${C.textSec}">loading...</div>`}
           </div>
-          <div style="font-size:10px;color:${C.text};margin-top:3px">${t.tradeType||"Spread"} · ${t.longStrike}/${t.shortStrike} · ${t.contracts}x · exp ${t.expiry}${getSector(t.ticker)?" · "+getSector(t.ticker):""}</div>
+          <div style="font-size:10px;color:${C.text};margin-top:3px">${isStock
+            ? t.tradeType + " · " + t.contracts + " shares · entry $" + t.shortStrike + (t.thesis ? " · " + t.thesis.slice(0,40) : "")
+            : (t.tradeType||"Spread") + " · " + t.longStrike + "/" + t.shortStrike + " · " + t.contracts + "x" + (closedContracts ? " (" + closedContracts + " closed)" : "") + " · exp " + t.expiry + (getSector(t.ticker)?" · "+getSector(t.ticker):"")
+          }</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.pos};font-weight:600">+$${(t.premiumCollected||0).toFixed(0)}</div>
-          <div style="font-size:9px;color:${dteColor(dl)};margin-top:2px;font-family:'IBM Plex Mono',monospace">${dl}d DTE</div>
+          ${isStock ? "" : `<div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${C.pos};font-weight:600">+$${(t.premiumCollected||0).toFixed(0)}</div>`}
+          ${isStock ? `<div style="font-size:9px;color:${C.textSec};margin-top:2px;font-family:'IBM Plex Mono',monospace">${t.entryDate}</div>`
+            : `<div style="font-size:9px;color:${dteColor(dl)};margin-top:2px;font-family:'IBM Plex Mono',monospace">${dl}d DTE</div>`}
           ${t.pop?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">POP ${t.pop}%</div>`:""}
           ${t.deltaEntry?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">Δ ${t.deltaEntry}</div>`:""}
         </div>
@@ -1812,8 +1860,8 @@ function renderPositions() {
         <button onclick="openTradeModal(${t.id})" class="btn btn-warn" style="padding:3px 8px;font-size:9px">SET</button>
       </div>` : ""}
 
-      <!-- Price vs Short Strike bar -->
-      ${q ? `<div style="margin-bottom:10px">
+      <!-- Price vs Short Strike bar (options only) -->
+      ${!isStock && q ? `<div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;margin-bottom:3px">
           <span style="font-size:9px;color:${C.textSec};letter-spacing:.06em">PRICE vs SHORT STRIKE</span>
           <span style="font-size:10px;color:${proxColor}">${prox!==null?prox.toFixed(1)+"%":"—"} above $${t.shortStrike}</span>
@@ -1821,8 +1869,8 @@ function renderPositions() {
         <div style="height:3px;background:${C.borderVis};border-radius:2px"><div style="height:100%;width:${proxWidth}%;background:${proxColor};border-radius:2px;transition:width .3s"></div></div>
       </div>` : ""}
 
-      <!-- TP / SL -->
-      <div style="display:flex;gap:6px;margin-bottom:10px">
+      <!-- TP / SL (options only) -->
+      ${!isStock ? `<div style="display:flex;gap:6px;margin-bottom:10px">
         ${(()=>{
           const tpLbl = getSRLabel(t.ticker, t.tpPrice);
           const slLbl = getSRLabel(t.ticker, t.slPrice);
@@ -1891,9 +1939,13 @@ function renderPositions() {
           </div>
         </div>` : ""}
       </div>` : ""}
+      ` : ""}
 
       <!-- Stats row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+      ${isStock ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div><div class="lbl">ENTRY PRICE</div><div class="val">$${t.shortStrike}</div></div>
+        <div><div class="lbl">SHARES</div><div class="val">${t.contracts}</div></div>
+      </div>` : `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
         <div><div class="lbl">PREMIUM</div><div class="val">$${(t.premiumCollected||0).toFixed(0)}</div></div>
         <div><div class="lbl">MAX LOSS</div><div class="val" style="color:${C.neg}">-$${maxLoss.toFixed(0)}</div></div>
         ${(()=>{
@@ -1903,14 +1955,13 @@ function renderPositions() {
           const posColor = posIvr===null?C.textSec:posIvr>=70?C.neg:posIvr>=40?C.warn:C.pos;
           return `<div><div class="lbl">IVR · IV%</div><div class="val" style="color:${posColor}">${posIvr!==null?"IVR "+posIvr:"—"}${posIV!==null?" · "+(posIV*100).toFixed(0)+"%":""}</div>${drawIVSparkline(ivd.history,50,18)}</div>`;
         })()}
-      </div>
+      </div>`}
 
-      <!-- Spread MAE/MFE Tracker -->
+      <!-- P&L Tracker -->
       ${(()=>{
-        // Live P&L from real spread price or stock price fallback
         const livePnl = q ? liveUnrealizedPnl(t, q.price) : null;
         const livePnlColor = livePnl === null ? C.textSec : livePnl >= 0 ? C.pos : C.neg;
-        const src = pnlSource(t);
+        const src = isStock ? "stock" : pnlSource(t);
         const spreadMid = t._liveSpread?.mid;
         const spreadTs = t._liveSpread?.ts;
         const spreadDelta = t._liveSpread?.delta;
@@ -1923,14 +1974,14 @@ function renderPositions() {
         return `${hasMaeMfe || livePnl !== null ? `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:4px;padding:12px;margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em">TRADE P&L</div>
-            <div style="font-size:9px;color:${src==="live"?C.pos:C.textTri}">${src==="live"?"● live spread $"+(spreadMid?.toFixed(2)||"?")+(spreadDelta!=null?" · Δ"+spreadDelta.toFixed(2):"")+(spreadTs?" · "+spreadTs:""):"○ intrinsic approx"}</div>
+            <div style="font-size:9px;color:${src==="live"?C.pos:src==="stock"?C.pos:C.textTri}">${src==="stock"?"● stock price":src==="live"?"● live spread $"+(spreadMid?.toFixed(2)||"?")+(spreadDelta!=null?" · Δ"+spreadDelta.toFixed(2):"")+(spreadTs?" · "+spreadTs:""):"○ intrinsic approx"}</div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:${hasMaeMfe && livePnl !== null ? '8' : '0'}px">
             <div style="background:${C.bgCard};border:1px solid ${livePnlColor}22;border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${livePnlColor};letter-spacing:.06em;margin-bottom:3px">UNREALIZED</div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:${livePnlColor};font-weight:600">${livePnl!==null?(livePnl>=0?"+$":"-$")+Math.abs(livePnl).toFixed(0):"—"}</div>
-              ${livePnl!==null&&maxLoss>0?`<div style="font-size:9px;color:${C.textTri};margin-top:2px">${livePnl<0?(Math.abs(livePnl)/maxLoss*100).toFixed(0)+"% of max loss":"safe"}</div>`:""}
+              ${livePnl!==null&&maxLoss&&maxLoss>0?`<div style="font-size:9px;color:${C.textTri};margin-top:2px">${livePnl<0?(Math.abs(livePnl)/maxLoss*100).toFixed(0)+"% of max loss":"safe"}</div>`:""}
             </div>
             ${mae?.pnl!=null?`<div style="background:${C.bgCard};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${C.neg};letter-spacing:.06em;margin-bottom:3px">MAE — WORST</div>
@@ -2014,12 +2065,13 @@ function renderTrades() {
   tbody.innerHTML = sorted.map(t => {
     const pnlColor = t.realizedPnl===null?C.textMut:t.realizedPnl>0?C.pos:C.neg;
     const statusColors = {Open:C.pos,Closed:"#374151",Rolled:C.warn,Expired:"#8b5cf6"};
-    const dl = daysLeft(t.expiry);
+    const isStk = (t.tradeType||"").startsWith("Stock");
+    const dl = isStk ? null : daysLeft(t.expiry);
     return `<tr class="trow" onclick="openDiary(${t.id})" style="border-bottom:1px solid ${C.bgHover}">
-      <td style="color:${C.text};font-weight:500">${t.ticker}</td>
-      <td>${t.longStrike}/${t.shortStrike}</td>
-      <td>${t.expiry}</td>
-      <td style="color:${dteColor(dl)}">${dl}d</td>
+      <td style="color:${C.text};font-weight:500">${t.ticker}${t.parentTradeId ? `<span style="font-size:8px;color:${C.textMut}"> partial</span>` : ""}</td>
+      <td>${isStk ? t.contracts + " shares" : t.longStrike+"/"+t.shortStrike}</td>
+      <td>${isStk ? (t.entryDate||"—") : t.expiry}</td>
+      <td style="color:${isStk ? C.textSec : dteColor(dl)}">${isStk ? "Stock" : dl+"d"}</td>
       <td>$${(t.premiumCollected||0).toFixed(0)}</td>
       <td style="color:${pnlColor}">${t.realizedPnl!==null?(t.realizedPnl>=0?"+$":"-$")+Math.abs(t.realizedPnl).toFixed(0):"—"}</td>
       <td><span class="badge" style="background:${statusColors[t.status]||"#374151"}22;color:${statusColors[t.status]||C.text}">${t.status}</span></td>
@@ -3747,10 +3799,41 @@ function toggleRuleBreakdown(val) {
   document.getElementById("ef-rule-breakdown").style.display = (val === "No — deviated from the plan") ? "block" : "none";
 }
 
+function updatePartialInfo() {
+  const t = STATE.trades.find(x=>x.id===exitingTradeId);
+  if (!t) return;
+  const closing = parseInt(document.getElementById("ef-contracts").value) || 0;
+  const total = t.contracts;
+  const remaining = total - closing;
+  const info = document.getElementById("ef-partial-info");
+  if (info) info.textContent = "of " + total + " contracts" + (remaining > 0 ? " (" + remaining + " remain open)" : " (closing all)");
+  // Update assignment detail
+  onExitReasonChange(document.getElementById("ef-reason").value);
+}
+
+function onExitReasonChange(val) {
+  const t = STATE.trades.find(x=>x.id===exitingTradeId);
+  if (!t) return;
+  const infoEl = document.getElementById("ef-assignment-info");
+  const detailEl = document.getElementById("ef-assignment-detail");
+  if (val === "Assigned") {
+    const closing = parseInt(document.getElementById("ef-contracts").value) || t.contracts;
+    const shares = closing * 100;
+    const isPut = (t.tradeType||"").toLowerCase().includes("put");
+    const stockDir = isPut ? "Stock Long" : "Stock Short";
+    const assignPrice = t.shortStrike;
+    detailEl.innerHTML = stockDir + " — " + shares + " shares of " + t.ticker + " @ $" + assignPrice;
+    infoEl.style.display = "block";
+  } else {
+    infoEl.style.display = "none";
+  }
+}
+
 function openExitModal(id) {
   exitingTradeId = id;
   const t = STATE.trades.find(x=>x.id===id);
-  document.getElementById("exit-modal-title").textContent = "CLOSE — "+t.ticker+" "+t.longStrike+"/"+t.shortStrike;
+  const isStock = (t.tradeType||"").startsWith("Stock");
+  document.getElementById("exit-modal-title").textContent = "CLOSE — "+t.ticker+" "+(isStock ? t.tradeType + " x" + t.contracts : t.longStrike+"/"+t.shortStrike);
   document.getElementById("ef-exitDate").value = new Date().toISOString().slice(0,10);
   document.getElementById("ef-pnl").value = "";
   document.getElementById("ef-deltaClose").value = "";
@@ -3761,14 +3844,29 @@ function openExitModal(id) {
   document.getElementById("ef-ruleAdherence").value = "";
   document.getElementById("ef-ruleBreak").value = "";
   document.getElementById("ef-rule-breakdown").style.display = "none";
+  // Partial close row
+  const partialRow = document.getElementById("ef-partial-row");
+  if (t.contracts > 1 && !isStock) {
+    partialRow.style.display = "block";
+    const inp = document.getElementById("ef-contracts");
+    inp.value = t.contracts;
+    inp.max = t.contracts;
+    updatePartialInfo();
+  } else {
+    partialRow.style.display = "none";
+  }
+  // Hide assignment info
+  document.getElementById("ef-assignment-info").style.display = "none";
   const rSel = document.getElementById("ef-reason");
   rSel.innerHTML = `<option value="">Select...</option>`+EXIT_REASONS.map(r=>`<option>${r}</option>`).join("");
   document.getElementById("exit-modal").style.display="flex";
 }
 function closeExitModal() { document.getElementById("exit-modal").style.display="none"; }
 function confirmExit() {
-  STATE.trades = STATE.trades.map(t => t.id===exitingTradeId ? {
-    ...t,
+  const orig = STATE.trades.find(x=>x.id===exitingTradeId);
+  if (!orig) return;
+
+  const exitData = {
     status: document.getElementById("ef-status").value,
     exitDate: document.getElementById("ef-exitDate").value,
     realizedPnl: parseFloat(document.getElementById("ef-pnl").value)||0,
@@ -3780,7 +3878,86 @@ function confirmExit() {
     ruleAdherence: document.getElementById("ef-ruleAdherence").value,
     ruleBreak: document.getElementById("ef-ruleBreak").value,
     lessonLearned: document.getElementById("ef-lesson").value,
-  } : t);
+  };
+
+  const isStock = (orig.tradeType||"").startsWith("Stock");
+  const closingContracts = isStock ? orig.contracts : (parseInt(document.getElementById("ef-contracts").value) || orig.contracts);
+  const isPartial = !isStock && closingContracts < orig.contracts;
+
+  if (isPartial) {
+    // === PATH B: Partial close ===
+    const ratio = closingContracts / orig.contracts;
+    const closedPremium = Math.round(orig.premiumCollected * ratio);
+    const remainPremium = orig.premiumCollected - closedPremium;
+
+    // Create new closed trade for exited portion
+    const closedTrade = {
+      ...orig,
+      id: STATE.nextId++,
+      contracts: closingContracts,
+      premiumCollected: closedPremium,
+      ...exitData,
+      parentTradeId: orig.id,
+      journal: [],
+      rolls: [],
+      _autoMAE: null,
+      _autoMFE: null,
+      _liveSpread: null,
+    };
+    STATE.trades.push(closedTrade);
+
+    // Reduce original trade
+    STATE.trades = STATE.trades.map(t => t.id === orig.id ? {
+      ...t,
+      contracts: orig.contracts - closingContracts,
+      premiumCollected: remainPremium,
+      _autoMAE: null,
+      _autoMFE: null,
+    } : t);
+  } else {
+    // === PATH A: Full close ===
+    STATE.trades = STATE.trades.map(t => t.id === exitingTradeId ? { ...t, ...exitData } : t);
+  }
+
+  // === PATH C: Assignment (runs after A or B) ===
+  if (exitData.exitReason === "Assigned") {
+    const shares = closingContracts * 100;
+    const isPut = (orig.tradeType||"").toLowerCase().includes("put");
+    const stockDir = isPut ? "Stock Long" : "Stock Short";
+    const stockTrade = {
+      id: STATE.nextId++,
+      ticker: orig.ticker,
+      tradeType: stockDir,
+      assetClass: "Stock",
+      status: "Open",
+      contracts: shares,
+      shortStrike: orig.shortStrike,
+      longStrike: null,
+      premiumCollected: 0,
+      realizedPnl: null,
+      entryDate: exitData.exitDate,
+      exitDate: null,
+      expiry: null,
+      dteAtEntry: null,
+      entryType: "",
+      thesis: "Assigned from " + orig.tradeType + " (" + orig.longStrike + "/" + orig.shortStrike + " x" + closingContracts + ")",
+      exitReason: "",
+      thesisAccuracy: "",
+      lessonLearned: "",
+      chartLink: "",
+      tpPrice: "",
+      slPrice: "",
+      rolls: [],
+      journal: [],
+      assignedFromId: orig.id,
+      _autoMAE: null,
+      _autoMFE: null,
+    };
+    STATE.trades.push(stockTrade);
+    if (!STATE.watchlist.includes(orig.ticker)) STATE.watchlist.push(orig.ticker);
+    sendTelegram("📋 <b>" + orig.ticker + " ASSIGNED</b> — " + stockDir + " " + shares + " shares @ $" + orig.shortStrike);
+  }
+
   save(); closeExitModal(); renderAll();
 }
 
