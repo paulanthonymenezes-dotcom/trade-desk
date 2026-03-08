@@ -32,6 +32,7 @@ let prevQuoteCache = {};     // previous hour's stock prices for change tracking
 let lastSpreadFetch = 0;
 let tgOffset = 0;            // Telegram polling offset
 let pendingTrade = null;     // Pending trade from screenshot, awaiting /yes confirmation
+let pendingJournal = null;   // { date, timestamp } — pending EOD journal reply
 
 // ── Sector lookup (mirrors index.html SECTOR_LOOKUP) ────────────────────────
 const SECTOR_MAP = {
@@ -519,6 +520,25 @@ async function pollTelegram() {
 
       if (text.startsWith('/')) {
         await handleCommand(text);
+      } else if (pendingJournal && (Date.now() - pendingJournal.timestamp < 7200000)) {
+        // Free-text reply within 2 hours of EOD prompt → save as journal entry
+        try {
+          const state = await loadState();
+          if (!state.dailyJournal) state.dailyJournal = {};
+          if (!state.dailyJournal[pendingJournal.date]) state.dailyJournal[pendingJournal.date] = {};
+          const entry = state.dailyJournal[pendingJournal.date];
+          // Append if multiple messages
+          entry.reflection = entry.reflection ? entry.reflection + '\n\n' + text : text;
+          entry.timestamp = new Date().toISOString();
+          await saveState(state);
+          const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const d = new Date(pendingJournal.date + 'T12:00:00');
+          await tg(`✅ Journal saved for ${monthNames[d.getMonth()]} ${d.getDate()}. Nice work today.`);
+          pendingJournal = null;
+        } catch (e) {
+          console.error('[JOURNAL-SAVE]', e.message);
+          await tg(`Error saving journal: ${e.message}`);
+        }
       }
     }
   } catch (e) {
@@ -545,6 +565,8 @@ async function handleCommand(text) {
       case '/close': return await cmdClose(parts);
       case '/yes': return await cmdConfirmTrade(true, parts.slice(1));
       case '/no': return await cmdConfirmTrade(false);
+      case '/brief': return await sendDailyBrief();
+      case '/journal': return await sendEODPrompt();
       case '/help': return await cmdHelp();
       default: {
         // Check if it's a ticker command like /nvda /cat etc
@@ -576,6 +598,9 @@ async function cmdHelp() {
     `/ssl TICKER %  — Spread stop loss (e.g. /ssl NVDA 75)\n` +
     `/stp TICKER %  — Spread take profit (e.g. /stp NVDA 50)\n` +
     `/tp TICKER PRICE — Chart take profit\n\n` +
+    `<b>Daily</b>\n` +
+    `/brief — Morning daily brief\n` +
+    `/journal — Post-session journal prompt\n\n` +
     `<b>Screenshot</b>\n` +
     `📸 Send a screenshot → auto-parse → /yes to confirm\n\n` +
     `<b>Examples</b>\n` +
@@ -1638,6 +1663,121 @@ async function telegramLoop() {
   }
 }
 
+// ── Daily Brief + Post-Session Journal ────────────────────────────────────
+
+async function sendDailyBrief() {
+  try {
+    const state = await loadState();
+    const trades = (state.trades || []).filter(t => t.status === 'Open');
+    const now = new Date();
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateLabel = `${dayNames[et.getDay()]} ${monthNames[et.getMonth()]} ${et.getDate()}`;
+    const today = formatDate(et);
+
+    let msg = `☀️ <b>DAILY BRIEF — ${dateLabel}</b>\n\n`;
+
+    // Open positions
+    if (trades.length) {
+      msg += `📊 <b>OPEN POSITIONS (${trades.length})</b>\n`;
+      for (const t of trades) {
+        const dl = daysLeft(t.expiry);
+        const slStr = t.slPrice ? `SL $${t.slPrice}` : '';
+        const tpStr = t.tpPrice ? `TP $${t.tpPrice}` : '';
+        const flags = [];
+        if (slStr) flags.push(slStr);
+        if (tpStr) flags.push(tpStr);
+        const flagStr = flags.length ? ` · ${flags.join(' · ')}` : '';
+        const dteWarn = dl <= 0 ? ' ⚠️ EXPIRED' : dl <= 1 ? ' ⚠️ EXPIRING' : '';
+        msg += `  ${t.ticker} ${t.shortStrike}/${t.longStrike} · ${dl}d${dteWarn}${flagStr}\n`;
+      }
+      msg += '\n';
+    } else {
+      msg += `📊 No open positions\n\n`;
+    }
+
+    // Account
+    const bal = state.accountBalance || 0;
+    const deps = state.ytdDeposits || 0;
+    const closedTrades = (state.trades || []).filter(t => t.status !== 'Open' && t.realizedPnl != null);
+    const ytdPnl = closedTrades.reduce((s, t) => s + (t.realizedPnl || 0), 0);
+    msg += `💰 Account: $${bal.toLocaleString()} · YTD: ${ytdPnl >= 0 ? '+' : '-'}$${Math.abs(ytdPnl).toFixed(0)}\n`;
+
+    // Portfolio risk
+    if (trades.length) {
+      const totalRisk = trades.reduce((s, t) => {
+        const w = Math.abs(t.shortStrike - t.longStrike);
+        return s + (w * 100 * (t.contracts || 1)) - (t.premiumCollected || 0);
+      }, 0);
+      const riskPct = bal > 0 ? (totalRisk / bal * 100).toFixed(0) : '?';
+      msg += `📈 Portfolio risk: $${totalRisk.toLocaleString()} (${riskPct}%)\n`;
+    }
+
+    // Watchlist targets
+    const targets = state.watchlistTargets || {};
+    const activeTargets = Object.entries(targets).filter(([, v]) => v && v.price);
+    if (activeTargets.length) {
+      const targetStrs = activeTargets.map(([t, v]) => `${t} @ $${v.price}`).join(', ');
+      msg += `🔔 Watchlist targets: ${targetStrs}\n`;
+    }
+    msg += '\n';
+
+    // Today's flags
+    const flags = [];
+    for (const t of trades) {
+      const dl = daysLeft(t.expiry);
+      if (dl <= 0) flags.push(`⚠️ ${t.ticker} expired — manage or close`);
+      else if (dl === 1) flags.push(`⚠️ ${t.ticker} expires today`);
+    }
+    if (flags.length) {
+      msg += `⚡ <b>TODAY'S FLAGS:</b>\n`;
+      for (const f of flags) msg += `  ${f}\n`;
+      msg += '\n';
+    }
+
+    msg += `Focus up. Stick to the plan. 🎯`;
+
+    await tg(msg);
+
+    // Save morning brief text to dailyJournal
+    if (!state.dailyJournal) state.dailyJournal = {};
+    if (!state.dailyJournal[today]) state.dailyJournal[today] = {};
+    state.dailyJournal[today].morningBrief = msg.replace(/<[^>]+>/g, ''); // strip HTML
+    await saveState(state);
+
+    console.log('[BRIEF] Daily brief sent');
+  } catch (e) {
+    console.error('[BRIEF]', e.message);
+  }
+}
+
+async function sendEODPrompt() {
+  try {
+    const now = new Date();
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateLabel = `${dayNames[et.getDay()]} ${monthNames[et.getMonth()]} ${et.getDate()}`;
+    const today = formatDate(et);
+
+    await tg(
+      `📝 <b>POST-SESSION JOURNAL — ${dateLabel}</b>\n\n` +
+      `How was today? Reply with your thoughts:\n` +
+      `• What happened in the market?\n` +
+      `• Any trades you took — why?\n` +
+      `• What did you see on Daily Show / Spectra?\n` +
+      `• Anything you'd do differently?\n\n` +
+      `Just reply naturally — I'll save it as today's journal entry.`
+    );
+
+    pendingJournal = { date: today, timestamp: Date.now() };
+    console.log('[JOURNAL] EOD prompt sent, waiting for reply');
+  } catch (e) {
+    console.error('[JOURNAL]', e.message);
+  }
+}
+
 // ── Schedule ────────────────────────────────────────────────────────────────
 
 // Stock + alert check every 60s during market hours
@@ -1656,12 +1796,19 @@ cron.schedule('0 10-15 * * 1-5', () => {
 // Market close summary at 4:05 PM ET
 cron.schedule('5 16 * * 1-5', sendMarketClose, { timezone: 'America/New_York' });
 
+// Daily Brief at 9:25 AM ET (5 min before open)
+cron.schedule('25 9 * * 1-5', sendDailyBrief, { timezone: 'America/New_York' });
+
+// Post-Session Journal Prompt at 4:10 PM ET (right after close)
+cron.schedule('10 16 * * 1-5', sendEODPrompt, { timezone: 'America/New_York' });
+
 // ── Startup ─────────────────────────────────────────────────────────────────
 console.log('═══════════════════════════════════════════════════════════');
 console.log('  Trading Desk Alert Server v2');
 console.log('  Stock checks: every 60s | Spread checks: every 5 min');
-console.log('  Telegram commands: /open /close /status /pnl /sl /ssl /tp');
+console.log('  Telegram commands: /open /close /status /pnl /sl /ssl /tp /brief /journal');
 console.log('  Hourly summaries: 10 AM - 3 PM ET');
+console.log('  Daily brief: 9:25 AM ET | Journal prompt: 4:10 PM ET');
 console.log('═══════════════════════════════════════════════════════════');
 
 // Start Telegram command listener (runs 24/7)

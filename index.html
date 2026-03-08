@@ -669,6 +669,7 @@ let STATE = {
   autoExitPaper: true, // paper trading mode (safety default)
   autoExitLog: [], // { tradeId, ticker, reason, price, timestamp, result }
   tradingRules: [], // { id, text, source, date } — persistent rules for AI memory
+  dailyJournal: {}, // { 'YYYY-MM-DD': { morningBrief, reflection, timestamp } }
   theme: "original"
 };
 let editingTradeId = null;
@@ -677,6 +678,7 @@ let rollingTradeId = null;
 let currentFilter = "All";
 let pollTimer = null;
 let currentDiaryId = null;
+let diarySubTab = "trades";
 let statsSubTab = "overview";
 let aiMessages = []; // conversation history for AI chat
 
@@ -2640,9 +2642,23 @@ function renderDiary() {
   document.getElementById("diary-content").innerHTML = html;
 }
 
+function diarySubTabs() {
+  return `<div style="display:flex;gap:6px;margin-bottom:14px">
+    <button class="btn btn-g stats-pill${diarySubTab==="trades"?" active":""}" onclick="setDiarySubTab('trades',this)">TRADES</button>
+    <button class="btn btn-g stats-pill${diarySubTab==="journal"?" active":""}" onclick="setDiarySubTab('journal',this)">DAILY JOURNAL</button>
+  </div>`;
+}
+function setDiarySubTab(tab, btn) {
+  diarySubTab = tab;
+  currentDiaryId = null;
+  document.querySelectorAll("#diary-content .stats-pill").forEach(b=>b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  if (tab === "journal") renderDiaryJournalView();
+  else renderDiaryList();
+}
 function renderDiaryList() {
   const sorted = [...STATE.trades].sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate));
-  document.getElementById("diary-content").innerHTML = `
+  document.getElementById("diary-content").innerHTML = diarySubTabs() + `
     <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin-bottom:14px">SELECT TRADE TO VIEW DIARY</div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${sorted.map(t=>`<button onclick="openDiary(${t.id})" class="card" style="text-align:left;border:1px solid ${C.border};cursor:pointer;-webkit-tap-highlight-color:transparent">
@@ -2660,6 +2676,87 @@ function renderDiaryList() {
       </button>`).join("")}
     </div>
   `;
+}
+function renderDiaryJournalView() {
+  if (!STATE.dailyJournal) STATE.dailyJournal = {};
+  const entries = Object.entries(STATE.dailyJournal).sort((a,b)=>b[0].localeCompare(a[0]));
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const todayEntry = STATE.dailyJournal[today] || {};
+  const dayNames = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const monthNames = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+  let html = diarySubTabs();
+
+  // Today's entry / manual input
+  html += `<div class="card" style="padding:14px;margin-bottom:12px;border:1px solid ${C.border}">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin-bottom:10px">TODAY — ${today}</div>`;
+  if (todayEntry.reflection) {
+    html += `<div style="font-size:12px;color:${C.text};line-height:1.5;white-space:pre-wrap;margin-bottom:10px">${escHtml(todayEntry.reflection)}</div>
+      <div style="font-size:10px;color:${C.textSec};margin-bottom:10px">${todayEntry.timestamp ? new Date(todayEntry.timestamp).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : ''}</div>
+      <button class="btn btn-g" onclick="editJournalEntry('${today}')" style="font-size:10px">EDIT</button>`;
+  } else {
+    html += `<textarea id="journal-input" placeholder="How was today? Market movements, trades, insights from Daily Show / Spectra, lessons learned..." style="width:100%;min-height:100px;background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:6px;padding:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
+      <button class="btn btn-g" onclick="saveJournalEntry('${today}')" style="margin-top:8px;font-size:10px">SAVE ENTRY</button>`;
+  }
+  html += `</div>`;
+
+  // Morning brief expandable (if exists for today)
+  if (todayEntry.morningBrief) {
+    html += `<details class="card" style="padding:14px;margin-bottom:12px;border:1px solid ${C.border}">
+      <summary style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;cursor:pointer">MORNING BRIEF — ${today}</summary>
+      <div style="font-size:11px;color:${C.text};line-height:1.5;white-space:pre-wrap;margin-top:10px">${escHtml(todayEntry.morningBrief)}</div>
+    </details>`;
+  }
+
+  // Past entries
+  const pastEntries = entries.filter(([d])=>d!==today);
+  if (pastEntries.length) {
+    html += `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:16px 0 10px">PAST ENTRIES</div>`;
+    for (const [date, entry] of pastEntries) {
+      const d = new Date(date + 'T12:00:00');
+      const dayLabel = `${dayNames[d.getDay()]} ${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+      html += `<div class="card" style="padding:14px;margin-bottom:8px;border:1px solid ${C.border}">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${C.text};margin-bottom:6px">${dayLabel}</div>`;
+      if (entry.reflection) {
+        html += `<div style="font-size:12px;color:${C.text};line-height:1.5;white-space:pre-wrap">${escHtml(entry.reflection)}</div>`;
+        if (entry.timestamp) html += `<div style="font-size:10px;color:${C.textSec};margin-top:6px">${new Date(entry.timestamp).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</div>`;
+      }
+      if (entry.morningBrief) {
+        html += `<details style="margin-top:8px"><summary style="font-size:10px;color:${C.textSec};cursor:pointer">Morning Brief</summary>
+          <div style="font-size:11px;color:${C.textSec};line-height:1.4;white-space:pre-wrap;margin-top:6px">${escHtml(entry.morningBrief)}</div></details>`;
+      }
+      html += `</div>`;
+    }
+  } else if (!todayEntry.reflection) {
+    html += `<div style="font-size:11px;color:${C.textSec};opacity:.5;padding:20px 0;text-align:center">No journal entries yet. Write your first reflection above, or reply to the post-session prompt on Telegram.</div>`;
+  }
+
+  document.getElementById("diary-content").innerHTML = html;
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function saveJournalEntry(date) {
+  const el = document.getElementById("journal-input");
+  if (!el || !el.value.trim()) return;
+  if (!STATE.dailyJournal) STATE.dailyJournal = {};
+  if (!STATE.dailyJournal[date]) STATE.dailyJournal[date] = {};
+  STATE.dailyJournal[date].reflection = el.value.trim();
+  STATE.dailyJournal[date].timestamp = new Date().toISOString();
+  save();
+  renderDiaryJournalView();
+}
+function editJournalEntry(date) {
+  const entry = STATE.dailyJournal?.[date];
+  if (!entry) return;
+  // Replace the today card with an editable textarea
+  const todayCard = document.querySelector("#diary-content .card");
+  if (!todayCard) return;
+  todayCard.innerHTML = `
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin-bottom:10px">TODAY — ${date}</div>
+    <textarea id="journal-input" style="width:100%;min-height:100px;background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:6px;padding:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;resize:vertical;box-sizing:border-box">${escHtml(entry.reflection || '')}</textarea>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="btn btn-g" onclick="saveJournalEntry('${date}')" style="font-size:10px">SAVE</button>
+      <button class="btn btn-g" onclick="renderDiaryJournalView()" style="font-size:10px;opacity:.6">CANCEL</button>
+    </div>`;
 }
 
 // ── Stats Dispatcher ─────────────────────────────────────────────────────────
@@ -4237,7 +4334,7 @@ function switchTab(name, btn) {
   document.getElementById("tab-"+name).classList.add("active");
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
   btn.classList.add("active");
-  if (name==="diary" && !currentDiaryId) renderDiaryList();
+  if (name==="diary") { if (diarySubTab === "journal") renderDiaryJournalView(); else if (!currentDiaryId) renderDiaryList(); }
   if (name==="stats") renderStats();
   if (name==="forecast") renderForecast();
   _showChartPanel(CHART_TABS.includes(name));
