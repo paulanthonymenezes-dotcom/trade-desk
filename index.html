@@ -1823,6 +1823,12 @@ function renderWatchlist() {
           </div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>
         </div>
+        ${currentIV ? `<div style="display:flex;gap:10px;margin-bottom:8px;font-family:'IBM Plex Mono',monospace;font-size:10px">
+          <span style="color:${C.textSec}">EM</span>
+          <span style="color:${C.text}">±$${(q.price*currentIV*Math.sqrt(1/252)).toFixed(2)}<span style="color:${C.textMut}"> /d</span></span>
+          <span style="color:${C.text}">±$${(q.price*currentIV*Math.sqrt(5/252)).toFixed(2)}<span style="color:${C.textMut}"> /w</span></span>
+          <span style="color:${C.textMut}">IV ${(currentIV*100).toFixed(0)}%</span>
+        </div>` : ""}
         ${(()=>{
           const tgt = STATE.watchlistTargets?.[ticker];
           if (tgt && tgt.price) {
@@ -2338,6 +2344,14 @@ function renderPositions() {
           ${(()=>{ const earn=STATE.earnings?.[t.ticker]; if(!earn) return ""; const ed=daysLeft(earn); if(ed<0) return ""; const ec=ed<=7?C.neg:ed<=21?C.warn:C.textSec; return `<div style="font-size:9px;color:${ec};margin-top:1px">EARN ${_shortDate(earn)} (${ed}d)</div>`; })()}
         </div>
       </div>
+
+      <!-- Expected Move -->
+      ${(()=>{ const ivD=calcIVRankFromHistory(t.ticker); const iv=ivD.currentIV; if(!iv||!q) return ""; const daily=(q.price*iv*Math.sqrt(1/252)).toFixed(2); const weekly=(q.price*iv*Math.sqrt(5/252)).toFixed(2); return `<div style="display:flex;gap:10px;margin-bottom:8px;font-family:'IBM Plex Mono',monospace;font-size:10px">
+        <span style="color:${C.textSec}">EM</span>
+        <span style="color:${C.text}">±$${daily}<span style="color:${C.textMut}"> /d</span></span>
+        <span style="color:${C.text}">±$${weekly}<span style="color:${C.textMut}"> /w</span></span>
+        <span style="color:${C.textMut}">IV ${(iv*100).toFixed(0)}%</span>
+      </div>`; })()}
 
       <!-- Warnings -->
       ${warnings.length ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;background:${C.warn}08;border:1px solid ${C.warn}33;border-radius:3px;padding:5px 10px">
