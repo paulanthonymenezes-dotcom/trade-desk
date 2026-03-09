@@ -30,27 +30,30 @@
   --overlay-bg: rgba(0,0,0,.9);
 }
 [data-theme="koyfin"] {
-  --bg-primary: #131722;
-  --bg-card: #1e222d;
-  --bg-hover: #262b38;
-  --border-subtle: #2a2e39;
-  --border-visible: #363a45;
-  --text-primary: #d1d4dc;
-  --text-secondary: #787b86;
-  --text-tertiary: #565a65;
-  --text-muted: #3a3e49;
-  --positive: #26a69a;
-  --negative: #ef5350;
-  --warning: #ffa726;
-  --positive-dim: rgba(38,166,154,.13);
-  --negative-dim: rgba(239,83,80,.13);
-  --negative-hover: rgba(239,83,80,.4);
-  --warning-dim: rgba(255,167,38,.13);
-  --warning-faint: rgba(255,167,38,.07);
-  --overlay-bg: rgba(19,23,34,.92);
+  --bg-primary: #000000;
+  --bg-card: #0a0a0a;
+  --bg-hover: #151515;
+  --border-subtle: #1a1a1a;
+  --border-visible: #2a2a2a;
+  --text-primary: #ffffff;
+  --text-secondary: #bbbbbb;
+  --text-tertiary: #888888;
+  --text-muted: #555555;
+  --positive: #00ff00;
+  --negative: #ff0000;
+  --warning: #ffffff;
+  --positive-dim: rgba(0,255,0,.12);
+  --negative-dim: rgba(255,0,0,.12);
+  --negative-hover: rgba(255,0,0,.4);
+  --warning-dim: rgba(255,255,255,.1);
+  --warning-faint: rgba(255,255,255,.05);
+  --overlay-bg: rgba(0,0,0,.95);
 }
-[data-theme="koyfin"] .card{border-color:#2a2e39}
-[data-theme="koyfin"] #positions-cards .card+.card{border-top-color:#363a45;border-top-width:3px}
+[data-theme="koyfin"] .card{border-color:#1a1a1a}
+[data-theme="koyfin"] #positions-cards .card+.card{border-top-color:#2a2a2a;border-top-width:3px}
+[data-theme="koyfin"] .st{background:#696969;padding:4px 8px;border-radius:2px;display:inline-block}
+[data-theme="koyfin"] .btn-warn{background:#ffffff;color:#000000}
+[data-theme="koyfin"] .stats-pill.active{background:#00ff00!important;color:#000000!important;border-color:#00ff00!important}
 /* ── Base ─────────────────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);font-family:'IBM Plex Sans',sans-serif;overscroll-behavior:none;-webkit-font-smoothing:antialiased}
@@ -599,13 +602,13 @@ const THEMES = {
     bgOverlay:'#060a10cc',
   },
   koyfin: {
-    bg:'#131722', bgCard:'#1e222d', bgHover:'#262b38',
-    border:'#2a2e39', borderVis:'#363a45',
-    text:'#d1d4dc', textSec:'#787b86', textTri:'#565a65', textMut:'#3a3e49',
-    pos:'#26a69a', neg:'#ef5350', warn:'#ffa726',
-    posDim:'#26a69a22', negDim:'#ef535044', negHov:'#ef535066',
-    warnDim:'#ffa72622', warnFaint:'#ffa72611',
-    bgOverlay:'#131722ee',
+    bg:'#000000', bgCard:'#0a0a0a', bgHover:'#151515',
+    border:'#1a1a1a', borderVis:'#2a2a2a',
+    text:'#ffffff', textSec:'#bbbbbb', textTri:'#888888', textMut:'#555555',
+    pos:'#00ff00', neg:'#ff0000', warn:'#ffffff',
+    posDim:'#00ff001e', negDim:'#ff00001e', negHov:'#ff000066',
+    warnDim:'#ffffff1a', warnFaint:'#ffffff0d',
+    bgOverlay:'#000000f2',
   }
 };
 let C = {...THEMES.original}; // active color palette
