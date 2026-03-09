@@ -1745,6 +1745,10 @@ function renderKPIs() {
 }
 
 function renderWatchlist() {
+  // Skip re-render if user is actively typing in an input or textarea
+  const activeEl = document.activeElement;
+  if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA") && activeEl.closest("#watchlist-cards")) return;
+
   // Auto-select first watchlist ticker for chart if none selected
   if (!_tvCurrentTicker && STATE.watchlist.length) selectChartTicker(STATE.watchlist[0]);
   // Preserve in-progress note text before re-render
@@ -2290,6 +2294,10 @@ function renderSnapshot() {
 }
 
 function renderPositions() {
+  // Skip re-render if user is actively typing in a note input or textarea
+  const activeEl = document.activeElement;
+  if (activeEl && (activeEl.id?.startsWith("qn-input-") || activeEl.id === "journal-input" || activeEl.tagName === "TEXTAREA")) return;
+
   const open = STATE.trades.filter(t=>t.status==="Open");
   const el = document.getElementById("positions-cards");
   if (!open.length) { el.innerHTML = `<div style="text-align:center;padding:40px;color:${C.textSec};font-family:'IBM Plex Mono',monospace;font-size:11px">NO OPEN POSITIONS<br><br><button class="btn btn-p" onclick="openTradeModal()">+ LOG FIRST TRADE</button></div>`; document.getElementById("positions-snapshot").innerHTML=""; return; }
