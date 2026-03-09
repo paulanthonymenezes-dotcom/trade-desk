@@ -567,6 +567,7 @@ async function handleCommand(text) {
       case '/no': return await cmdConfirmTrade(false);
       case '/brief': return await sendDailyBrief();
       case '/journal': return await sendEODPrompt();
+      case '/sync': return await autoSyncIBKR();
       case '/schedule': return await cmdSchedule();
       case '/help': return await cmdHelp();
       default: {
@@ -602,6 +603,7 @@ async function cmdHelp() {
     `<b>Daily</b>\n` +
     `/brief — Morning daily brief\n` +
     `/journal — Post-session journal prompt\n` +
+    `/sync — IBKR Flex Query sync now\n` +
     `/schedule — Show automated message schedule\n\n` +
     `<b>Screenshot</b>\n` +
     `📸 Send a screenshot → auto-parse → /yes to confirm\n\n` +
@@ -626,6 +628,8 @@ async function cmdSchedule() {
     `  Each position: price, change, spread, SL/TP distance, P&L\n\n` +
     `<b>4:05 PM</b> — 🔴 Market Close\n` +
     `  End-of-day P&L for each position + total\n\n` +
+    `<b>5:00 PM</b> — 🔄 IBKR Auto-Sync\n` +
+    `  Pulls Flex Query, imports new trades, closes matched\n\n` +
     `<b>6:00 PM</b> — 📝 Journal Prompt\n` +
     `  Reply with your thoughts → saved as daily journal\n\n` +
     `<b>Real-time (every 60s during market)</b>\n` +
@@ -1686,6 +1690,250 @@ async function telegramLoop() {
   }
 }
 
+// ── Auto IBKR Flex Query Sync ─────────────────────────────────────────────
+
+async function autoSyncIBKR() {
+  try {
+    const state = await loadState();
+    const token = state.ibkrToken;
+    const queryId = state.ibkrQueryId;
+    if (!token || !queryId) {
+      console.log('[IBKR-SYNC] No token/queryId configured — skipping');
+      return;
+    }
+
+    console.log('[IBKR-SYNC] Starting auto sync...');
+
+    // Step 1: Request report
+    const reqUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=${token}&q=${queryId}&v=3`;
+    const reqResp = await fetch(reqUrl).then(r => r.text());
+
+    const refMatch = reqResp.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/);
+    if (!refMatch) {
+      const errMsg = reqResp.match(/<ErrorMessage>([^<]+)<\/ErrorMessage>/);
+      throw new Error(errMsg ? errMsg[1] : 'Failed to get reference code');
+    }
+    const refCode = refMatch[1];
+    console.log('[IBKR-SYNC] Got reference', refCode);
+
+    // Step 2: Poll for report
+    let data = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
+      const fetchUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=${refCode}&t=${token}&v=3`;
+      const fetchResp = await fetch(fetchUrl).then(r => r.text());
+      if (fetchResp.includes('Statement generation in progress') || fetchResp.includes('Please try again')) continue;
+      data = fetchResp;
+      break;
+    }
+    if (!data) throw new Error('IBKR took too long to generate report');
+
+    // Step 3: Parse trades (XML regex-based for Node.js)
+    const optionTrades = parseFlexXML(data);
+    if (!optionTrades.length) {
+      console.log('[IBKR-SYNC] No option trades found');
+      return;
+    }
+
+    // Step 4: Pair into spreads
+    const spreads = pairSpreads(optionTrades);
+    console.log(`[IBKR-SYNC] ${spreads.length} spreads from ${optionTrades.length} legs`);
+
+    // Step 5: Reconcile — close existing open trades
+    let closedExisting = 0;
+    const closes = optionTrades.filter(t => t.isClose);
+    for (const openTrade of (state.trades || []).filter(t => t.status === 'Open')) {
+      const isPut = (openTrade.tradeType || '').toLowerCase().includes('put');
+      const side = isPut ? 'P' : 'C';
+      const shortCloses = closes.filter(c => c.ticker === openTrade.ticker && c.expiry === openTrade.expiry && c.strike === openTrade.shortStrike && c.side === side);
+      const longCloses = closes.filter(c => c.ticker === openTrade.ticker && c.expiry === openTrade.expiry && c.strike === openTrade.longStrike && c.side === side);
+      if (shortCloses.length > 0 && longCloses.length > 0) {
+        const lastClose = shortCloses[shortCloses.length - 1];
+        const closeCost = Math.abs(shortCloses.reduce((s, c) => s + c.proceeds, 0) + longCloses.reduce((s, c) => s + c.proceeds, 0));
+        const closeComm = shortCloses.reduce((s, c) => s + Math.abs(c.commission), 0) + longCloses.reduce((s, c) => s + Math.abs(c.commission), 0);
+        const pnl = Math.round(((openTrade.premiumCollected || 0) - closeCost - closeComm) * 100) / 100;
+        openTrade.status = 'Closed';
+        openTrade.exitDate = lastClose.dateOnly;
+        openTrade.realizedPnl = pnl;
+        closedExisting++;
+      }
+    }
+
+    // Also check spreads that match existing open trades
+    for (const s of spreads) {
+      if (s.status !== 'Closed') continue;
+      const existing = (state.trades || []).find(t =>
+        t.ticker === s.ticker && t.expiry === s.expiry &&
+        t.shortStrike === s.shortStrike && t.longStrike === s.longStrike && t.status === 'Open'
+      );
+      if (existing) {
+        existing.status = 'Closed';
+        existing.exitDate = s.exitDate;
+        existing.realizedPnl = s.realizedPnl;
+        closedExisting++;
+      }
+    }
+
+    // Step 6: Add new trades
+    const isDupe = (ex, nw) => ex.ticker === nw.ticker && ex.expiry === nw.expiry &&
+      ex.shortStrike === nw.shortStrike && ex.longStrike === nw.longStrike && ex.entryDate === nw.entryDate;
+    const newSpreads = spreads.filter(s => !(state.trades || []).some(t => isDupe(t, s)));
+
+    // Assign IDs and add
+    let nextId = state.nextId || (state.trades || []).length + 1;
+    for (const s of newSpreads) {
+      s.id = nextId++;
+      state.trades.push(s);
+    }
+    state.nextId = nextId;
+
+    if (closedExisting > 0 || newSpreads.length > 0) {
+      await saveState(state);
+      const parts = [];
+      if (newSpreads.length) parts.push(`${newSpreads.length} new trade(s) imported`);
+      if (closedExisting) parts.push(`${closedExisting} trade(s) updated to Closed`);
+      await tg(`🔄 <b>IBKR Auto-Sync</b>\n${parts.join(', ')}`);
+      console.log(`[IBKR-SYNC] ${parts.join(', ')}`);
+    } else {
+      console.log('[IBKR-SYNC] Everything in sync — no changes');
+    }
+  } catch (e) {
+    console.error('[IBKR-SYNC]', e.message);
+  }
+}
+
+// XML regex parser for IBKR Flex Query (Node.js — no DOMParser)
+function parseFlexXML(xmlText) {
+  // Check for error
+  const errMatch = xmlText.match(/<ErrorCode>(\d+)<\/ErrorCode>\s*<ErrorMessage>([^<]+)<\/ErrorMessage>/);
+  if (errMatch) throw new Error(`IBKR error ${errMatch[1]}: ${errMatch[2]}`);
+
+  // Check if still processing
+  if (xmlText.includes('Statement generation in progress')) throw new Error('Report still generating');
+
+  // Find trade elements via regex
+  const tagNames = ['Trade', 'Order', 'Execution', 'TradeConfirm'];
+  let matches = [];
+  for (const tag of tagNames) {
+    const re = new RegExp(`<${tag}\\s+([^>]+)\\/>`, 'g');
+    let m;
+    while ((m = re.exec(xmlText)) !== null) matches.push(m[1]);
+    if (matches.length) break;
+  }
+
+  // Parse attributes from each match
+  const optionTrades = [];
+  for (const attrStr of matches) {
+    const attr = (names) => {
+      for (const n of names) {
+        const re = new RegExp(`${n}="([^"]*)"`, 'i');
+        const m = attrStr.match(re);
+        if (m) return m[1];
+      }
+      return null;
+    };
+
+    const cat = attr(['assetCategory', 'assetType', 'secType']);
+    if (cat && cat !== 'OPT' && cat !== 'FOP' && !cat.includes('Option')) continue;
+
+    const symbol = attr(['symbol', 'description']) || '';
+    const ticker = attr(['underlyingSymbol', 'underlying']) || symbol.split(/\s/)[0];
+    const expiry = attr(['expiry', 'expirationDate', 'lastTradeDateOrContractMonth']);
+    const strike = parseFloat(attr(['strike', 'strikePrice']) || 'NaN');
+    const side = attr(['putCall', 'right', 'putOrCall']);
+    const qty = parseInt((attr(['quantity', 'filledQuantity', 'tradeQuantity']) || '0').replace(/,/g, ''));
+    const price = parseFloat(attr(['tradePrice', 'price', 'avgPrice']) || '0');
+    const proceeds = parseFloat(attr(['proceeds', 'netCash']) || '0');
+    const commission = parseFloat(attr(['ibCommission', 'commission']) || '0');
+    const code = attr(['openCloseIndicator', 'openClose', 'side']) || '';
+    const rawDt = attr(['dateTime', 'tradeDate', 'date']) || '';
+
+    if (!cat && (isNaN(strike) || !expiry || !side)) continue;
+
+    let expiryFmt = expiry;
+    if (expiry && !expiry.includes('-') && expiry.length === 8) {
+      expiryFmt = expiry.slice(0, 4) + '-' + expiry.slice(4, 6) + '-' + expiry.slice(6, 8);
+    }
+    const dateOnly = rawDt.split(/[;T,]/)[0].trim().replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+
+    if (!ticker || !expiryFmt || isNaN(strike) || isNaN(qty) || qty === 0) continue;
+
+    optionTrades.push({
+      ticker, expiry: expiryFmt, strike, side: (side || '').charAt(0).toUpperCase(),
+      datetime: rawDt, qty, price, proceeds, commission, code,
+      dateOnly,
+      isOpen: code === 'O',
+      isClose: code === 'C',
+    });
+  }
+  return optionTrades;
+}
+
+function pairSpreads(optionTrades) {
+  const opens = optionTrades.filter(t => t.isOpen);
+  const closes = optionTrades.filter(t => t.isClose);
+  const groups = {};
+  for (const t of opens) {
+    const key = t.ticker + '|' + t.expiry + '|' + t.datetime;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  }
+
+  const spreads = [];
+  for (const [, legs] of Object.entries(groups)) {
+    if (legs.length !== 2) continue;
+    const shortLeg = legs.find(l => l.qty < 0);
+    const longLeg = legs.find(l => l.qty > 0);
+    if (!shortLeg || !longLeg) continue;
+    if (shortLeg.side !== longLeg.side) continue;
+    if (Math.abs(shortLeg.qty) !== Math.abs(longLeg.qty)) continue;
+
+    const contracts = Math.abs(shortLeg.qty);
+    const isPut = shortLeg.side === 'P';
+    const shortStrike = shortLeg.strike;
+    const longStrike = longLeg.strike;
+    const premium = Math.round(Math.abs(shortLeg.price - longLeg.price) * contracts * 100);
+    const entryDate = shortLeg.dateOnly;
+
+    let tradeType;
+    if (isPut && shortStrike > longStrike) tradeType = 'Bull Put Spread';
+    else if (isPut && shortStrike < longStrike) tradeType = 'Bear Put Spread';
+    else if (!isPut && shortStrike < longStrike) tradeType = 'Bull Call Spread';
+    else tradeType = 'Bear Call Spread';
+
+    // Check for closes
+    const matchingCloses = closes.filter(c => c.ticker === shortLeg.ticker && c.expiry === shortLeg.expiry && (c.strike === shortStrike || c.strike === longStrike));
+    const shortCloses = matchingCloses.filter(c => c.strike === shortStrike);
+    const longCloses = matchingCloses.filter(c => c.strike === longStrike);
+
+    let exitDate = null, status = 'Open', realizedPnl = null;
+    let totalComm = Math.abs(shortLeg.commission) + Math.abs(longLeg.commission);
+
+    if (shortCloses.length > 0 && longCloses.length > 0) {
+      status = 'Closed';
+      exitDate = shortCloses[shortCloses.length - 1].dateOnly;
+      const closeCost = Math.abs(shortCloses.reduce((s, c) => s + c.proceeds, 0) + longCloses.reduce((s, c) => s + c.proceeds, 0));
+      const closeComm = shortCloses.reduce((s, c) => s + Math.abs(c.commission), 0) + longCloses.reduce((s, c) => s + Math.abs(c.commission), 0);
+      totalComm += closeComm;
+      realizedPnl = Math.round((premium - closeCost - totalComm) * 100) / 100;
+    }
+
+    const dte = Math.round((new Date(shortLeg.expiry) - new Date(entryDate)) / 86400000);
+
+    spreads.push({
+      ticker: shortLeg.ticker, tradeType, status, entryDate,
+      expiry: shortLeg.expiry, shortStrike, longStrike,
+      premiumCollected: premium, contracts, realizedPnl, exitDate,
+      dteAtEntry: dte,
+      entryType: '', thesis: '', exitReason: '',
+      thesisAccuracy: '', lessonLearned: '',
+      chartLink: '', tpPrice: '', slPrice: '',
+      rolls: [], journal: []
+    });
+  }
+  return spreads.sort((a, b) => a.entryDate.localeCompare(b.entryDate));
+}
+
 // ── Daily Brief + Post-Session Journal ────────────────────────────────────
 
 async function sendDailyBrief() {
@@ -1821,6 +2069,9 @@ cron.schedule('5 16 * * 1-5', sendMarketClose, { timezone: 'America/New_York' })
 
 // Daily Brief at 7:00 AM ET
 cron.schedule('0 7 * * 1-5', sendDailyBrief, { timezone: 'America/New_York' });
+
+// Auto IBKR Sync at 5:00 PM ET (after close, before journal prompt)
+cron.schedule('0 17 * * 1-5', autoSyncIBKR, { timezone: 'America/New_York' });
 
 // Post-Session Journal Prompt at 6:00 PM ET
 cron.schedule('0 18 * * 1-5', sendEODPrompt, { timezone: 'America/New_York' });
