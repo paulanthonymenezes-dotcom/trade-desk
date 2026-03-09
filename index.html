@@ -54,6 +54,7 @@
 [data-theme="koyfin"] .st{background:#696969;padding:4px 8px;border-radius:2px;display:inline-block}
 [data-theme="koyfin"] .btn-warn{background:#ffffff;color:#000000}
 [data-theme="koyfin"] .stats-pill.active{background:#00ff00!important;color:#000000!important;border-color:#00ff00!important}
+[data-theme="koyfin"] #left-sidebar{background:#000000;border-right-color:rgba(255,255,255,.12)}
 /* ── Base ─────────────────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);font-family:'IBM Plex Sans',sans-serif;overscroll-behavior:none;-webkit-font-smoothing:antialiased}
@@ -89,6 +90,13 @@ table{width:100%;border-collapse:collapse}
 .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px 8px;gap:3px;background:none;border:none;color:var(--text-primary);font-size:9px;letter-spacing:.06em;text-transform:uppercase}
 .nav-btn.active{color:var(--positive)}
 .nav-icon{font-size:18px;line-height:1}
+/* ── Left Sidebar (desktop) ──────────────────────────────────────────────── */
+#left-sidebar{display:none}
+.side-btn{display:flex;flex-direction:column;align-items:center;padding:14px 4px 10px;gap:4px;background:none;border:none;color:var(--text-secondary);font-size:9px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;border-left:2px solid transparent;font-family:'IBM Plex Mono',monospace}
+.side-btn:hover{color:var(--text-primary);background:rgba(255,255,255,.04)}
+.side-btn.active{color:var(--positive);border-left-color:var(--positive)}
+.side-btn .nav-icon{font-size:18px;line-height:1}
+.side-label{font-size:8px;letter-spacing:.08em}
 .iv-pill{display:inline-flex;align-items:center;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;font-family:'IBM Plex Mono',monospace}
 #main{padding:12px 12px 120px;max-width:900px;margin:0 auto}
 #topbar{border-bottom:1px solid var(--border-subtle);padding:0 12px;display:flex;align-items:center;height:48px;position:sticky;top:0;background:var(--bg-primary);z-index:50}
@@ -122,9 +130,12 @@ table{width:100%;border-collapse:collapse}
 .watch-dd-name{font-size:11px;color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .watch-dd-exch{font-size:9px;color:var(--text-tertiary);letter-spacing:.05em}
 @media(min-width:1200px){
-  #app-layout{display:grid;grid-template-columns:1fr 480px;gap:20px;max-width:1700px;margin:0 auto;padding:0 20px}
-  #main{max-width:none;margin:0}
-  #chart-panel{display:block;padding-top:12px;padding-bottom:120px}
+  #left-sidebar{display:flex;flex-direction:column;position:fixed;left:0;top:48px;bottom:0;width:64px;background:#000000;border-right:1px solid rgba(255,255,255,.15);z-index:60;padding-top:8px}
+  #bottom-nav{display:none}
+  #topbar{padding-left:76px}
+  #app-layout{display:grid;grid-template-columns:1fr 480px;gap:20px;max-width:1700px;margin:0 auto;padding:0 20px;margin-left:64px}
+  #main{max-width:none;margin:0;padding-bottom:20px}
+  #chart-panel{display:block;padding-top:12px;padding-bottom:20px}
 }
 @media(min-width:1400px){#app-layout{grid-template-columns:1fr 560px}}
 @media(min-width:1700px){#app-layout{grid-template-columns:1fr 680px}}
@@ -142,6 +153,15 @@ table{width:100%;border-collapse:collapse}
   <button class="btn btn-g" onclick="toggleDebug()" id="debug-btn" style="padding:5px 8px;font-size:10px;margin-right:6px">🔍</button>
   <button onclick="openSettings()" style="background:none;border:none;color:var(--text-secondary);font-size:18px">⚙</button>
 </div>
+
+<nav id="left-sidebar">
+  <button class="side-btn active" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">POS</span></button>
+  <button class="side-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span><span class="side-label">WATCH</span></button>
+  <button class="side-btn" onclick="switchTab('trades',this)"><span class="nav-icon">≡</span><span class="side-label">TRADES</span></button>
+  <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">DIARY</span></button>
+  <button class="side-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">STATS</span></button>
+  <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">FORE</span></button>
+</nav>
 
 <div id="app-layout">
 <div id="main">
@@ -4519,8 +4539,19 @@ function openLightbox(src) {
 function switchTab(name, btn) {
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
+  // Clear active on both navs
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
-  btn.classList.add("active");
+  document.querySelectorAll(".side-btn").forEach(b=>b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  // Sync the matching button in both navs
+  const tabNames = ['positions','market','trades','diary','stats','forecast'];
+  const idx = tabNames.indexOf(name);
+  if (idx >= 0) {
+    const bottomBtns = document.querySelectorAll("#bottom-nav .nav-btn");
+    const sideBtns = document.querySelectorAll("#left-sidebar .side-btn");
+    if (bottomBtns[idx]) bottomBtns[idx].classList.add("active");
+    if (sideBtns[idx]) sideBtns[idx].classList.add("active");
+  }
   if (name==="diary") { if (diarySubTab === "journal") renderDiaryJournalView(); else if (!currentDiaryId) renderDiaryList(); }
   if (name==="stats") renderStats();
   if (name==="forecast") renderForecast();
