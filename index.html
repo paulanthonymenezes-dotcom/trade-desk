@@ -1790,7 +1790,11 @@ function renderWatchlist() {
           ${earnDays!==null?`<span style="font-size:9px;color:${C.warn};border:1px solid ${C.warn}33;padding:1px 5px;border-radius:2px">EARN ${earnDays}d</span>`:""}
           ${sectorBadge(ticker)}
         </div>
-        <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:16px;line-height:1">×</button>
+        <div style="display:flex;align-items:center;gap:2px">
+          <button onclick="moveWatcher('${ticker}',-1)" style="background:none;border:none;color:${C.textSec};font-size:11px;cursor:pointer;padding:2px 5px;line-height:1" title="Move up">▲</button>
+          <button onclick="moveWatcher('${ticker}',1)" style="background:none;border:none;color:${C.textSec};font-size:11px;cursor:pointer;padding:2px 5px;line-height:1" title="Move down">▼</button>
+          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:16px;line-height:1;cursor:pointer">×</button>
+        </div>
       </div>
       ${q ? `
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
@@ -4476,6 +4480,15 @@ document.addEventListener("click", e => {
 
 function removeWatcher(ticker) {
   STATE.watchlist = STATE.watchlist.filter(t=>t!==ticker);
+  save(); renderWatchlist();
+}
+function moveWatcher(ticker, dir) {
+  const idx = STATE.watchlist.indexOf(ticker);
+  if (idx < 0) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= STATE.watchlist.length) return;
+  STATE.watchlist.splice(idx, 1);
+  STATE.watchlist.splice(newIdx, 0, ticker);
   save(); renderWatchlist();
 }
 
