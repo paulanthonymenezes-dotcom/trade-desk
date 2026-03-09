@@ -393,12 +393,14 @@ function checkAlerts(state, quotes) {
       && (spread.high - spread.low) / spread.mid < 0.40; // bid/ask width < 40% of mid
 
     // ── Spread SL early warning (heads-up before hard stop) ─────────────
+    // For credit spreads: SL triggers when spread DECAYS DOWN to the SL level
+    // (spread getting cheaper = you can buy back near your SL price)
     if (t.spreadSL && marketSettled && spreadReliable && !alertsSent.has(key + 'spreadSLwarn')) {
       const ssl = parseFloat(t.spreadSL);
-      const warnLevel = ssl * 0.85; // 85% of SL = early warning
-      if (spread.mid >= warnLevel && spread.mid < ssl) {
+      const warnLevel = ssl * 1.15; // 15% above SL = early warning
+      if (spread.mid <= warnLevel && spread.mid > ssl) {
         alertsSent.add(key + 'spreadSLwarn');
-        const pctAway = ((ssl - spread.mid) / ssl * 100).toFixed(0);
+        const pctAway = ((spread.mid - ssl) / ssl * 100).toFixed(0);
         const premium = t.premiumCollected || 0;
         const contracts = t.contracts || 1;
         const costToClose = spread.mid * 100 * contracts;
@@ -415,8 +417,9 @@ function checkAlerts(state, quotes) {
     }
 
     // ── Spread stop loss (911 — non-negotiable) ─────────────────────────
+    // Triggers when spread mid drops TO or BELOW the SL level
 
-    if (t.spreadSL && marketSettled && spreadReliable && spread.mid >= parseFloat(t.spreadSL) && !alertsSent.has(key + 'spreadSL')) {
+    if (t.spreadSL && marketSettled && spreadReliable && spread.mid <= parseFloat(t.spreadSL) && !alertsSent.has(key + 'spreadSL')) {
       alertsSent.add(key + 'spreadSL');
       const premium = t.premiumCollected || 0;
       const contracts = t.contracts || 1;
@@ -424,8 +427,8 @@ function checkAlerts(state, quotes) {
       const pnl = premium - costToClose;
       tg(
         `🚨🚨🚨 <b>${t.ticker} SPREAD STOP LOSS — GET OUT NOW</b>\n\n` +
-        `Spread: $${spread.mid.toFixed(2)} ≥ SSL $${t.spreadSL}\n` +
-        `P&L: -$${Math.abs(pnl).toFixed(0)}\n` +
+        `Spread: $${spread.mid.toFixed(2)} ≤ SSL $${t.spreadSL}\n` +
+        `P&L: ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(0)}\n` +
         `${t.shortStrike}/${t.longStrike} x${contracts} | DTE: ${dl}\n\n` +
         `<b>THIS IS YOUR HARD STOP. CLOSE IT.</b>`
       );

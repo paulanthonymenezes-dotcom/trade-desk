@@ -2367,7 +2367,7 @@ function renderPositions() {
       ${!isStock && q ? `<div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;margin-bottom:3px">
           <span style="font-size:9px;color:${C.textSec};letter-spacing:.06em">PRICE vs SHORT STRIKE</span>
-          <span style="font-size:10px;color:${proxColor}">${prox!==null?prox.toFixed(1)+"%":"—"} above $${t.shortStrike}</span>
+          <span style="font-size:10px;color:${proxColor}">${prox!==null?Math.abs(prox).toFixed(1)+"% "+(prox>=0?"above":"below"):"—"} $${t.shortStrike}</span>
         </div>
         <div style="height:3px;background:${C.borderVis};border-radius:2px"><div style="height:100%;width:${proxWidth}%;background:${proxColor};border-radius:2px;transition:width .3s"></div></div>
       </div>` : ""}
