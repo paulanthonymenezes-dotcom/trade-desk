@@ -2259,7 +2259,7 @@ function renderSnapshot() {
           <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:${C.text}">${t.ticker}</span>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:${priceColor}">${priceFmt}</span>
           ${changeFmt ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${priceColor}">${changeFmt}</span>` : ""}
-          ${sector ? `<span style="font-size:9px;color:${C.textSec};background:${C.border};padding:1px 5px;border-radius:3px">${sector}</span>` : ""}
+          ${sector ? `<span style="font-size:9px;color:${C.textSec};background:${C.border};padding:1px 5px;border-radius:3px;cursor:pointer" onclick="openSectorModal('${t.ticker}')">${sector}</span>` : `<span style="font-size:9px;color:${C.textTri};cursor:pointer" onclick="openSectorModal('${t.ticker}')">+ sector</span>`}
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec}">
           <span>${t.tradeType || "Spread"}</span>
