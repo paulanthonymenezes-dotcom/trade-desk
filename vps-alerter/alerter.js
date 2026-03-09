@@ -1000,10 +1000,19 @@ CRITICAL RULES:
 - longStrike: the LONG strike (lower strike for puts, higher for calls)
 - contracts: number of spreads (both legs should have same quantity)
 - premium: NET TOTAL credit collected in dollars (for OPENS only). Set null for closes.
-  * If you see per-contract credit like $2.50 with 3 contracts, premium = 250 × 3 = 750
+  IBKR PREMIUM CALCULATION — READ CAREFULLY:
+  IBKR shows THREE numbers per leg: FILL PRICE (per-contract, e.g. $13.73), AMOUNT (total, e.g. $2,745), and COMMISSION.
+  The AMOUNT column already includes the quantity multiplier (fill × qty × 100). DO NOT multiply it by contracts again.
+  To calculate premium, use ONE of these methods:
+  Method 1 (FILL PRICES): (sold_fill - bought_fill) × 100 × contracts. Example: ($13.73 - $3.57) × 100 × 2 = $2,032
+  Method 2 (AMOUNTS): sold_amount - bought_amount. Example: $2,745 - $714 = $2,031
+  Both methods give the same result. NEVER multiply the AMOUNT by contracts — it's already total.
+  A valid premium for a 20-wide spread with 2 contracts MUST be less than $4,000 (width × 100 × contracts).
 - realizedPnl: the realized P&L in dollars (for CLOSES only). Positive = profit, negative = loss. Set null for opens.
   * IBKR may show this as "Realized PnL" or you can calculate from the closing prices
 - expiry: in YYYY-MM-DD format. IBKR format is often "20MAR26" or "MAR 20 '26" = 2026-03-20. Today is ${today}.
+
+SANITY CHECK: max_loss = (shortStrike - longStrike) × 100 × contracts - premium. This MUST be positive. If your calculated premium makes max_loss negative, you double-counted — recalculate.
 
 Currently open positions: ${openTickers.length > 0 ? openTickers.join(', ') : 'none'}
 If the ticker matches an open position, it's MORE LIKELY a close. Look carefully for closing indicators.
@@ -1061,6 +1070,17 @@ If you cannot determine a field with confidence, set it to null. Return ONLY the
 
   // Default contracts to 1 if not found
   if (!parsed.contracts) parsed.contracts = 1;
+
+  // Sanity check: premium can't exceed max possible credit (width × 100 × contracts)
+  if (parsed.premium && parsed.shortStrike && parsed.longStrike && parsed.contracts) {
+    const width = Math.abs(parsed.shortStrike - parsed.longStrike);
+    const maxCredit = width * 100 * parsed.contracts;
+    if (parsed.premium > maxCredit) {
+      console.log(`[CLAUDE-FIX] Premium $${parsed.premium} exceeds max credit $${maxCredit} — likely double-counted, halving`);
+      // Premium was likely double-counted (IBKR total amounts × contracts again)
+      parsed.premium = Math.round(parsed.premium / parsed.contracts);
+    }
+  }
 
   // Calculate derived fields
   const side = (parsed.side || 'P').toUpperCase();
