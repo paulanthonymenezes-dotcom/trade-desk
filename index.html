@@ -1570,7 +1570,7 @@ function checkAlerts() {
     if (t.tpPrice && q.price >= parseFloat(t.tpPrice) && !_alertedThisCycle.has(key+"tp")) {
       _alertedThisCycle.add(key+"tp");
       const tpLbl = getSRLabel(t.ticker, t.tpPrice);
-      sendTelegram(`✅ <b>${t.ticker} TAKE PROFIT HIT</b>${tpLbl?" ("+tpLbl+")":""}\n$${q.price.toFixed(2)} ≥ TP $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+      sendTelegram(`✅ <b>${t.ticker} HIT RESISTANCE</b>${tpLbl?" ("+tpLbl+")":""}\n$${q.price.toFixed(2)} ≥ $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
       if (STATE.autoExitEnabled) triggerAutoExit(t, "tp", q.price);
     }
 
@@ -1578,7 +1578,7 @@ function checkAlerts() {
     if (t.slPrice && q.price <= parseFloat(t.slPrice) && !_alertedThisCycle.has(key+"sl")) {
       _alertedThisCycle.add(key+"sl");
       const slLbl = getSRLabel(t.ticker, t.slPrice);
-      sendTelegram(`🛑 <b>${t.ticker} STOP LOSS HIT</b>${slLbl?" ("+slLbl+")":""}\n$${q.price.toFixed(2)} ≤ SL $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+      sendTelegram(`🛑 <b>${t.ticker} BROKE SUPPORT</b>${slLbl?" ("+slLbl+")":""}\n$${q.price.toFixed(2)} ≤ $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
       if (STATE.autoExitEnabled) triggerAutoExit(t, "sl", q.price);
     }
 
@@ -2379,12 +2379,12 @@ function renderPositions() {
           const slLbl = getSRLabel(t.ticker, t.slPrice);
           return `
           <div style="flex:1;background:${C.bg};border:1px solid ${t.tpPrice?C.posDim:C.warnDim};border-radius:3px;padding:8px 10px">
-            <div style="font-size:9px;color:${t.tpPrice?C.pos:C.warn};letter-spacing:.08em;margin-bottom:3px">🎯 TAKE PROFIT${tpLbl?" · "+tpLbl:""}</div>
+            <div style="font-size:9px;color:${t.tpPrice?C.pos:C.warn};letter-spacing:.08em;margin-bottom:3px">🎯 RESISTANCE${tpLbl?" · "+tpLbl:""}</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.tpPrice?C.pos:C.warn};font-weight:600">${t.tpPrice?"$"+parseFloat(t.tpPrice).toFixed(2):"NOT SET"}</div>
             ${t.tpPrice&&q?`<div style="font-size:10px;color:${C.textSec};margin-top:2px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
           </div>
           <div style="flex:1;background:${C.bg};border:1px solid ${t.slPrice?C.negDim:C.warnDim};border-radius:3px;padding:8px 10px">
-            <div style="font-size:9px;color:${t.slPrice?C.neg:C.warn};letter-spacing:.08em;margin-bottom:3px">🛑 STOP LOSS${slLbl?" · "+slLbl:""}</div>
+            <div style="font-size:9px;color:${t.slPrice?C.neg:C.warn};letter-spacing:.08em;margin-bottom:3px">🛑 SUPPORT${slLbl?" · "+slLbl:""}</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${t.slPrice?C.neg:C.warn};font-weight:600">${t.slPrice?"$"+parseFloat(t.slPrice).toFixed(2):"NOT SET"}</div>
             ${t.slPrice&&q?`<div style="font-size:10px;color:${C.textSec};margin-top:2px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
           </div>`;
@@ -4800,11 +4800,13 @@ function openTradeModal(id=null) {
   editingTradeId = id;
   const t = id ? STATE.trades.find(x=>x.id===id) : null;
 
-  // Populate selects
+  // Populate selects — fuzzy-match trade type (handle ⭐ prefix mismatch from alerter)
   const ttSel = document.getElementById("tf-tradeType");
+  const tTypeNorm = t ? (t.tradeType||"").replace(/^⭐\s*/,"").toLowerCase() : "";
   ttSel.innerHTML = TRADE_TYPES.map(x=>{
     if (x.startsWith("──")) return `<option disabled style="color:${C.textMut}">${x}</option>`;
-    return `<option${t&&t.tradeType===x?" selected":""}>${x}</option>`;
+    const match = t && (t.tradeType===x || x.replace(/^⭐\s*/,"").toLowerCase()===tTypeNorm);
+    return `<option${match?" selected":""}>${x}</option>`;
   }).join("");
   const etSel = document.getElementById("tf-entryType");
   etSel.innerHTML = `<option value="">Select...</option>`+ENTRY_TYPES.map(x=>`<option${t&&t.entryType===x?" selected":""}>${x}</option>`).join("");

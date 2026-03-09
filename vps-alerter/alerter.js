@@ -368,7 +368,7 @@ function checkAlerts(state, quotes) {
     // TP hit (stock price)
     if (t.tpPrice && q.price >= parseFloat(t.tpPrice) && !alertsSent.has(key + 'tp')) {
       alertsSent.add(key + 'tp');
-      tg(`✅ <b>${t.ticker} TAKE PROFIT HIT</b>\n$${q.price.toFixed(2)} ≥ TP $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+      tg(`✅ <b>${t.ticker} HIT RESISTANCE</b>\n$${q.price.toFixed(2)} ≥ $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
       alertCount++;
     }
 
@@ -377,8 +377,8 @@ function checkAlerts(state, quotes) {
       alertsSent.add(key + 'sl');
       const spreadLine = spread ? `\nSpread: $${spread.mid.toFixed(2)}` : '';
       tg(
-        `🛑 <b>${t.ticker} PRICE STOP LOSS HIT</b>\n` +
-        `$${q.price.toFixed(2)} ≤ SL $${t.slPrice} — thesis broken\n` +
+        `🛑 <b>${t.ticker} BROKE SUPPORT</b>\n` +
+        `$${q.price.toFixed(2)} ≤ $${t.slPrice} — thesis broken\n` +
         `${t.longStrike}/${t.shortStrike} x${t.contracts} | DTE: ${dl}${spreadLine}\n` +
         `<i>Close the trade — your thesis is invalidated</i>`
       );
@@ -393,14 +393,14 @@ function checkAlerts(state, quotes) {
       && (spread.high - spread.low) / spread.mid < 0.40; // bid/ask width < 40% of mid
 
     // ── Spread SL early warning (heads-up before hard stop) ─────────────
-    // For credit spreads: SL triggers when spread DECAYS DOWN to the SL level
-    // (spread getting cheaper = you can buy back near your SL price)
+    // SL is ABOVE entry — spread INCREASING = losing money (costs more to buy back)
+    // Early warning fires when spread approaches the SL from below
     if (t.spreadSL && marketSettled && spreadReliable && !alertsSent.has(key + 'spreadSLwarn')) {
       const ssl = parseFloat(t.spreadSL);
-      const warnLevel = ssl * 1.15; // 15% above SL = early warning
-      if (spread.mid <= warnLevel && spread.mid > ssl) {
+      const warnLevel = ssl * 0.85; // 85% of SL = early warning
+      if (spread.mid >= warnLevel && spread.mid < ssl) {
         alertsSent.add(key + 'spreadSLwarn');
-        const pctAway = ((spread.mid - ssl) / ssl * 100).toFixed(0);
+        const pctAway = ((ssl - spread.mid) / ssl * 100).toFixed(0);
         const premium = t.premiumCollected || 0;
         const contracts = t.contracts || 1;
         const costToClose = spread.mid * 100 * contracts;
@@ -417,9 +417,9 @@ function checkAlerts(state, quotes) {
     }
 
     // ── Spread stop loss (911 — non-negotiable) ─────────────────────────
-    // Triggers when spread mid drops TO or BELOW the SL level
+    // Triggers when spread mid RISES TO or ABOVE the SL level (losing money)
 
-    if (t.spreadSL && marketSettled && spreadReliable && spread.mid <= parseFloat(t.spreadSL) && !alertsSent.has(key + 'spreadSL')) {
+    if (t.spreadSL && marketSettled && spreadReliable && spread.mid >= parseFloat(t.spreadSL) && !alertsSent.has(key + 'spreadSL')) {
       alertsSent.add(key + 'spreadSL');
       const premium = t.premiumCollected || 0;
       const contracts = t.contracts || 1;
@@ -427,7 +427,7 @@ function checkAlerts(state, quotes) {
       const pnl = premium - costToClose;
       tg(
         `🚨🚨🚨 <b>${t.ticker} SPREAD STOP LOSS — GET OUT NOW</b>\n\n` +
-        `Spread: $${spread.mid.toFixed(2)} ≤ SSL $${t.spreadSL}\n` +
+        `Spread: $${spread.mid.toFixed(2)} ≥ SSL $${t.spreadSL}\n` +
         `P&L: ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(0)}\n` +
         `${t.shortStrike}/${t.longStrike} x${contracts} | DTE: ${dl}\n\n` +
         `<b>THIS IS YOUR HARD STOP. CLOSE IT.</b>`
@@ -702,15 +702,15 @@ async function cmdStatus() {
     // Daily implied move from IV
     const impliedMove = (spread?.iv && q) ? `±$${(q.price * spread.iv * Math.sqrt(1/252)).toFixed(2)}` : '';
 
-    // Chart SL / Spread SL / TP with % distance
+    // Support / Resistance / Spread SL / TP with % distance
     const slPct = (t.slPrice && q) ? ` (${((q.price - parseFloat(t.slPrice)) / q.price * 100).toFixed(1)}%)` : '';
     const tpPct = (t.tpPrice && q) ? ` (${((parseFloat(t.tpPrice) - q.price) / q.price * 100).toFixed(1)}%)` : '';
-    const chartSL = t.slPrice ? `Chart SL: $${t.slPrice}${slPct}` : '';
+    const chartSL = t.slPrice ? `Support: $${t.slPrice}${slPct}` : '';
     const spreadTPAway = (t.spreadTP && spread) ? ((spread.mid - parseFloat(t.spreadTP)) / spread.mid * 100).toFixed(0) : null;
     const spreadTP = (t.spreadTP && spread) ? `Spread TP: $${t.spreadTP} (${spreadTPAway}% away)` : '';
     const spreadSLAway = (t.spreadSL && spread) ? ((parseFloat(t.spreadSL) - spread.mid) / spread.mid * 100).toFixed(0) : null;
     const spreadSL = (t.spreadSL && spread) ? `Spread SL: $${t.spreadSL} (${spreadSLAway}% away)` : '';
-    const tpStr = t.tpPrice ? `TP: $${t.tpPrice}${tpPct}` : '';
+    const tpStr = t.tpPrice ? `Resistance: $${t.tpPrice}${tpPct}` : '';
 
     let line = `${status} <b>${t.ticker}</b> ${price} (${chg})`;
     line += `\n   ${t.shortStrike}/${t.longStrike} x${t.contracts} | ${dl}DTE`;
@@ -850,10 +850,10 @@ async function cmdTicker(ticker) {
       msg += `P&L: ${sign}$${Math.abs(pnlData.pnl).toFixed(0)} (${pnlData.source})\n`;
     }
 
-    if (t.slPrice) msg += `\n🛑 Price SL: $${t.slPrice}`;
+    if (t.slPrice) msg += `\n🛑 Support: $${t.slPrice}`;
     if (t.spreadTP) msg += `\n🎯 Spread TP: $${t.spreadTP}`;
     if (t.spreadSL) msg += `\n🚨 Spread SL: $${t.spreadSL}`;
-    if (t.tpPrice) msg += `\n✅ TP: $${t.tpPrice}`;
+    if (t.tpPrice) msg += `\n✅ Resistance: $${t.tpPrice}`;
 
     msg += `\n\n<i>/sl ${ticker} PRICE — price stop\n/ssl ${ticker} VALUE — spread stop (911)\n/tp ${ticker} PRICE — take profit</i>`;
 
@@ -1412,14 +1412,19 @@ async function cmdSpreadLevel(parts, type) {
     if (!premium) continue;
     const perSpread = premium / (100 * contracts);
 
+    const width = Math.abs(t.shortStrike - t.longStrike);
+
     if (type === 'tp') {
       // TP: buy back when spread decays to this value (e.g. 50% → keep 50% profit)
       const val = perSpread * (1 - pct / 100);
       t.spreadTP = val.toFixed(2);
       t.spreadTPPct = String(pct);
     } else {
-      // SL: close when spread rises to this value (e.g. 75% loss of premium)
-      const val = perSpread * (pct / 100);
+      // SL: close when spread INCREASES to this value (losing money)
+      // pct% = how much of your max possible loss you'll tolerate
+      // e.g. 75% with entry $3.46 on $5-wide → $3.46 + ($5-$3.46)×0.75 = $4.62
+      const maxLossPerSpread = width - perSpread;
+      const val = Math.min(perSpread + (maxLossPerSpread * pct / 100), width);
       t.spreadSL = val.toFixed(2);
       t.spreadSLPct = String(pct);
     }
@@ -1507,10 +1512,10 @@ async function sendHourlySummary() {
       // Daily range
       if (q.dayLow && q.dayHigh) line += `\n   L:$${q.dayLow.toFixed(2)} H:$${q.dayHigh.toFixed(2)}`;
 
-      // Chart SL with % distance
+      // Support (chart SL) with % distance
       if (t.slPrice) {
         const slPct = ((q.price - parseFloat(t.slPrice)) / q.price * 100).toFixed(1);
-        line += `\n   Chart SL: $${t.slPrice} (${slPct}%)`;
+        line += `\n   Support: $${t.slPrice} (${slPct}%)`;
       }
 
       // Spread TP with % away
@@ -1525,10 +1530,10 @@ async function sendHourlySummary() {
         line += `\n   Spread SL: $${t.spreadSL} (${away}% away)`;
       }
 
-      // TP with % distance
+      // Resistance (chart TP) with % distance
       if (t.tpPrice) {
         const tpPct = ((parseFloat(t.tpPrice) - q.price) / q.price * 100).toFixed(1);
-        line += `\n   TP: $${t.tpPrice} (${tpPct}%)`;
+        line += `\n   Resistance: $${t.tpPrice} (${tpPct}%)`;
       }
 
       // IV implied move
