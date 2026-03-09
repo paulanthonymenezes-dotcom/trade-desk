@@ -4851,9 +4851,15 @@ function calcSpreadSLValue() {
   const pct = parseFloat(document.getElementById("tf-spreadSLPct").value);
   const premium = parseFloat(document.getElementById("tf-premium").value);
   const contracts = parseInt(document.getElementById("tf-contracts").value) || 1;
+  const shortStrike = parseFloat(document.getElementById("tf-shortStrike").value) || 0;
+  const longStrike = parseFloat(document.getElementById("tf-longStrike").value) || 0;
   if (!pct || !premium) return "";
   const perSpread = premium / (100 * contracts);
-  const sl = perSpread * (pct / 100);
+  const width = Math.abs(shortStrike - longStrike);
+  // SL = entry + (max possible loss per spread × pct)
+  // e.g. entry $5.30 on $6-wide at 75% → $5.30 + ($0.70 × 0.75) = $5.825
+  const maxLossPerSpread = width - perSpread;
+  const sl = Math.min(perSpread + (maxLossPerSpread * pct / 100), width);
   return sl.toFixed(2);
 }
 
