@@ -1907,7 +1907,10 @@ function renderWatchlist() {
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
           <div style="font-size:9px;color:${C.textSec}">${q?q.ts:""}</div>
-          <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:10px;font-family:'IBM Plex Mono',monospace;cursor:pointer">${(supports.length||resistances.length)?"EDIT S/R":"+ SET S/R"}</button>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button id="copy-ctx-${ticker}" onclick="copyTickerContext('${ticker}',event)" style="background:none;border:none;color:${C.textSec};font-size:10px;font-family:'IBM Plex Mono',monospace;cursor:pointer">COPY</button>
+            <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:10px;font-family:'IBM Plex Mono',monospace;cursor:pointer">${(supports.length||resistances.length)?"EDIT S/R":"+ SET S/R"}</button>
+          </div>
         </div>
       ` : `<div style="font-size:11px;color:${C.textSec}">Loading...</div>`}
     </div>`;
@@ -2524,6 +2527,7 @@ function renderPositions() {
         <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="quickChartUpload(${t.id})">📷</button>
         <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="openTradeModal(${t.id})">✎</button>
         <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="selectChartTicker('${t.ticker}')" title="View chart">📊</button>
+        <button id="copy-ctx-${t.ticker}" class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis};font-size:9px" onclick="copyTickerContext('${t.ticker}',event)" title="Copy context for AI">COPY</button>
       </div>
 
       <!-- Quick Notes -->
@@ -4513,6 +4517,55 @@ function hideSearchDropdown() {
   if (dd) dd.style.display = "none";
   _searchResults = [];
   _searchHighlight = -1;
+}
+
+function copyTickerContext(ticker, e) {
+  if (e) e.stopPropagation();
+  const q = STATE.quotes[ticker];
+  const ivD = calcIVRankFromHistory(ticker);
+  const iv = ivD.currentIV;
+  const earn = STATE.earnings?.[ticker];
+  const sr = STATE.srLevels?.[ticker] || {};
+  const notes = STATE.watchlistNotes?.[ticker] || [];
+  const openPos = STATE.trades.filter(t => t.status === "Open" && t.ticker === ticker);
+  const c = STATE.candles[ticker];
+
+  let lines = [`${ticker}`];
+  if (q) lines[0] += ` $${q.price.toFixed(2)} (${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(2)}%)`;
+  if (iv) {
+    const daily = (q.price * iv * Math.sqrt(1/252)).toFixed(2);
+    const weekly = (q.price * iv * Math.sqrt(5/252)).toFixed(2);
+    lines.push(`IV: ${(iv*100).toFixed(0)}% | Expected Move: ±$${daily}/day, ±$${weekly}/week`);
+  }
+  if (ivD.ivr !== null) lines.push(`IV Rank: ${ivD.ivr}%`);
+  if (earn) { const ed = daysLeft(earn); if (ed >= 0) lines.push(`Earnings: ${_shortDate(earn)} (${ed} days)`); }
+  if (c) {
+    const low21 = Math.min(...c.l.slice(-21)); const high21 = Math.max(...c.h.slice(-21));
+    const low63 = Math.min(...c.l.slice(-63)); const high63 = Math.max(...c.h.slice(-63));
+    lines.push(`21D Range: $${low21.toFixed(2)} – $${high21.toFixed(2)} | 63D Range: $${low63.toFixed(2)} – $${high63.toFixed(2)}`);
+  }
+  const supports = [sr.s1,sr.s2,sr.s3].filter(v=>v);
+  const resistances = [sr.r1,sr.r2,sr.r3].filter(v=>v);
+  if (supports.length) lines.push(`Support: ${supports.map(s=>"$"+parseFloat(s).toFixed(2)).join(", ")}`);
+  if (resistances.length) lines.push(`Resistance: ${resistances.map(r=>"$"+parseFloat(r).toFixed(2)).join(", ")}`);
+  if (openPos.length) {
+    openPos.forEach(t => {
+      const isStock = (t.tradeType||"").startsWith("Stock");
+      if (isStock) lines.push(`Open Position: ${t.tradeType} ${t.contracts} shares @ $${t.shortStrike}`);
+      else lines.push(`Open Position: ${t.tradeType} ${t.longStrike}/${t.shortStrike} ${t.contracts}x exp ${t.expiry} | Premium $${t.premiumCollected}`);
+    });
+  }
+  if (notes.length) {
+    const latest = notes[0];
+    lines.push(`Latest Note (${_shortDate(latest.date)}, ${latest.bias}): ${latest.text}`);
+  }
+  const tgt = STATE.watchlistTargets?.[ticker];
+  if (tgt?.price) lines.push(`Entry Target: $${parseFloat(tgt.price).toFixed(2)} (${tgt.direction})`);
+
+  navigator.clipboard.writeText(lines.join("\n")).then(() => {
+    const btn = document.getElementById("copy-ctx-" + ticker);
+    if (btn) { btn.textContent = "✓ COPIED"; setTimeout(() => { btn.textContent = "COPY"; }, 1500); }
+  });
 }
 
 function _highlightItem() {
