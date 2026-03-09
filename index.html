@@ -1285,7 +1285,8 @@ function calcHighDist(candles, days) {
   return ((high-curr)/high)*100; // how far BELOW the high (positive = below, 0 = at high)
 }
 
-function daysLeft(expiry) { return Math.ceil((new Date(expiry)-new Date())/86400000); }
+function daysLeft(expiry) { return Math.ceil((_toDate(expiry)-new Date())/86400000); }
+function _toDate(v) { return typeof v==='number'&&v<1e12 ? new Date(v*1000) : new Date(v); }
 function dteColor(d) { return d<=3?C.neg:d<=7?C.warn:C.pos; }
 function dteBucket(d) { return d<=1?"0–1 DTE":d<=7?"2–7 DTE":d<=15?"8–15 DTE":d<=30?"16–30 DTE":d<=45?"31–45 DTE":"45+ DTE"; }
 function fmt$(n) { return (n>=0?"+$":"-$")+Math.abs(n).toFixed(0); }
@@ -4584,8 +4585,8 @@ function _biasTag(bias) {
   return `<span style="color:${C.textSec};font-size:10px;font-weight:600">NEUTRAL</span>`;
 }
 
-function _shortDate(iso) {
-  const d = new Date(iso);
+function _shortDate(v) {
+  const d = _toDate(v);
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return months[d.getMonth()] + " " + d.getDate();
 }
