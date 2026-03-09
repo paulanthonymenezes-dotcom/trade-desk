@@ -5798,6 +5798,8 @@ function confirmIBKRImport() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   await load();
+  // One-time migration: switch to koyfin theme
+  if (STATE.theme === 'original') { STATE.theme = 'koyfin'; save(); }
   // Apply saved theme
   if (STATE.theme && THEMES[STATE.theme]) {
     C = {...THEMES[STATE.theme]};
