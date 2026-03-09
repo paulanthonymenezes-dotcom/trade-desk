@@ -214,7 +214,19 @@ async function mdaFetch(path, retries = 2) {
 async function fetchSpreadValue(trade) {
   if (!trade.expiry || !trade.shortStrike || !trade.longStrike) return null;
 
-  const side = (trade.tradeType || '').toLowerCase().includes('put') ? 'put' : 'call';
+  // Determine put/call: use explicit side field first, then tradeType, then infer from strikes
+  // (For puts: shortStrike > longStrike. For calls: shortStrike < longStrike)
+  let side;
+  if (trade.side === 'P' || trade.side === 'C') {
+    side = trade.side === 'P' ? 'put' : 'call';
+  } else if ((trade.tradeType || '').toLowerCase().includes('put')) {
+    side = 'put';
+  } else if ((trade.tradeType || '').toLowerCase().includes('call')) {
+    side = 'call';
+  } else {
+    // Fallback: for credit spreads, short > long = puts, short < long = calls
+    side = trade.shortStrike > trade.longStrike ? 'put' : 'call';
+  }
 
   // Sequential fetches to avoid rate limiting
   const shortData = await mdaFetch(`/options/chain/${trade.ticker}/?expiration=${trade.expiry}&side=${side}&strike=${trade.shortStrike}`);
