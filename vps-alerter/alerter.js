@@ -372,23 +372,6 @@ function checkAlerts(state, quotes) {
       alertCount++;
     }
 
-    // SL early warning (stock price approaching stop)
-    if (t.slPrice && !alertsSent.has(key + 'slWarn')) {
-      const sl = parseFloat(t.slPrice);
-      const buffer = (q.price - sl) / q.price * 100; // % above SL
-      if (buffer > 0 && buffer <= 3) { // within 3% of SL
-        alertsSent.add(key + 'slWarn');
-        const spreadLine = spread ? `\nSpread: $${spread.mid.toFixed(2)}` : '';
-        tg(
-          `⚠️ <b>${t.ticker} — APPROACHING PRICE SL</b>\n\n` +
-          `$${q.price.toFixed(2)} — ${buffer.toFixed(1)}% from SL ($${t.slPrice})\n` +
-          `${t.shortStrike}/${t.longStrike} x${t.contracts} | DTE: ${dl}${spreadLine}\n\n` +
-          `<i>Watch closely. Hard stop at $${t.slPrice}</i>`
-        );
-        alertCount++;
-      }
-    }
-
     // SL hit (stock price — thesis broken)
     if (t.slPrice && q.price <= parseFloat(t.slPrice) && !alertsSent.has(key + 'sl')) {
       alertsSent.add(key + 'sl');
