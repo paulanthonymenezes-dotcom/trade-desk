@@ -1808,6 +1808,7 @@ function renderWatchlist() {
           ${sectorBadge(ticker)}
         </div>
         <div style="display:flex;align-items:center;gap:2px">
+          <button onclick="moveWatcherToTop('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:9px;cursor:pointer;padding:2px 5px;line-height:1;font-family:'IBM Plex Mono',monospace;letter-spacing:.03em" title="Move to top">TOP</button>
           <button onclick="moveWatcher('${ticker}',-1)" style="background:none;border:none;color:${C.textSec};font-size:11px;cursor:pointer;padding:2px 5px;line-height:1" title="Move up">▲</button>
           <button onclick="moveWatcher('${ticker}',1)" style="background:none;border:none;color:${C.textSec};font-size:11px;cursor:pointer;padding:2px 5px;line-height:1" title="Move down">▼</button>
           <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:16px;line-height:1;cursor:pointer">×</button>
@@ -4520,6 +4521,13 @@ function moveWatcher(ticker, dir) {
   if (newIdx < 0 || newIdx >= STATE.watchlist.length) return;
   STATE.watchlist.splice(idx, 1);
   STATE.watchlist.splice(newIdx, 0, ticker);
+  save(); renderWatchlist();
+}
+function moveWatcherToTop(ticker) {
+  const idx = STATE.watchlist.indexOf(ticker);
+  if (idx <= 0) return;
+  STATE.watchlist.splice(idx, 1);
+  STATE.watchlist.unshift(ticker);
   save(); renderWatchlist();
 }
 
