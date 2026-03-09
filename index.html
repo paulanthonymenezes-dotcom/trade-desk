@@ -310,12 +310,12 @@ table{width:100%;border-collapse:collapse}
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--positive);letter-spacing:.12em;margin-bottom:4px">EXIT RULES — REQUIRED</div>
       <div style="font-size:10px;color:var(--text-secondary);margin-bottom:12px">Pick from your watchlist S/R levels, or enter a custom price.</div>
       <div class="frow">
-        <label>🎯 Profit Target — stock hits this level, take profit <span style="color:var(--negative)">*</span></label>
+        <label>🎯 Resistance — stock hits this level, consider exit <span style="color:var(--negative)">*</span></label>
         <input id="tf-tpPrice" type="number" placeholder="e.g. 195.00">
         <div id="tf-tp-picks" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
       </div>
       <div class="frow" style="margin-bottom:0">
-        <label>🛑 Stop Loss — stock breaks this level, exit <span style="color:var(--negative)">*</span></label>
+        <label>🛑 Support — stock breaks this level, thesis broken <span style="color:var(--negative)">*</span></label>
         <input id="tf-slPrice" type="number" placeholder="e.g. 178.00">
         <div id="tf-sl-picks" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
       </div>
@@ -632,7 +632,7 @@ const STORAGE_KEY = "trading_desk_v3_html";
 const POLL_INTERVAL = 90000;
 
 const ENTRY_TYPES = ["Uptrend / Momentum","Reversal","News / Event","IV Play","Support Bounce","Breakout","Scalp","Earnings Play","Other"];
-const EXIT_REASONS = ["Profit Target Hit","Stop Loss Hit","Rolled","Expired Worthless","Closed Early","Earnings Risk","Same-Day Scalp","Assigned","Liquidated","Other"];
+const EXIT_REASONS = ["Hit Resistance","Broke Support","Rolled","Expired Worthless","Closed Early","Earnings Risk","Same-Day Scalp","Assigned","Liquidated","Other"];
 
 // Trade types — ⭐ = core strategies
 const TRADE_TYPES = [
@@ -1660,7 +1660,7 @@ async function triggerAutoExit(trade, reason, currentPrice) {
     contracts: trade.contracts,
     side,
     tradeId: trade.id,
-    reason: reason === "tp" ? "Take Profit Hit" : "Stop Loss Hit"
+    reason: reason === "tp" ? "Hit Resistance" : "Broke Support"
   };
 
   dbg("🤖 AUTO-EXIT: " + trade.ticker + " " + trade.longStrike + "/" + trade.shortStrike + " — " + payload.reason, "warn");
@@ -1974,8 +1974,8 @@ function renderIncompleteBanner() {
     <div style="display:flex;flex-direction:column;gap:5px">
       ${incomplete.map(t => {
         const missing = [];
-        if (!t.tpPrice) missing.push("Take Profit");
-        if (!t.slPrice) missing.push("Stop Loss");
+        if (!t.tpPrice) missing.push("Resistance");
+        if (!t.slPrice) missing.push("Support");
         return `<div style="display:flex;justify-content:space-between;align-items:center;background:${C.bg};border-radius:3px;padding:6px 10px">
           <div>
             <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${t.ticker}</span>
@@ -2610,8 +2610,8 @@ function renderDiary() {
         ${t.realizedPnl!==null?`<div><div class="lbl">Realized P&L</div><div class="val" style="color:${t.realizedPnl>=0?C.pos:C.neg}">${t.realizedPnl>=0?"+$":"-$"}${Math.abs(t.realizedPnl).toFixed(0)}</div></div>`:""}
       </div>
       ${t.tpPrice||t.slPrice?`<div class="g2">
-        ${t.tpPrice?`<div><div class="lbl">Take Profit</div><div class="val" style="color:${C.pos}">$${t.tpPrice}</div></div>`:""}
-        ${t.slPrice?`<div><div class="lbl">Stop Loss</div><div class="val" style="color:${C.neg}">$${t.slPrice}</div></div>`:""}
+        ${t.tpPrice?`<div><div class="lbl">Resistance</div><div class="val" style="color:${C.pos}">$${t.tpPrice}</div></div>`:""}
+        ${t.slPrice?`<div><div class="lbl">Support</div><div class="val" style="color:${C.neg}">$${t.slPrice}</div></div>`:""}
       </div>`:""}
     </div>
 
@@ -5009,10 +5009,10 @@ function saveTrade() {
   // Require exit rules for new open trades
   if (status === "Open" && !editingTradeId) {
     const missing = [];
-    if (!tpPrice) missing.push("Profit Target");
-    if (!slPrice) missing.push("Stop Loss");
+    if (!tpPrice) missing.push("Resistance");
+    if (!slPrice) missing.push("Support");
     if (missing.length) {
-      alert("⚠ Exit rules required before entering:\n\n• " + missing.join("\n• ") + "\n\nDefine these before you enter the trade.");
+      alert("⚠ S/R levels required before entering:\n\n• " + missing.join("\n• ") + "\n\nDefine these before you enter the trade.");
       return;
     }
   }
@@ -5075,8 +5075,8 @@ function _doSaveTrade(newTrade) {
     // Preserve existing chartLink unless a new one was selected or cleared
     if (!pendingChartDataUrl && prev.chartLink) newTrade.chartLink = prev.chartLink;
     if (pendingChartDataUrl === "CLEARED") newTrade.chartLink = '';
-    if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Take Profit set at $${newTrade.tpPrice}`);
-    if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Stop Loss set at $${newTrade.slPrice}`);
+    if (newTrade.tpPrice && newTrade.tpPrice !== prev.tpPrice) sendTelegram(`🎯 <b>${ticker}</b> Resistance set at $${newTrade.tpPrice}`);
+    if (newTrade.slPrice && newTrade.slPrice !== prev.slPrice) sendTelegram(`🛑 <b>${ticker}</b> Support set at $${newTrade.slPrice}`);
     if (newTrade.spreadTP && newTrade.spreadTP !== prev.spreadTP) sendTelegram(`🎯 <b>${ticker}</b> Spread TP set at $${newTrade.spreadTP} (${newTrade.spreadTPPct}% profit)`);
     if (newTrade.spreadSL && newTrade.spreadSL !== prev.spreadSL) sendTelegram(`🚨 <b>${ticker}</b> Spread SL set at $${newTrade.spreadSL} (${newTrade.spreadSLPct}%)`);
     STATE.trades = STATE.trades.map(x=>x.id===editingTradeId?newTrade:x);
