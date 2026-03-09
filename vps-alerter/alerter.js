@@ -372,6 +372,23 @@ function checkAlerts(state, quotes) {
       alertCount++;
     }
 
+    // SL early warning (stock price approaching stop)
+    if (t.slPrice && !alertsSent.has(key + 'slWarn')) {
+      const sl = parseFloat(t.slPrice);
+      const buffer = (q.price - sl) / q.price * 100; // % above SL
+      if (buffer > 0 && buffer <= 3) { // within 3% of SL
+        alertsSent.add(key + 'slWarn');
+        const spreadLine = spread ? `\nSpread: $${spread.mid.toFixed(2)}` : '';
+        tg(
+          `⚠️ <b>${t.ticker} — APPROACHING PRICE SL</b>\n\n` +
+          `$${q.price.toFixed(2)} — ${buffer.toFixed(1)}% from SL ($${t.slPrice})\n` +
+          `${t.shortStrike}/${t.longStrike} x${t.contracts} | DTE: ${dl}${spreadLine}\n\n` +
+          `<i>Watch closely. Hard stop at $${t.slPrice}</i>`
+        );
+        alertCount++;
+      }
+    }
+
     // SL hit (stock price — thesis broken)
     if (t.slPrice && q.price <= parseFloat(t.slPrice) && !alertsSent.has(key + 'sl')) {
       alertsSent.add(key + 'sl');
@@ -383,6 +400,28 @@ function checkAlerts(state, quotes) {
         `<i>Close the trade — your thesis is invalidated</i>`
       );
       alertCount++;
+    }
+
+    // ── Spread SL early warning (heads-up before hard stop) ─────────────
+    if (t.spreadSL && spread?.mid != null && !alertsSent.has(key + 'spreadSLwarn')) {
+      const ssl = parseFloat(t.spreadSL);
+      const warnLevel = ssl * 0.85; // 85% of SL = early warning
+      if (spread.mid >= warnLevel && spread.mid < ssl) {
+        alertsSent.add(key + 'spreadSLwarn');
+        const pctAway = ((ssl - spread.mid) / ssl * 100).toFixed(0);
+        const premium = t.premiumCollected || 0;
+        const contracts = t.contracts || 1;
+        const costToClose = spread.mid * 100 * contracts;
+        const pnl = premium - costToClose;
+        tg(
+          `⚠️ <b>${t.ticker} — APPROACHING SPREAD SL</b>\n\n` +
+          `Spread: $${spread.mid.toFixed(2)} — ${pctAway}% from SL ($${t.spreadSL})\n` +
+          `P&L: ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(0)}\n` +
+          `${t.shortStrike}/${t.longStrike} x${contracts} | DTE: ${dl}\n\n` +
+          `<i>Watch closely. Hard stop at $${t.spreadSL}</i>`
+        );
+        alertCount++;
+      }
     }
 
     // ── Spread stop loss (911 — non-negotiable) ─────────────────────────
