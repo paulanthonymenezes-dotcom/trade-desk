@@ -1804,7 +1804,7 @@ function renderWatchlist() {
         <div style="display:flex;align-items:center;gap:10px">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:${hasPos?C.pos:C.text};cursor:pointer" onclick="selectChartTicker('${ticker}')" title="View chart">${ticker}</div>
           ${hasPos?`<span style="font-size:9px;color:${C.pos};border:1px solid ${C.pos}33;padding:1px 5px;border-radius:2px">LIVE</span>`:""}
-          ${earnDays!==null?`<span style="font-size:9px;color:${C.warn};border:1px solid ${C.warn}33;padding:1px 5px;border-radius:2px">EARN ${_shortDate(earn)} (${earnDays}d)</span>`:""}
+          ${earnDays!==null&&earnDays>=0?`<span style="font-size:9px;color:${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec};border:1px solid ${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec}33;padding:1px 5px;border-radius:2px">EARN ${_shortDate(earn)} (${earnDays}d)</span>`:""}
           ${sectorBadge(ticker)}
         </div>
         <div style="display:flex;align-items:center;gap:2px">
@@ -2334,7 +2334,7 @@ function renderPositions() {
             : `<div style="font-size:9px;color:${dteColor(dl)};margin-top:2px;font-family:'IBM Plex Mono',monospace">${dl}d DTE</div>`}
           ${t.pop?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">POP ${t.pop}%</div>`:""}
           ${t.deltaEntry?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">Δ ${t.deltaEntry}</div>`:""}
-          ${(()=>{ const earn=STATE.earnings?.[t.ticker]; if(!earn) return ""; const ed=daysLeft(earn); const ec=ed<=7?C.neg:ed<=21?C.warn:C.textSec; return `<div style="font-size:9px;color:${ec};margin-top:1px">EARN ${_shortDate(earn)} (${ed}d)</div>`; })()}
+          ${(()=>{ const earn=STATE.earnings?.[t.ticker]; if(!earn) return ""; const ed=daysLeft(earn); if(ed<0) return ""; const ec=ed<=7?C.neg:ed<=21?C.warn:C.textSec; return `<div style="font-size:9px;color:${ec};margin-top:1px">EARN ${_shortDate(earn)} (${ed}d)</div>`; })()}
         </div>
       </div>
 
