@@ -956,21 +956,18 @@ async function handleScreenshot(msg) {
       return tg('Could not parse trade details from screenshot. Try /open or /close manually.');
     }
 
-    // Auto-detect close: ticker AND strikes match an existing open trade → assume close
-    // If same ticker but DIFFERENT strikes → it's a new position (not a close)
+    // Auto-detect: ticker AND strikes match an existing open trade
     const caption = (msg.caption || '').toLowerCase();
-    const isAdding = caption.includes('adding') || caption.includes('new') || caption.includes('open');
+    const isAdding = caption.includes('adding') || caption.includes('new') || caption.includes('add');
     const existingMatch = (state.trades || []).find(t =>
       t.status === 'Open' && t.ticker === parsed.ticker &&
       t.shortStrike === parsed.shortStrike && t.longStrike === parsed.longStrike
     );
-    const isClose = parsed.action === 'close' ||
-      (existingMatch && !isAdding);
 
-    console.log(`[SCREENSHOT] ticker=${parsed.ticker} action=${parsed.action} openTickers=[${openTickers}] isClose=${isClose} isAdding=${isAdding} matchedTrade=${existingMatch?.id || 'none'}`);
+    console.log(`[SCREENSHOT] ticker=${parsed.ticker} action=${parsed.action} openTickers=[${openTickers}] isAdding=${isAdding} matchedTrade=${existingMatch?.id || 'none'}`);
 
-    if (isClose && openTickers.includes(parsed.ticker)) {
-      // It's a CLOSE — confirm closing the position
+    // If Claude explicitly says "close" → confirm close
+    if (parsed.action === 'close' && openTickers.includes(parsed.ticker)) {
       const pnlStr = parsed.realizedPnl != null
         ? `\nRealized P&L: ${parsed.realizedPnl >= 0 ? '+' : '-'}$${Math.abs(parsed.realizedPnl).toFixed(0)}`
         : '';
@@ -986,6 +983,30 @@ async function handleScreenshot(msg) {
         `Ticker: <b>${parsed.ticker}</b>\n` +
         `${parsed.shortStrike}/${parsed.longStrike} x${parsed.contracts}${pnlStr}\n\n` +
         `<b>Close this position?</b>\n/yes — confirm (today's date)\n/yes yesterday — use yesterday's date\n/yes 3/5 — specify date\n/no — cancel`
+      );
+      return;
+    }
+
+    // If strikes match an existing trade and action is "open" → add to position
+    if (existingMatch && parsed.action !== 'close') {
+      const newContracts = existingMatch.contracts + parsed.contracts;
+      const newPremium = (existingMatch.premiumCollected || 0) + (parsed.premium || 0);
+
+      pendingTrade = {
+        ...parsed,
+        action: 'addon',
+        existingTradeId: existingMatch.id,
+        existingContracts: existingMatch.contracts,
+        existingPremium: existingMatch.premiumCollected || 0,
+        timestamp: Date.now()
+      };
+
+      tg(
+        `📋 <b>Add to existing position?</b>\n\n` +
+        `Current: <b>${parsed.ticker}</b> ${parsed.shortStrike}/${parsed.longStrike} x${existingMatch.contracts} ($${existingMatch.premiumCollected || 0})\n` +
+        `Adding: x${parsed.contracts} ($${parsed.premium || 0})\n` +
+        `<b>New total: x${newContracts} ($${newPremium})</b>\n\n` +
+        `/yes — add to position\n/no — cancel`
       );
       return;
     }
@@ -1233,6 +1254,49 @@ async function cmdConfirmTrade(confirmed, extraArgs = []) {
     const dateArg = extraArgs.join(' ').trim(); // e.g. "yesterday", "3/5", "March 4"
     if (dateArg) parts.push(dateArg);
     return await cmdClose(parts);
+  }
+
+  if (p.action === 'addon') {
+    // Add contracts to an existing position
+    const state = await loadState();
+    const t = (state.trades || []).find(x => x.id === p.existingTradeId);
+    if (!t) return tg(`Trade #${p.existingTradeId} not found. Use /open to create a new trade.`);
+
+    const oldContracts = t.contracts;
+    const oldPremium = t.premiumCollected || 0;
+    t.contracts += p.contracts;
+    t.premiumCollected = oldPremium + (p.premium || 0);
+
+    // Recalculate spread SL/TP if they were set (new premium changes the per-spread entry)
+    if (t.spreadSLPct) {
+      const pct = parseFloat(t.spreadSLPct);
+      const perSpread = t.premiumCollected / (100 * t.contracts);
+      const width = Math.abs(t.shortStrike - t.longStrike);
+      const maxLossPerSpread = width - perSpread;
+      t.spreadSL = Math.min(perSpread + (maxLossPerSpread * pct / 100), width).toFixed(2);
+    }
+    if (t.spreadTPPct) {
+      const pct = parseFloat(t.spreadTPPct);
+      const perSpread = t.premiumCollected / (100 * t.contracts);
+      t.spreadTP = (perSpread * (1 - pct / 100)).toFixed(2);
+    }
+
+    await saveState(state);
+    lastState = state;
+
+    const perSpread = (t.premiumCollected / (100 * t.contracts)).toFixed(2);
+    const width = Math.abs(t.shortStrike - t.longStrike);
+    const maxLoss = (width * 100 * t.contracts) - t.premiumCollected;
+
+    tg(
+      `✅ <b>POSITION UPDATED — ${p.ticker}</b>\n\n` +
+      `${t.shortStrike}/${t.longStrike} x${oldContracts} → <b>x${t.contracts}</b>\n` +
+      `Premium: $${oldPremium} → <b>$${t.premiumCollected}</b> ($${perSpread}/spread)\n` +
+      `Max loss: $${maxLoss.toFixed(0)}\n` +
+      (t.spreadSL ? `Spread SL: $${t.spreadSL}\n` : '') +
+      (t.spreadTP ? `Spread TP: $${t.spreadTP}\n` : '')
+    );
+    return;
   }
 
   // Open a new position (skip checklist since user already confirmed)
