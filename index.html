@@ -112,6 +112,12 @@ table{width:100%;border-collapse:collapse}
 .chart-tf-btn.active{border-color:var(--positive);color:var(--positive)}
 .chart-tf-btn:hover{border-color:var(--text-secondary)}
 #chart-panel.chart-hidden{display:none!important}
+.watch-dd-item{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;font-family:'IBM Plex Mono',monospace;border-bottom:1px solid var(--border-subtle)}
+.watch-dd-item:last-child{border-bottom:none}
+.watch-dd-item:hover,.watch-dd-item.highlighted{background:var(--bg-hover)}
+.watch-dd-sym{font-size:13px;font-weight:600;color:var(--positive);min-width:60px}
+.watch-dd-name{font-size:11px;color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.watch-dd-exch{font-size:9px;color:var(--text-tertiary);letter-spacing:.05em}
 @media(min-width:1200px){
   #app-layout{display:grid;grid-template-columns:1fr 480px;gap:20px;max-width:1700px;margin:0 auto;padding:0 20px}
   #main{max-width:none;margin:0}
@@ -152,8 +158,9 @@ table{width:100%;border-collapse:collapse}
       </div>
     </div>
 
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <input id="watch-input" placeholder="ADD TICKER..." style="flex:1;font-size:13px" onkeydown="addTicker(event)">
+    <div style="position:relative;margin-bottom:14px">
+      <input id="watch-input" placeholder="Search ticker or company..." style="width:100%;font-size:13px" oninput="onWatchInput()" onkeydown="onWatchKeydown(event)">
+      <div id="watch-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border-visible);border-top:none;border-radius:0 0 4px 4px;z-index:60;max-height:320px;overflow-y:auto"></div>
     </div>
 
     <div id="watchlist-cards" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -4372,14 +4379,94 @@ function switchTab(name, btn) {
 }
 
 // ── Watchlist ─────────────────────────────────────────────────────────────────
-function addTicker(e) {
-  if (e.key!=="Enter") return;
-  const v = document.getElementById("watch-input").value.trim().toUpperCase();
+let _searchTimer = null;
+let _searchResults = [];
+let _searchHighlight = -1;
+
+function addTickerDirect(symbol) {
+  const v = symbol.trim().toUpperCase();
   if (!v) return;
   if (!STATE.watchlist.includes(v)) STATE.watchlist.push(v);
   document.getElementById("watch-input").value = "";
+  hideSearchDropdown();
   save(); renderWatchlist();
 }
+
+function onWatchInput() {
+  const val = document.getElementById("watch-input").value.trim();
+  if (val.length < 1) { hideSearchDropdown(); return; }
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => searchTickers(val), 300);
+}
+
+function onWatchKeydown(e) {
+  const dd = document.getElementById("watch-dropdown");
+  const visible = dd && dd.style.display !== "none";
+  if (e.key === "Escape") { hideSearchDropdown(); return; }
+  if (e.key === "ArrowDown" && visible) {
+    e.preventDefault();
+    _searchHighlight = Math.min(_searchHighlight + 1, _searchResults.length - 1);
+    _highlightItem();
+    return;
+  }
+  if (e.key === "ArrowUp" && visible) {
+    e.preventDefault();
+    _searchHighlight = Math.max(_searchHighlight - 1, 0);
+    _highlightItem();
+    return;
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (visible && _searchHighlight >= 0 && _searchResults[_searchHighlight]) {
+      addTickerDirect(_searchResults[_searchHighlight].symbol);
+    } else {
+      addTickerDirect(document.getElementById("watch-input").value);
+    }
+    return;
+  }
+}
+
+async function searchTickers(query) {
+  try {
+    const r = await fetch("/api/search?q=" + encodeURIComponent(query));
+    if (!r.ok) return;
+    const data = await r.json();
+    _searchResults = data.results || [];
+    _searchHighlight = -1;
+    if (_searchResults.length) showSearchDropdown(); else hideSearchDropdown();
+  } catch(e) { dbg("Ticker search error: " + e.message, "warn"); }
+}
+
+function showSearchDropdown() {
+  const dd = document.getElementById("watch-dropdown");
+  dd.style.display = "block";
+  dd.innerHTML = _searchResults.map((r, i) =>
+    `<div class="watch-dd-item${i===_searchHighlight?" highlighted":""}" onmousedown="addTickerDirect('${r.symbol}')" onmouseenter="_searchHighlight=${i};_highlightItem()">
+      <span class="watch-dd-sym">${r.symbol}</span>
+      <span class="watch-dd-name">${r.name}</span>
+      <span class="watch-dd-exch">${r.exchange}</span>
+    </div>`
+  ).join("");
+}
+
+function hideSearchDropdown() {
+  const dd = document.getElementById("watch-dropdown");
+  if (dd) dd.style.display = "none";
+  _searchResults = [];
+  _searchHighlight = -1;
+}
+
+function _highlightItem() {
+  const items = document.querySelectorAll(".watch-dd-item");
+  items.forEach((el, i) => el.classList.toggle("highlighted", i === _searchHighlight));
+  if (items[_searchHighlight]) items[_searchHighlight].scrollIntoView({ block: "nearest" });
+}
+
+// Close dropdown on outside click
+document.addEventListener("click", e => {
+  if (!e.target.closest("#watch-input") && !e.target.closest("#watch-dropdown")) hideSearchDropdown();
+});
+
 function removeWatcher(ticker) {
   STATE.watchlist = STATE.watchlist.filter(t=>t!==ticker);
   save(); renderWatchlist();
