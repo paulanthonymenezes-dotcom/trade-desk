@@ -956,13 +956,18 @@ async function handleScreenshot(msg) {
       return tg('Could not parse trade details from screenshot. Try /open or /close manually.');
     }
 
-    // Auto-detect close: ticker matches an open position → assume close (unless caption says "adding" or "new")
+    // Auto-detect close: ticker AND strikes match an existing open trade → assume close
+    // If same ticker but DIFFERENT strikes → it's a new position (not a close)
     const caption = (msg.caption || '').toLowerCase();
     const isAdding = caption.includes('adding') || caption.includes('new') || caption.includes('open');
+    const existingMatch = (state.trades || []).find(t =>
+      t.status === 'Open' && t.ticker === parsed.ticker &&
+      t.shortStrike === parsed.shortStrike && t.longStrike === parsed.longStrike
+    );
     const isClose = parsed.action === 'close' ||
-      (openTickers.includes(parsed.ticker) && !isAdding);
+      (existingMatch && !isAdding);
 
-    console.log(`[SCREENSHOT] ticker=${parsed.ticker} action=${parsed.action} openTickers=[${openTickers}] isClose=${isClose} isAdding=${isAdding}`);
+    console.log(`[SCREENSHOT] ticker=${parsed.ticker} action=${parsed.action} openTickers=[${openTickers}] isClose=${isClose} isAdding=${isAdding} matchedTrade=${existingMatch?.id || 'none'}`);
 
     if (isClose && openTickers.includes(parsed.ticker)) {
       // It's a CLOSE — confirm closing the position
