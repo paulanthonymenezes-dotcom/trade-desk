@@ -181,7 +181,61 @@ async function loadState() {
   return rows[0].data;
 }
 
-async function saveState(state) {
+async function saveState(dirtyState) {
+  // ── RACE CONDITION FIX ──
+  // Re-read fresh state from Supabase before saving.
+  // The alerter only modifies: trades, nextId, dailyJournal.
+  // Everything else (watchlist, watchlistNotes, sectors, srLevels, settings,
+  // spreadHistory, ivHistory, etc.) is preserved from the fresh read.
+  // This prevents the alerter from overwriting dashboard data.
+  let merged;
+  try {
+    const fresh = await loadState();
+
+    // Start with fresh state (preserves all dashboard-owned fields)
+    merged = { ...fresh };
+
+    // Merge trades at the individual trade level
+    const dirtyById = {};
+    (dirtyState.trades || []).forEach(t => { if (t.id != null) dirtyById[t.id] = t; });
+    const freshById = {};
+    (fresh.trades || []).forEach(t => { if (t.id != null) freshById[t.id] = t; });
+
+    const mergedTrades = [];
+    const seen = new Set();
+
+    // Start with fresh trades, overlay alerter's modifications
+    for (const ft of (fresh.trades || [])) {
+      if (ft.id != null && dirtyById[ft.id]) {
+        // Trade exists in both: take alerter's version (has the command's changes)
+        mergedTrades.push(dirtyById[ft.id]);
+        seen.add(ft.id);
+      } else {
+        mergedTrades.push(ft);
+        if (ft.id != null) seen.add(ft.id);
+      }
+    }
+
+    // Add new trades created by the alerter
+    for (const dt of (dirtyState.trades || [])) {
+      if (dt.id != null && !seen.has(dt.id)) mergedTrades.push(dt);
+    }
+
+    merged.trades = mergedTrades;
+
+    // Take the higher nextId
+    merged.nextId = Math.max(fresh.nextId || 0, dirtyState.nextId || 0);
+
+    // Merge daily journal (alerter writes morningBrief + reflections)
+    if (dirtyState.dailyJournal) {
+      merged.dailyJournal = { ...(fresh.dailyJournal || {}), ...(dirtyState.dailyJournal || {}) };
+    }
+  } catch (e) {
+    // If fresh read fails, fall back to saving dirtyState as-is
+    console.error('[SAVE-MERGE] Fresh read failed, saving dirtyState:', e.message);
+    merged = dirtyState;
+  }
+
   const r = await fetch(`${SUPABASE_URL}/rest/v1/state?id=eq.main`, {
     method: 'PATCH',
     headers: {
@@ -190,9 +244,10 @@ async function saveState(state) {
       'Content-Type': 'application/json',
       'Prefer': 'return=minimal'
     },
-    body: JSON.stringify({ data: state })
+    body: JSON.stringify({ data: merged })
   });
   if (!r.ok) throw new Error(`Supabase PATCH ${r.status}: ${await r.text()}`);
+  lastState = merged;
 }
 
 // ── MarketData.app Fetch ────────────────────────────────────────────────────

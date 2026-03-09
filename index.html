@@ -994,6 +994,61 @@ const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyanBzd3JpcnN6ZXJocGJvamdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzMzgyOTQsImV4cCI6MjA4NzkxNDI5NH0.aLCb5xP8WbeQuMpLJ3uoGFYebENCWQ-WBbtQZLvtYuA";
 
 async function save() {
+  // ── RACE CONDITION FIX ──
+  // Re-read fresh state from Supabase before saving.
+  // The dashboard is authoritative for most fields, but the alerter may have
+  // added new trades, closed trades, set spread levels, or tracked MAE/MFE.
+  // Merge alerter changes into STATE before writing to prevent data loss.
+  try {
+    const fr = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    if (fr.ok) {
+      const rows = await fr.json();
+      if (rows?.[0]?.data?.trades) {
+        const fresh = rows[0].data;
+
+        // 1. Import new trades the alerter created (not in STATE)
+        const myIds = new Set((STATE.trades || []).map(t => t.id));
+        for (const ft of (fresh.trades || [])) {
+          if (ft.id != null && !myIds.has(ft.id)) {
+            STATE.trades.push(ft);
+          }
+        }
+
+        // 2. For existing trades, import alerter-managed fields from fresh
+        const fMap = {};
+        (fresh.trades || []).forEach(t => { if (t.id != null) fMap[t.id] = t; });
+        for (const mt of (STATE.trades || [])) {
+          const ft = fMap[mt.id];
+          if (!ft) continue;
+          // MAE/MFE: alerter auto-tracks these
+          if (ft._autoMAE) mt._autoMAE = ft._autoMAE;
+          if (ft._autoMFE) mt._autoMFE = ft._autoMFE;
+          // Alerter closed the trade
+          if (ft.status === 'Closed' && mt.status === 'Open') {
+            mt.status = ft.status;
+            mt.exitDate = ft.exitDate;
+            mt.realizedPnl = ft.realizedPnl;
+            if (ft.exitReason) mt.exitReason = ft.exitReason;
+          }
+        }
+
+        // 3. Take the higher nextId
+        STATE.nextId = Math.max(STATE.nextId || 0, fresh.nextId || 0);
+
+        // 4. Merge daily journal (alerter writes morningBrief + reflections)
+        if (fresh.dailyJournal) {
+          STATE.dailyJournal = STATE.dailyJournal || {};
+          for (const [d, e] of Object.entries(fresh.dailyJournal)) {
+            if (!STATE.dailyJournal[d]) STATE.dailyJournal[d] = e;
+            else STATE.dailyJournal[d] = { ...e, ...STATE.dailyJournal[d] };
+          }
+        }
+      }
+    }
+  } catch(e) { /* proceed without merge — better to save than lose in-memory changes */ }
+
   const body = JSON.stringify({ id: "main", data: STATE });
   try {
     // Upsert — inserts if row missing, updates if exists. Reliable vs PATCH-only.
@@ -1407,6 +1462,29 @@ function toggleDebug() {
 async function refreshAll() {
   const btn = document.getElementById("refresh-btn");
   btn.textContent = "…"; btn.disabled = true;
+
+  // ── RACE CONDITION FIX ──
+  // Re-sync state from Supabase every cycle to pick up alerter changes
+  // (new trades, closures, spread levels, MAE/MFE, journal entries).
+  // Preserves runtime caches (quotes, candles, earnings) which aren't persisted.
+  try {
+    const _r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    if (_r.ok) {
+      const _rows = await _r.json();
+      if (_rows?.[0]?.data?.trades) {
+        const _fresh = _rows[0].data;
+        // Preserve runtime caches (not persisted to Supabase)
+        const _q = STATE.quotes, _c = STATE.candles, _e = STATE.earnings;
+        STATE = { ...STATE, ..._fresh };
+        STATE.quotes = _q || {};
+        STATE.candles = _c || {};
+        STATE.earnings = _e || {};
+      }
+    }
+  } catch(e) { dbg("State re-sync failed: " + e.message, "warn"); }
+
   const openTrades = STATE.trades.filter(t=>t.status==="Open");
   const tickers = [...new Set([...STATE.watchlist, ...openTrades.map(t=>t.ticker)])];
   const today = new Date().toISOString().slice(0,10);
