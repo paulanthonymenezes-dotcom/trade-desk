@@ -1755,6 +1755,14 @@ function renderWatchlist() {
       _drafts[tk] = { text: ta.value, bias: sel ? sel.value : 'neutral' };
     }
   });
+  // Also preserve edit-in-progress
+  const _editDraft = {};
+  const editTa = document.getElementById('wn-edit-text');
+  if (editTa && editTa.value.trim() && _editingNote) {
+    _editDraft.text = editTa.value;
+    const editSel = document.getElementById('wn-edit-bias');
+    _editDraft.bias = editSel ? editSel.value : 'neutral';
+  }
   const el = document.getElementById("watchlist-cards");
   el.innerHTML = STATE.watchlist.map(ticker => {
     const q = STATE.quotes[ticker];
@@ -1903,6 +1911,13 @@ function renderWatchlist() {
     if (ta) ta.value = d.text;
     if (sel) sel.value = d.bias;
   });
+  // Restore edit draft
+  if (_editDraft.text && _editingNote) {
+    const eta = document.getElementById('wn-edit-text');
+    const esel = document.getElementById('wn-edit-bias');
+    if (eta) eta.value = _editDraft.text;
+    if (esel) esel.value = _editDraft.bias;
+  }
   requestAnimationFrame(() => _initCardScrollSync());
 }
 
@@ -4534,6 +4549,25 @@ function deleteWatchNote(ticker, idx) {
   if (!STATE.watchlistNotes[ticker].length) delete STATE.watchlistNotes[ticker];
   save(); renderWatchlist();
 }
+let _editingNote = null; // { ticker, idx }
+function startEditNote(ticker, idx) {
+  _editingNote = { ticker, idx };
+  renderWatchlist();
+  const ta = document.getElementById('wn-edit-text');
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+function cancelEditNote() { _editingNote = null; renderWatchlist(); }
+function saveEditNote() {
+  if (!_editingNote) return;
+  const { ticker, idx } = _editingNote;
+  const ta = document.getElementById('wn-edit-text');
+  const sel = document.getElementById('wn-edit-bias');
+  if (!ta || !ta.value.trim()) return;
+  STATE.watchlistNotes[ticker][idx].text = ta.value.trim();
+  STATE.watchlistNotes[ticker][idx].bias = sel ? sel.value : STATE.watchlistNotes[ticker][idx].bias;
+  _editingNote = null;
+  save(); renderWatchlist();
+}
 
 function _biasTag(bias) {
   if (bias === "bullish") return `<span style="color:${C.pos};font-size:10px;font-weight:600">BULLISH</span>`;
@@ -4590,14 +4624,35 @@ function renderWatchNotesSection(ticker) {
   }
 
   // Expanded — all notes + add form
-  const notesList = notes.map((n, i) => `<div style="margin-bottom:10px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-      ${_biasTag(n.bias)}
-      <span style="font-size:9px;color:${C.textSec}">${_shortDate(n.date)}</span>
-      <button onclick="event.stopPropagation();deleteWatchNote('${ticker}',${i})" style="margin-left:auto;background:none;border:none;color:${C.textMut};font-size:14px;cursor:pointer;line-height:1">×</button>
-    </div>
-    <div style="font-size:11px;color:${C.text};line-height:1.6">${escHtml(n.text)}</div>
-  </div>`).join("");
+  const isEditing = _editingNote && _editingNote.ticker === ticker;
+  const notesList = notes.map((n, i) => {
+    if (isEditing && _editingNote.idx === i) {
+      return `<div style="margin-bottom:10px;padding:8px;background:${C.bg};border:1px solid ${C.pos};border-radius:3px">
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+          <select id="wn-edit-bias" style="width:auto;font-size:11px;padding:4px 8px">
+            <option value="bullish"${n.bias==="bullish"?" selected":""}>Bullish</option>
+            <option value="bearish"${n.bias==="bearish"?" selected":""}>Bearish</option>
+            <option value="neutral"${n.bias==="neutral"?" selected":""}>Neutral</option>
+          </select>
+          <span style="font-size:9px;color:${C.textSec}">${_shortDate(n.date)}</span>
+        </div>
+        <textarea id="wn-edit-text" style="height:60px;font-size:11px;resize:vertical">${escHtml(n.text)}</textarea>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button class="btn btn-p" onclick="saveEditNote()" style="padding:5px 14px;font-size:10px">SAVE</button>
+          <button class="btn" onclick="cancelEditNote()" style="padding:5px 14px;font-size:10px;background:none;border:1px solid ${C.border};color:${C.textSec}">CANCEL</button>
+        </div>
+      </div>`;
+    }
+    return `<div style="margin-bottom:10px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        ${_biasTag(n.bias)}
+        <span style="font-size:9px;color:${C.textSec}">${_shortDate(n.date)}</span>
+        <button onclick="event.stopPropagation();startEditNote('${ticker}',${i})" style="margin-left:auto;background:none;border:none;color:${C.textMut};font-size:11px;cursor:pointer;padding:2px 5px" title="Edit">✎</button>
+        <button onclick="event.stopPropagation();deleteWatchNote('${ticker}',${i})" style="background:none;border:none;color:${C.textMut};font-size:14px;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div style="font-size:11px;color:${C.text};line-height:1.6">${escHtml(n.text)}</div>
+    </div>`;
+  }).join("");
 
   return `<div style="border-top:1px solid ${C.border};margin-top:8px;padding-top:8px">
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer" onclick="toggleWatchNotes('${ticker}')">
