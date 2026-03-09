@@ -1746,6 +1746,15 @@ function renderKPIs() {
 function renderWatchlist() {
   // Auto-select first watchlist ticker for chart if none selected
   if (!_tvCurrentTicker && STATE.watchlist.length) selectChartTicker(STATE.watchlist[0]);
+  // Preserve in-progress note text before re-render
+  const _drafts = {};
+  document.querySelectorAll('[id^="wn-text-"]').forEach(ta => {
+    if (ta.value.trim()) {
+      const tk = ta.id.replace('wn-text-','');
+      const sel = document.getElementById('wn-bias-'+tk);
+      _drafts[tk] = { text: ta.value, bias: sel ? sel.value : 'neutral' };
+    }
+  });
   const el = document.getElementById("watchlist-cards");
   el.innerHTML = STATE.watchlist.map(ticker => {
     const q = STATE.quotes[ticker];
@@ -1887,6 +1896,13 @@ function renderWatchlist() {
       ` : `<div style="font-size:11px;color:${C.textSec}">Loading...</div>`}
     </div>`;
   }).join("");
+  // Restore in-progress note drafts after re-render
+  Object.entries(_drafts).forEach(([tk, d]) => {
+    const ta = document.getElementById('wn-text-'+tk);
+    const sel = document.getElementById('wn-bias-'+tk);
+    if (ta) ta.value = d.text;
+    if (sel) sel.value = d.bias;
+  });
   requestAnimationFrame(() => _initCardScrollSync());
 }
 
