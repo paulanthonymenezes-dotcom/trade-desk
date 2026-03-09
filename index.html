@@ -684,6 +684,7 @@ let pollTimer = null;
 let currentDiaryId = null;
 let diarySubTab = "trades";
 let statsSubTab = "overview";
+let statsDateFilter = "all"; // "1w","1m","3m","ytd","all"
 let aiMessages = []; // conversation history for AI chat
 
 // ── TradingView Chart Panel ──────────────────────────────────────────────────
@@ -2775,15 +2776,40 @@ function renderStats() {
     ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
     ["strategies","STRATEGIES"],["discipline","DISCIPLINE"],["ai","AI ANALYSIS"]
   ];
+  const dateFilters = [["1w","1W"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"]];
   document.getElementById("stats-content").innerHTML = `
-    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       ${tabs.map(([k,l])=>`<button class="btn btn-g stats-pill${statsSubTab===k?" active":""}" onclick="setStatsTab('${k}',this)">${l}</button>`).join("")}
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:14px">
+      ${dateFilters.map(([k,l])=>`<button class="btn btn-g stats-date-pill${statsDateFilter===k?" active":""}" style="font-size:9px;padding:3px 8px;min-width:0" onclick="setStatsDateFilter('${k}',this)">${l}</button>`).join("")}
     </div>
     <div id="stats-sub"></div>`;
   renderStatsContent(true);
 }
+function setStatsDateFilter(filter, btn) {
+  statsDateFilter = filter;
+  document.querySelectorAll(".stats-date-pill").forEach(b=>b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  renderStatsContent(true);
+}
+function filterTradesByDate(trades) {
+  if (statsDateFilter === "all") return trades;
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  let cutoff;
+  switch(statsDateFilter) {
+    case "1w": cutoff = new Date(et); cutoff.setDate(cutoff.getDate() - 7); break;
+    case "1m": cutoff = new Date(et); cutoff.setMonth(cutoff.getMonth() - 1); break;
+    case "3m": cutoff = new Date(et); cutoff.setMonth(cutoff.getMonth() - 3); break;
+    case "ytd": cutoff = new Date(et.getFullYear(), 0, 1); break;
+    default: return trades;
+  }
+  const cutStr = cutoff.toISOString().slice(0, 10);
+  return trades.filter(t => (t.exitDate || t.entryDate) >= cutStr);
+}
 function renderStatsContent(force) {
-  const closed = STATE.trades.filter(t=>t.status!=="Open");
+  const closed = filterTradesByDate(STATE.trades.filter(t=>t.status!=="Open"));
   const el = document.getElementById("stats-sub");
   if (!el) return;
   // Skip AI tab re-render if chat is already mounted (preserves scroll + typing state)
