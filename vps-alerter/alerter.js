@@ -385,8 +385,15 @@ function checkAlerts(state, quotes) {
       alertCount++;
     }
 
+    // ── Spread alerts: skip if market hasn't settled or bid/ask too wide ──
+    const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const etMins = etNow.getHours() * 60 + etNow.getMinutes();
+    const marketSettled = etMins >= 575; // 9:35 AM ET — 5 min after open
+    const spreadReliable = spread?.mid != null && spread.high != null && spread.low != null
+      && (spread.high - spread.low) / spread.mid < 0.40; // bid/ask width < 40% of mid
+
     // ── Spread SL early warning (heads-up before hard stop) ─────────────
-    if (t.spreadSL && spread?.mid != null && !alertsSent.has(key + 'spreadSLwarn')) {
+    if (t.spreadSL && marketSettled && spreadReliable && !alertsSent.has(key + 'spreadSLwarn')) {
       const ssl = parseFloat(t.spreadSL);
       const warnLevel = ssl * 0.85; // 85% of SL = early warning
       if (spread.mid >= warnLevel && spread.mid < ssl) {
@@ -409,7 +416,7 @@ function checkAlerts(state, quotes) {
 
     // ── Spread stop loss (911 — non-negotiable) ─────────────────────────
 
-    if (t.spreadSL && spread?.mid != null && spread.mid >= parseFloat(t.spreadSL) && !alertsSent.has(key + 'spreadSL')) {
+    if (t.spreadSL && marketSettled && spreadReliable && spread.mid >= parseFloat(t.spreadSL) && !alertsSent.has(key + 'spreadSL')) {
       alertsSent.add(key + 'spreadSL');
       const premium = t.premiumCollected || 0;
       const contracts = t.contracts || 1;
@@ -425,9 +432,9 @@ function checkAlerts(state, quotes) {
       alertCount++;
     }
 
-    // ── Percentage-based spread alerts ───────────────────────────────────
+    // ── Percentage-based spread alerts (skip if market not settled) ─────
 
-    if (pnlData && t.premiumCollected) {
+    if (pnlData && t.premiumCollected && marketSettled) {
       const premium = t.premiumCollected;
       const lossPct = pnlData.pnl < 0 ? Math.abs(pnlData.pnl) / premium * 100 : 0;
       const width = Math.abs(t.shortStrike - t.longStrike);
