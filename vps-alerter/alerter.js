@@ -1675,7 +1675,9 @@ async function runCheck() {
     const alertCount = checkAlerts(state, quotes);
 
     // Track MAE/MFE for all open trades
-    let maeMfeChanged = false;
+    // Collect changes in a map, then merge into a FRESH state read to avoid
+    // overwriting dashboard edits (watchlist, notes, etc.) with stale data.
+    const maeMfeUpdates = {}; // { tradeId: { mae, mfe } }
     for (const t of openTrades) {
       const q = quotes[t.ticker];
       if (!q) continue;
@@ -1684,18 +1686,28 @@ async function runCheck() {
       const pnl = pnlData.pnl;
       const today = getETDate();
       const src = pnlData.source;
-      if (!t._autoMAE) t._autoMAE = { pnl: null, price: null, date: null, src: null };
-      if (!t._autoMFE) t._autoMFE = { pnl: null, price: null, date: null, src: null };
-      if (t._autoMAE.pnl === null || pnl < t._autoMAE.pnl) {
-        t._autoMAE = { pnl, price: q.price, date: today, src };
-        maeMfeChanged = true;
-      }
-      if (t._autoMFE.pnl === null || pnl > t._autoMFE.pnl) {
-        t._autoMFE = { pnl, price: q.price, date: today, src };
-        maeMfeChanged = true;
+      const mae = t._autoMAE || { pnl: null, price: null, date: null, src: null };
+      const mfe = t._autoMFE || { pnl: null, price: null, date: null, src: null };
+      let changed = false;
+      const newMae = (mae.pnl === null || pnl < mae.pnl) ? { pnl, price: q.price, date: today, src } : mae;
+      const newMfe = (mfe.pnl === null || pnl > mfe.pnl) ? { pnl, price: q.price, date: today, src } : mfe;
+      if (newMae !== mae || newMfe !== mfe) {
+        maeMfeUpdates[t.id] = { mae: newMae, mfe: newMfe };
       }
     }
-    if (maeMfeChanged) await saveState(state);
+    if (Object.keys(maeMfeUpdates).length > 0) {
+      // Re-read fresh state so we don't overwrite dashboard changes
+      const freshState = await loadState();
+      for (const trade of (freshState.trades || [])) {
+        const upd = maeMfeUpdates[trade.id];
+        if (upd) {
+          trade._autoMAE = upd.mae;
+          trade._autoMFE = upd.mfe;
+        }
+      }
+      await saveState(freshState);
+      lastState = freshState;
+    }
 
     // Log
     const prices = tickers.map(t => `${t}:${quotes[t]?.price?.toFixed(2) || '?'}`).join(' ');
