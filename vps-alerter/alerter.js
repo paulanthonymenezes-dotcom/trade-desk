@@ -1864,7 +1864,8 @@ async function runCheck() {
     // Check all alerts
     const alertCount = checkAlerts(state, quotes);
 
-    // Track MAE/MFE for all open trades
+    // Track MAE/MFE for all open trades — ONLY from live spread data.
+    // Intrinsic fallback overstates loss (ignores time value) so we skip it.
     // Collect changes in a map, then merge into a FRESH state read to avoid
     // overwriting dashboard edits (watchlist, notes, etc.) with stale data.
     const maeMfeUpdates = {}; // { tradeId: { mae, mfe } }
@@ -1872,13 +1873,12 @@ async function runCheck() {
       const q = quotes[t.ticker];
       if (!q) continue;
       const pnlData = unrealizedPnl(t, q.price);
-      if (!pnlData) continue;
+      if (!pnlData || pnlData.source !== 'live') continue;  // skip intrinsic
       const pnl = pnlData.pnl;
       const today = getETDate();
       const src = pnlData.source;
       const mae = t._autoMAE || { pnl: null, price: null, date: null, src: null };
       const mfe = t._autoMFE || { pnl: null, price: null, date: null, src: null };
-      let changed = false;
       const newMae = (mae.pnl === null || pnl < mae.pnl) ? { pnl, price: q.price, date: today, src } : mae;
       const newMfe = (mfe.pnl === null || pnl > mfe.pnl) ? { pnl, price: q.price, date: today, src } : mfe;
       if (newMae !== mae || newMfe !== mfe) {
