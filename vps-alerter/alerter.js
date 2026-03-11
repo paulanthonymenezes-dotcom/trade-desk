@@ -223,12 +223,18 @@ async function saveState(dirtyState) {
 
     merged.trades = mergedTrades;
 
-    // Take the higher nextId
-    merged.nextId = Math.max(fresh.nextId || 0, dirtyState.nextId || 0);
+    // Take the higher nextId (also ensure > max trade id)
+    const _maxTid = mergedTrades.reduce((m,t)=>Math.max(m,t.id||0),0);
+    merged.nextId = Math.max(fresh.nextId || 0, dirtyState.nextId || 0, _maxTid+1);
 
-    // Merge daily journal (alerter writes morningBrief + reflections)
-    if (dirtyState.dailyJournal) {
-      merged.dailyJournal = { ...(fresh.dailyJournal || {}), ...(dirtyState.dailyJournal || {}) };
+    // Merge daily journal — deep merge by date, never drop dates
+    const _fj = fresh.dailyJournal || {};
+    const _dj = dirtyState.dailyJournal || {};
+    const _allDates = new Set([...Object.keys(_fj), ...Object.keys(_dj)]);
+    merged.dailyJournal = {};
+    for (const d of _allDates) {
+      if (_fj[d] && _dj[d]) merged.dailyJournal[d] = { ..._fj[d], ..._dj[d] };
+      else merged.dailyJournal[d] = _dj[d] || _fj[d];
     }
   } catch (e) {
     // If fresh read fails, fall back to saving dirtyState as-is
