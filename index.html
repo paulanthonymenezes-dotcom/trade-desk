@@ -1057,8 +1057,9 @@ async function save() {
           }
         }
 
-        // 3. Take the higher nextId
-        STATE.nextId = Math.max(STATE.nextId || 0, fresh.nextId || 0);
+        // 3. Take the higher nextId (also ensure > max trade id)
+        const _maxTid = (STATE.trades||[]).reduce((m,t)=>Math.max(m,t.id||0),0);
+        STATE.nextId = Math.max(STATE.nextId || 0, fresh.nextId || 0, _maxTid+1);
 
         // 4. Merge daily journal (alerter writes morningBrief + reflections)
         if (fresh.dailyJournal) {
@@ -1066,6 +1067,31 @@ async function save() {
           for (const [d, e] of Object.entries(fresh.dailyJournal)) {
             if (!STATE.dailyJournal[d]) STATE.dailyJournal[d] = e;
             else STATE.dailyJournal[d] = { ...e, ...STATE.dailyJournal[d] };
+          }
+        }
+
+        // 5. Merge srLevels (never drop tickers)
+        if (fresh.srLevels) {
+          STATE.srLevels = STATE.srLevels || {};
+          for (const [tk, sr] of Object.entries(fresh.srLevels)) {
+            if (!STATE.srLevels[tk]) STATE.srLevels[tk] = sr;
+            else STATE.srLevels[tk] = { ...sr, ...STATE.srLevels[tk] };
+          }
+        }
+
+        // 6. Merge watchlistNotes (never drop tickers)
+        if (fresh.watchlistNotes) {
+          STATE.watchlistNotes = STATE.watchlistNotes || {};
+          for (const [tk, n] of Object.entries(fresh.watchlistNotes)) {
+            if (!STATE.watchlistNotes[tk]) STATE.watchlistNotes[tk] = n;
+          }
+        }
+
+        // 7. Merge watchlist (never shrink)
+        if (fresh.watchlist) {
+          STATE.watchlist = STATE.watchlist || [];
+          for (const w of fresh.watchlist) {
+            if (!STATE.watchlist.includes(w)) STATE.watchlist.push(w);
           }
         }
       }
@@ -1500,16 +1526,45 @@ async function refreshAll() {
         const _fresh = _rows[0].data;
         // Preserve runtime caches (not persisted to Supabase)
         const _q = STATE.quotes, _c = STATE.candles, _e = STATE.earnings;
-        // APPEND-ONLY MERGE: never lose trades. Take union of STATE + fresh.
+        // Snapshot all accumulable fields BEFORE overwrite
         const _oldTrades = STATE.trades || [];
+        const _oldJournal = STATE.dailyJournal ? {...STATE.dailyJournal} : {};
+        const _oldSR = STATE.srLevels ? {...STATE.srLevels} : {};
+        const _oldNotes = STATE.watchlistNotes ? {...STATE.watchlistNotes} : {};
+        const _oldWL = STATE.watchlist ? [...STATE.watchlist] : [];
         STATE = { ...STATE, ..._fresh };
-        // Ensure every trade from the old STATE is present (never shrink)
+        // ── APPEND-ONLY: never lose data from any field ──
+        // Trades: union of old + fresh
         const _freshIds = new Set((_fresh.trades||[]).map(t=>t.id));
         for (const _ot of _oldTrades) {
-          if (_ot.id != null && !_freshIds.has(_ot.id)) {
-            STATE.trades.push(_ot);
-          }
+          if (_ot.id != null && !_freshIds.has(_ot.id)) STATE.trades.push(_ot);
         }
+        // dailyJournal: merge by date (never drop dates)
+        STATE.dailyJournal = STATE.dailyJournal || {};
+        for (const [_d, _entry] of Object.entries(_oldJournal)) {
+          if (!STATE.dailyJournal[_d]) STATE.dailyJournal[_d] = _entry;
+          else STATE.dailyJournal[_d] = { ..._entry, ...STATE.dailyJournal[_d] };
+        }
+        // srLevels: merge by ticker (never drop tickers)
+        STATE.srLevels = STATE.srLevels || {};
+        for (const [_t, _sr] of Object.entries(_oldSR)) {
+          if (!STATE.srLevels[_t]) STATE.srLevels[_t] = _sr;
+          else STATE.srLevels[_t] = { ..._sr, ...STATE.srLevels[_t] };
+        }
+        // watchlistNotes: merge by ticker (never drop tickers)
+        STATE.watchlistNotes = STATE.watchlistNotes || {};
+        for (const [_t, _n] of Object.entries(_oldNotes)) {
+          if (!STATE.watchlistNotes[_t]) STATE.watchlistNotes[_t] = _n;
+        }
+        // watchlist: union (never shrink)
+        STATE.watchlist = STATE.watchlist || [];
+        for (const _w of _oldWL) {
+          if (!STATE.watchlist.includes(_w)) STATE.watchlist.push(_w);
+        }
+        // nextId: always take the max
+        const _maxTradeId = (STATE.trades||[]).reduce((m,t)=>Math.max(m,t.id||0),0);
+        STATE.nextId = Math.max(STATE.nextId||0, _fresh.nextId||0, _maxTradeId+1);
+        // Restore runtime caches
         STATE.quotes = _q || {};
         STATE.candles = _c || {};
         STATE.earnings = _e || {};
