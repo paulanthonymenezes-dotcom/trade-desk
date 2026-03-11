@@ -2894,6 +2894,16 @@ function renderDiaryJournalView() {
   }
   html += `</div>`;
 
+  // Add entry for a past date
+  html += `<div class="card" style="padding:14px;margin-bottom:12px;border:1px solid ${C.border}">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em">ADD PAST ENTRY</div>
+      <input type="date" id="journal-past-date" max="${today}" style="background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:3px;padding:4px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px">
+    </div>
+    <textarea id="journal-past-input" placeholder="What happened that day?" style="width:100%;min-height:80px;background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:6px;padding:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
+    <button class="btn btn-g" onclick="savePastJournalEntry()" style="margin-top:8px;font-size:10px">SAVE</button>
+  </div>`;
+
   // Morning brief expandable (if exists for today)
   if (todayEntry.morningBrief) {
     html += `<details class="card" style="padding:14px;margin-bottom:12px;border:1px solid ${C.border}">
@@ -2934,6 +2944,20 @@ function saveJournalEntry(date) {
   if (!STATE.dailyJournal) STATE.dailyJournal = {};
   if (!STATE.dailyJournal[date]) STATE.dailyJournal[date] = {};
   STATE.dailyJournal[date].reflection = el.value.trim();
+  STATE.dailyJournal[date].timestamp = new Date().toISOString();
+  save();
+  renderDiaryJournalView();
+}
+function savePastJournalEntry() {
+  const dateEl = document.getElementById("journal-past-date");
+  const textEl = document.getElementById("journal-past-input");
+  if (!dateEl || !dateEl.value || !textEl || !textEl.value.trim()) return;
+  const date = dateEl.value;
+  if (!STATE.dailyJournal) STATE.dailyJournal = {};
+  if (!STATE.dailyJournal[date]) STATE.dailyJournal[date] = {};
+  // Append if entry already exists
+  const existing = STATE.dailyJournal[date].reflection || '';
+  STATE.dailyJournal[date].reflection = existing ? existing + '\n\n' + textEl.value.trim() : textEl.value.trim();
   STATE.dailyJournal[date].timestamp = new Date().toISOString();
   save();
   renderDiaryJournalView();
