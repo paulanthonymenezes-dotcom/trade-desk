@@ -619,8 +619,8 @@ async function pollTelegram() {
 
       if (text.startsWith('/')) {
         await handleCommand(text);
-      } else if (pendingJournal && (Date.now() - pendingJournal.timestamp < 7200000)) {
-        // Free-text reply within 2 hours of EOD prompt → save as journal entry
+      } else if (pendingJournal && (Date.now() - pendingJournal.timestamp < 21600000)) {
+        // Free-text reply within 6 hours of EOD prompt → save as journal entry
         try {
           const state = await loadState();
           if (!state.dailyJournal) state.dailyJournal = {};
