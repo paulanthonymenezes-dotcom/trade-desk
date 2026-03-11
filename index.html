@@ -1028,13 +1028,16 @@ async function save() {
       if (rows?.[0]?.data?.trades) {
         const fresh = rows[0].data;
 
-        // 1. Import new trades the alerter created (not in STATE)
+        // 1. APPEND-ONLY: Import ALL trades from fresh not in STATE (never lose trades)
         const myIds = new Set((STATE.trades || []).map(t => t.id));
         for (const ft of (fresh.trades || [])) {
           if (ft.id != null && !myIds.has(ft.id)) {
             STATE.trades.push(ft);
           }
         }
+        // Also import any STATE trades not in fresh (append-only both ways)
+        const freshIds = new Set((fresh.trades || []).map(t => t.id));
+        // (STATE trades not in fresh are kept since we write STATE)
 
         // 2. For existing trades, import alerter-managed fields from fresh
         const fMap = {};
@@ -1497,7 +1500,16 @@ async function refreshAll() {
         const _fresh = _rows[0].data;
         // Preserve runtime caches (not persisted to Supabase)
         const _q = STATE.quotes, _c = STATE.candles, _e = STATE.earnings;
+        // APPEND-ONLY MERGE: never lose trades. Take union of STATE + fresh.
+        const _oldTrades = STATE.trades || [];
         STATE = { ...STATE, ..._fresh };
+        // Ensure every trade from the old STATE is present (never shrink)
+        const _freshIds = new Set((_fresh.trades||[]).map(t=>t.id));
+        for (const _ot of _oldTrades) {
+          if (_ot.id != null && !_freshIds.has(_ot.id)) {
+            STATE.trades.push(_ot);
+          }
+        }
         STATE.quotes = _q || {};
         STATE.candles = _c || {};
         STATE.earnings = _e || {};
