@@ -3318,11 +3318,17 @@ function renderMorningChecklist() {
       html += `</div>`;
     }
 
-    // 4. CATALYSTS
+    // 4. MACRO & CATALYSTS
     html += `<div class="card" style="${sectionStyle}">
-      <div style="${hdrStyle}">🗓 CATALYSTS & NEWS</div>
-      <div style="${labelStyle}">EARNINGS, FED, MACRO, NEWS THAT MATTERS TODAY</div>
-      <textarea id="cl-catalysts" placeholder="Any earnings for your tickers? Fed speakers? CPI? News that changes your thesis?" style="${inputStyle}min-height:60px;resize:vertical">${escHtml(cl.catalysts||'')}</textarea>
+      <div style="${hdrStyle}">🗓 MACRO & CATALYSTS</div>
+      <div style="margin-bottom:10px">
+        <div style="${labelStyle}">MACRO EVENTS TODAY (CPI, PPI, NFP, rate decisions, BLS, Japan/EU data...)</div>
+        <textarea id="cl-macro" placeholder="8:30 AM — CPI MoM (exp 0.3%)&#10;10:00 AM — U of M Consumer Sentiment&#10;BOJ rate decision overnight" style="${inputStyle}min-height:50px;resize:vertical">${escHtml(cl.macro||'')}</textarea>
+      </div>
+      <div>
+        <div style="${labelStyle}">EARNINGS & OTHER CATALYSTS</div>
+        <textarea id="cl-catalysts" placeholder="Any earnings for your tickers this week? Fed speakers? News that changes your thesis?" style="${inputStyle}min-height:50px;resize:vertical">${escHtml(cl.catalysts||'')}</textarea>
+      </div>
     </div>`;
 
     // 5. SESSION PLAN
@@ -3414,7 +3420,8 @@ function renderChecklistReadOnly(cl, open, date, compact) {
     h += `<div style="margin-bottom:10px"></div>`;
   }
 
-  // Plan & catalysts
+  // Macro, catalysts & plan
+  if (cl.macro) h += `<div style="${lbl}">MACRO EVENTS</div><div style="color:${C.text};${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.macro)}</div>`;
   if (cl.catalysts) h += `<div style="${lbl}">CATALYSTS</div><div style="color:${C.text};${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.catalysts)}</div>`;
   if (cl.plan) h += `<div style="${lbl}">SESSION PLAN</div><div style="color:${C.text};${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.plan)}</div>`;
 
@@ -3453,6 +3460,7 @@ function saveMorningChecklist(date) {
     profitTarget: document.getElementById('cl-profitTarget')?.value?.trim() || '',
     greatDay: document.getElementById('cl-greatDay')?.value?.trim() || '',
     perPosition,
+    macro: document.getElementById('cl-macro')?.value?.trim() || '',
     catalysts: document.getElementById('cl-catalysts')?.value?.trim() || '',
     plan: document.getElementById('cl-plan')?.value?.trim() || '',
     willClose: document.getElementById('cl-willClose')?.value?.trim() || '',

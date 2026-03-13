@@ -2263,6 +2263,7 @@ async function sendChecklistNudge() {
       msg += `📋 Open your dashboard → Diary → ☀ Pre-Market\n`;
       msg += `Fill in your checklist before the bell.\n\n`;
       msg += `• Energy & mood\n`;
+      msg += `• Macro events today (CPI, PPI, NFP...)\n`;
       msg += `• Max loss for today\n`;
       msg += `• Is each thesis still valid?\n`;
       msg += `• What invalidates each position?\n`;
