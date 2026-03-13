@@ -2238,6 +2238,44 @@ function pairSpreads(optionTrades) {
   return spreads.sort((a, b) => a.entryDate.localeCompare(b.entryDate));
 }
 
+// ── Pre-Market Checklist Nudge ────────────────────────────────────────────
+
+async function sendChecklistNudge() {
+  try {
+    const state = await loadState();
+    const trades = (state.trades || []).filter(t => t.status === 'Open');
+    const today = getETDate();
+    const checklist = state.dailyJournal?.[today]?.checklist;
+
+    if (checklist?.savedAt) {
+      // Already filled out — send a brief confirmation
+      await tg(
+        `✅ <b>Pre-market checklist already locked</b>\n` +
+        `Energy: ${checklist.energy}/5 · ${checklist.mood}\n` +
+        `Max loss: ${checklist.maxLoss || '—'} · Target: ${checklist.profitTarget || '—'}\n\n` +
+        `<i>Stick to the plan. 🎯</i>`
+      );
+    } else {
+      // Not filled out — nudge them
+      let msg = `☀️ <b>PRE-MARKET CHECKLIST</b>\n\n`;
+      msg += `${trades.length} open position${trades.length !== 1 ? 's' : ''}. `;
+      msg += `Before you trade today:\n\n`;
+      msg += `📋 Open your dashboard → Diary → ☀ Pre-Market\n`;
+      msg += `Fill in your checklist before the bell.\n\n`;
+      msg += `• Energy & mood\n`;
+      msg += `• Max loss for today\n`;
+      msg += `• Is each thesis still valid?\n`;
+      msg += `• What invalidates each position?\n`;
+      msg += `• Session plan\n\n`;
+      msg += `<i>No plan = no trading. Do this first.</i>`;
+      await tg(msg);
+    }
+    console.log(`[${ts()}] Checklist nudge sent`);
+  } catch (e) {
+    console.error(`[${ts()}] Checklist nudge error:`, e.message);
+  }
+}
+
 // ── Daily Brief + Post-Session Journal ────────────────────────────────────
 
 async function sendDailyBrief() {
@@ -2370,6 +2408,9 @@ cron.schedule('0 10-15 * * 1-5', () => {
 
 // Market close summary at 4:05 PM ET
 cron.schedule('5 16 * * 1-5', sendMarketClose, { timezone: 'America/New_York' });
+
+// Pre-Market Checklist Nudge at 6:00 AM ET
+cron.schedule('0 6 * * 1-5', sendChecklistNudge, { timezone: 'America/New_York' });
 
 // Daily Brief at 7:00 AM ET
 cron.schedule('0 7 * * 1-5', sendDailyBrief, { timezone: 'America/New_York' });
