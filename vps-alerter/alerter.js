@@ -404,6 +404,70 @@ function unrealizedPnl(trade, stockPrice) {
   return { pnl: premium - (itm * 100 * contracts), source: 'intrinsic', spreadMid: itm };
 }
 
+// ── Pre-seed alertsSent on startup to avoid duplicate alerts after restart ──
+async function preSeedAlerts() {
+  try {
+    const state = await loadState();
+    const trades = (state.trades || []).filter(t => t.status === 'Open');
+    const tickers = [...new Set(trades.map(t => t.ticker))];
+
+    // Fetch quotes
+    const quotes = {};
+    for (const ticker of tickers) {
+      try {
+        const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (r.ok) {
+          const d = await r.json();
+          const meta = d?.chart?.result?.[0]?.meta;
+          if (meta?.regularMarketPrice) quotes[ticker] = { price: meta.regularMarketPrice };
+        }
+      } catch(e) {}
+    }
+
+    for (const t of trades) {
+      const q = quotes[t.ticker];
+      if (!q) continue;
+      const key = t.id + '-';
+      const prox = ((q.price - t.shortStrike) / q.price) * 100;
+      const dl = daysLeft(t.expiry);
+
+      // Pre-seed stock price alerts
+      if (prox < (state.alertStrikeProx || 5) && prox >= 0) alertsSent.add(key + 'prox');
+      if (q.price < t.shortStrike) alertsSent.add(key + 'breach');
+      if (t.tpPrice && q.price >= parseFloat(t.tpPrice)) alertsSent.add(key + 'tp');
+      if (t.slPrice && q.price <= parseFloat(t.slPrice)) alertsSent.add(key + 'sl');
+
+      // Pre-seed spread-based alerts using _liveSpread from state
+      const spread = t._liveSpread;
+      if (spread?.mid != null && t.spreadSL) {
+        const ssl = parseFloat(t.spreadSL);
+        const warnLevel = ssl * 0.85;
+        if (spread.mid >= warnLevel && spread.mid < ssl) alertsSent.add(key + 'spreadSLwarn');
+        if (spread.mid >= ssl) alertsSent.add(key + 'spreadSL');
+      }
+
+      // Pre-seed pnl-based alerts using intrinsic
+      const premium = t.premiumCollected || 0;
+      const contracts = t.contracts || 1;
+      if (premium > 0 && spread?.mid != null) {
+        const pnl = premium - (spread.mid * 100 * contracts);
+        const lossPct = pnl < 0 ? Math.abs(pnl) / premium * 100 : 0;
+        if (lossPct >= 75) alertsSent.add(key + 'loss75');
+        if (lossPct >= 100) alertsSent.add(key + 'loss100');
+        if (lossPct >= 150) alertsSent.add(key + 'loss150');
+        const spreadAtEntry = premium / (100 * contracts);
+        if (spread.mid <= spreadAtEntry * 0.5 && spread.mid > 0) alertsSent.add(key + 'spread50');
+      }
+
+      // Pre-seed expiry warning
+      if (dl === 1) alertsSent.add(key + 'exp');
+    }
+    console.log(`[PRE-SEED] Marked ${alertsSent.size} existing alert conditions to prevent re-fire`);
+  } catch(e) {
+    console.error('[PRE-SEED] Failed:', e.message);
+  }
+}
+
 // ── Alert Checking ──────────────────────────────────────────────────────────
 function checkAlerts(state, quotes) {
   const trades = (state.trades || []).filter(t => t.status === 'Open');
@@ -2328,10 +2392,10 @@ console.log('══════════════════════�
 // Start Telegram command listener (runs 24/7)
 telegramLoop();
 
-// Run initial check
+// Run initial check — pre-seed alerts first to avoid duplicate alerts after restart
 if (isMarketHours()) {
   console.log('Market is open — running initial check...');
-  runCheck();
+  preSeedAlerts().then(() => runCheck());
 } else {
   console.log('Market closed — waiting for next market hours...');
   loadState()

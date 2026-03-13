@@ -18,7 +18,7 @@
   --text-primary: #a8c4d8;
   --text-secondary: #6a8fa8;
   --text-tertiary: #4d7a9a;
-  --text-muted: #2d4a60;
+  --text-muted: #c0d0dd;
   --positive: #00e5aa;
   --negative: #f43f5e;
   --warning: #f59e0b;
@@ -27,6 +27,9 @@
   --negative-hover: rgba(244,63,94,.4);
   --warning-dim: rgba(245,158,11,.13);
   --warning-faint: rgba(245,158,11,.07);
+  --accent: #7c93f0;
+  --accent-dim: rgba(124,147,240,.2);
+  --bg-surface: #0d1825;
   --overlay-bg: rgba(0,0,0,.9);
 }
 [data-theme="koyfin"] {
@@ -38,7 +41,7 @@
   --text-primary: #ffffff;
   --text-secondary: #bbbbbb;
   --text-tertiary: #888888;
-  --text-muted: #555555;
+  --text-muted: #dddddd;
   --positive: #00ff00;
   --negative: #ff0000;
   --warning: #ffffff;
@@ -47,6 +50,9 @@
   --negative-hover: rgba(255,0,0,.4);
   --warning-dim: rgba(255,255,255,.1);
   --warning-faint: rgba(255,255,255,.05);
+  --accent: #8ca0ff;
+  --accent-dim: rgba(140,160,255,.2);
+  --bg-surface: #0a0a0a;
   --overlay-bg: rgba(0,0,0,.95);
 }
 [data-theme="koyfin"] .card{border-color:var(--border-visible)}
@@ -141,8 +147,17 @@ table{width:100%;border-collapse:collapse}
 @media(min-width:1700px){#app-layout{grid-template-columns:1fr 680px}}
 #chart-tv-open{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-secondary);text-decoration:none;display:flex;align-items:center;gap:4px}
 #chart-tv-open:hover{color:var(--positive)}
+/* ── Macro Data Charts ───────────────────────────────────────────────────── */
+.macro-zoom-btn.active{background:var(--accent)!important;color:#000!important;border-color:var(--accent)!important}
+.macro-cat-tab{font-size:8px;padding:3px 8px;border-radius:3px;border:1px solid var(--border-visible);background:transparent;color:var(--text-secondary);cursor:pointer;font-family:'IBM Plex Mono',monospace;letter-spacing:.05em;transition:all .15s}
+.macro-cat-tab:hover{border-color:var(--accent);color:var(--accent)}
+.macro-cat-tab.active{background:var(--accent);color:#000;border-color:var(--accent)}
+#macro-compare-checks label{font-size:9px;color:var(--text-secondary);cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:3px 6px;border:1px solid var(--border-subtle);border-radius:3px;transition:all .15s}
+#macro-compare-checks label:hover{border-color:var(--accent);color:var(--accent)}
+#macro-compare-checks input[type="checkbox"]{width:12px;height:12px;accent-color:var(--accent)}
 </style>
 <script src="https://s3.tradingview.com/tv.js" async></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -151,7 +166,145 @@ table{width:100%;border-collapse:collapse}
   <div id="ytd-display" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-secondary);margin-right:10px"></div>
   <button class="btn btn-g" onclick="refreshAll()" id="refresh-btn" style="padding:5px 10px;font-size:10px;margin-right:6px">↻</button>
   <button class="btn btn-g" onclick="toggleDebug()" id="debug-btn" style="padding:5px 8px;font-size:10px;margin-right:6px">🔍</button>
+  <button class="btn btn-g" onclick="_toggleCBPanel()" id="cb-panel-btn" style="padding:5px 10px;font-size:10px;margin-right:6px;letter-spacing:.05em">🏦 RATES</button>
   <button onclick="openSettings()" style="background:none;border:none;color:var(--text-secondary);font-size:18px">⚙</button>
+</div>
+
+<!-- Central Bank / Macro Rates Slide-out Panel -->
+<div id="cb-panel" style="display:none;position:fixed;top:48px;right:0;width:620px;height:calc(100vh - 48px);background:var(--bg-card);border-left:1px solid var(--border-visible);z-index:45;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,.4)">
+  <div style="padding:10px 16px;border-bottom:1px solid var(--border-visible);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg-card);z-index:1">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:.12em;font-weight:600">MACRO · RATES</div>
+      <div style="display:flex;gap:2px">
+        <button class="btn btn-g" id="cb-tab-dash" onclick="_switchRatesTab('dashboard')" style="font-size:9px;padding:3px 8px;letter-spacing:.05em;background:var(--accent);color:#000">DASHBOARD</button>
+        <button class="btn btn-g" id="cb-tab-cal" onclick="_switchRatesTab('calendar')" style="font-size:9px;padding:3px 8px;letter-spacing:.05em">CALENDAR</button>
+        <button class="btn btn-g" id="cb-tab-macro" onclick="_switchRatesTab('macrodata')" style="font-size:9px;padding:3px 8px;letter-spacing:.05em">MACRO DATA</button>
+      </div>
+    </div>
+    <button class="btn btn-g" style="font-size:14px;padding:4px 10px;line-height:1" onclick="_toggleCBPanel()">✕</button>
+  </div>
+
+  <!-- Dashboard Tab: Macro Quick-View -->
+  <div id="cb-tab-dashboard" style="padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:10px">
+    <!-- Quick Charts Grid -->
+    <div style="font-size:9px;color:var(--text-muted);letter-spacing:.1em;margin-bottom:6px">QUICK CHARTS <span style="color:var(--text-muted);font-weight:400">— click to open full chart</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
+      <div class="macro-mini-card" onclick="_macroOpenChart('NASDAQ:TLT')" style="cursor:pointer;padding:10px 8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;text-align:center;transition:border-color .15s">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">US 20Y+ BONDS</div>
+        <div style="font-size:12px;color:var(--accent);font-weight:700">TLT</div>
+      </div>
+      <div class="macro-mini-card" onclick="_macroOpenChart('NASDAQ:IEF')" style="cursor:pointer;padding:10px 8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;text-align:center;transition:border-color .15s">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">US 7-10Y</div>
+        <div style="font-size:12px;color:var(--accent);font-weight:700">IEF</div>
+      </div>
+      <div class="macro-mini-card" onclick="_macroOpenChart('NASDAQ:SHY')" style="cursor:pointer;padding:10px 8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;text-align:center;transition:border-color .15s">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">US 1-3Y</div>
+        <div style="font-size:12px;color:var(--accent);font-weight:700">SHY</div>
+      </div>
+      <div class="macro-mini-card" onclick="_macroOpenChart('AMEX:GLD')" style="cursor:pointer;padding:10px 8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;text-align:center;transition:border-color .15s">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">GOLD</div>
+        <div style="font-size:12px;color:var(--warning);font-weight:700">GLD</div>
+      </div>
+      <div class="macro-mini-card" onclick="_macroOpenChart('AMEX:USO')" style="cursor:pointer;padding:10px 8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;text-align:center;transition:border-color .15s">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">WTI OIL</div>
+        <div style="font-size:12px;color:var(--text-primary);font-weight:700">USO</div>
+      </div>
+      <div class="macro-mini-card" onclick="_macroOpenChart('AMEX:UUP')" style="cursor:pointer;padding:10px 8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;text-align:center;transition:border-color .15s">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">USD INDEX</div>
+        <div style="font-size:12px;color:var(--text-primary);font-weight:700">UUP</div>
+      </div>
+    </div>
+
+    <!-- Asset Category Sections -->
+    <div style="font-size:9px;color:var(--text-muted);letter-spacing:.1em;margin-bottom:6px">BROWSE BY CATEGORY</div>
+    <div style="display:flex;gap:3px;margin-bottom:8px">
+      <button class="btn btn-g macro-cat-btn" data-cat="yields" onclick="_showMacroCat('yields')" style="font-size:8px;padding:3px 8px">Yields</button>
+      <button class="btn btn-g macro-cat-btn" data-cat="fx" onclick="_showMacroCat('fx')" style="font-size:8px;padding:3px 8px">FX</button>
+      <button class="btn btn-g macro-cat-btn" data-cat="equities" onclick="_showMacroCat('equities')" style="font-size:8px;padding:3px 8px">Equities</button>
+      <button class="btn btn-g macro-cat-btn" data-cat="commodities" onclick="_showMacroCat('commodities')" style="font-size:8px;padding:3px 8px">Commodities</button>
+    </div>
+    <div id="macro-overlay-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;min-height:22px"></div>
+
+    <!-- Upcoming CB Meetings Summary -->
+    <div id="macro-upcoming-summary" style="margin-bottom:14px"></div>
+  </div>
+
+  <!-- Calendar Tab -->
+  <div id="cb-tab-calendar" style="display:none;padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:10px">
+    <div id="cb-panel-content">
+      <div style="color:var(--text-muted)">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Macro Data Tab: macrotrends-style charts -->
+  <div id="cb-tab-macrodata" style="display:none;padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:10px">
+
+    <!-- Country + Indicator Selectors -->
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1">
+        <label style="font-size:8px;color:var(--text-muted);letter-spacing:.1em;display:block;margin-bottom:3px">COUNTRY</label>
+        <select id="macro-country-sel" onchange="_onMacroCountryChange()" style="width:100%;font-size:10px;padding:5px 6px;background:var(--bg-surface);border:1px solid var(--border-visible);color:var(--text-primary);border-radius:3px;font-family:'IBM Plex Mono',monospace">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+      <div style="flex:1.5">
+        <label style="font-size:8px;color:var(--text-muted);letter-spacing:.1em;display:block;margin-bottom:3px">INDICATOR</label>
+        <select id="macro-indicator-sel" onchange="_onMacroIndicatorChange()" style="width:100%;font-size:10px;padding:5px 6px;background:var(--bg-surface);border:1px solid var(--border-visible);color:var(--text-primary);border-radius:3px;font-family:'IBM Plex Mono',monospace">
+          <option value="">Select country first</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Category filter tabs -->
+    <div id="macro-cat-tabs" style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:10px"></div>
+
+    <!-- Chart Title + Units -->
+    <div id="macro-chart-header" style="display:none;margin-bottom:6px">
+      <div id="macro-chart-title" style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:2px"></div>
+      <div id="macro-chart-subtitle" style="font-size:9px;color:var(--text-muted)"></div>
+    </div>
+
+    <!-- Zoom / Range controls -->
+    <div id="macro-zoom-bar" style="display:none;display:flex;gap:3px;margin-bottom:8px">
+      <button class="btn btn-g macro-zoom-btn" data-range="10" onclick="_macroZoom(10)" style="font-size:8px;padding:3px 7px">10Y</button>
+      <button class="btn btn-g macro-zoom-btn" data-range="20" onclick="_macroZoom(20)" style="font-size:8px;padding:3px 7px">20Y</button>
+      <button class="btn btn-g macro-zoom-btn" data-range="30" onclick="_macroZoom(30)" style="font-size:8px;padding:3px 7px">30Y</button>
+      <button class="btn btn-g macro-zoom-btn" data-range="40" onclick="_macroZoom(40)" style="font-size:8px;padding:3px 7px">40Y</button>
+      <button class="btn btn-g macro-zoom-btn active" data-range="0" onclick="_macroZoom(0)" style="font-size:8px;padding:3px 7px;background:var(--accent);color:#000">ALL</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-g" id="macro-chart-mode-btn" onclick="_toggleMacroChartMode()" style="font-size:8px;padding:3px 7px" title="Toggle bar/line chart">📊 BAR</button>
+      <button class="btn btn-g" id="macro-compare-btn" onclick="_openMacroCompare()" style="font-size:8px;padding:3px 7px" title="Compare countries">🌍 COMPARE</button>
+    </div>
+
+    <!-- The actual chart canvas -->
+    <div style="position:relative;width:100%;height:320px;margin-bottom:10px">
+      <canvas id="macro-chart-canvas"></canvas>
+    </div>
+
+    <!-- Data summary stats -->
+    <div id="macro-chart-stats" style="display:none;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;padding:8px;text-align:center">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">LATEST</div>
+        <div id="macro-stat-latest" style="font-size:13px;font-weight:700;color:var(--accent)">—</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;padding:8px;text-align:center">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">HIGH</div>
+        <div id="macro-stat-high" style="font-size:13px;font-weight:700;color:var(--positive)">—</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;padding:8px;text-align:center">
+        <div style="font-size:8px;color:var(--text-muted);margin-bottom:2px">LOW</div>
+        <div id="macro-stat-low" style="font-size:13px;font-weight:700;color:var(--negative)">—</div>
+      </div>
+    </div>
+
+    <!-- Compare overlay (hidden by default) -->
+    <div id="macro-compare-panel" style="display:none;margin-bottom:10px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:4px;padding:10px">
+      <div style="font-size:9px;color:var(--text-muted);letter-spacing:.1em;margin-bottom:6px">COMPARE COUNTRIES</div>
+      <div id="macro-compare-checks" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>
+      <button class="btn btn-p" onclick="_runMacroCompare()" style="font-size:9px;padding:4px 12px">COMPARE</button>
+      <button class="btn btn-g" onclick="document.getElementById('macro-compare-panel').style.display='none'" style="font-size:9px;padding:4px 12px;margin-left:6px">CANCEL</button>
+    </div>
+  </div>
 </div>
 
 <nav id="left-sidebar">
@@ -161,6 +314,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">DIARY</span></button>
   <button class="side-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">STATS</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">FORE</span></button>
+  <button class="side-btn" onclick="switchTab('scanner',this)"><span class="nav-icon">◇</span><span class="side-label">SCAN</span></button>
 </nav>
 
 <div id="app-layout">
@@ -238,6 +392,11 @@ table{width:100%;border-collapse:collapse}
     <div id="forecast-content"></div>
   </div>
 
+  <!-- EDGE SCANNER TAB -->
+  <div id="tab-scanner" class="section">
+    <div id="scanner-content"></div>
+  </div>
+
 </div>
 
 <!-- TradingView Chart Panel (desktop only) -->
@@ -280,6 +439,7 @@ table{width:100%;border-collapse:collapse}
   <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
   <button class="nav-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
   <button class="nav-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span>FORECAST</button>
+  <button class="nav-btn" onclick="switchTab('scanner',this)"><span class="nav-icon">◇</span>SCAN</button>
 </nav>
 
 <!-- CHART LIGHTBOX -->
@@ -728,6 +888,7 @@ const CHART_TABS = ['positions', 'market'];
 
 function selectChartTicker(ticker) {
   if (!ticker || ticker === _tvCurrentTicker) return;
+  _macroChartLock = false; // user clicked a position, clear macro lock
   _tvCurrentTicker = ticker;
   const display = document.getElementById('chart-ticker-display');
   if (display) display.textContent = ticker;
@@ -993,6 +1154,7 @@ function _initCardScrollSync() {
 }
 
 function _syncChartToVisibleCard() {
+  if (_macroChartLock) return; // macro/dashboard chart active, don't override
   const panel = document.getElementById('chart-panel');
   if (!panel || panel.classList.contains('chart-hidden')) return;
   const cards = document.querySelectorAll('.card[data-chart-ticker]');
@@ -4635,7 +4797,7 @@ function switchTab(name, btn) {
   document.querySelectorAll(".side-btn").forEach(b=>b.classList.remove("active"));
   if (btn) btn.classList.add("active");
   // Sync the matching button in both navs
-  const tabNames = ['positions','market','trades','diary','stats','forecast'];
+  const tabNames = ['positions','market','trades','diary','stats','forecast','scanner'];
   const idx = tabNames.indexOf(name);
   if (idx >= 0) {
     const bottomBtns = document.querySelectorAll("#bottom-nav .nav-btn");
@@ -4646,6 +4808,7 @@ function switchTab(name, btn) {
   if (name==="diary") { if (diarySubTab === "journal") renderDiaryJournalView(); else if (!currentDiaryId) renderDiaryList(); }
   if (name==="stats") renderStats();
   if (name==="forecast") renderForecast();
+  if (name==="scanner") renderScanner();
   _showChartPanel(CHART_TABS.includes(name));
 }
 
@@ -6384,6 +6547,1841 @@ function confirmIBKRImport() {
   refreshAll();
   pollTimer = setInterval(refreshAll, POLL_INTERVAL);
 })();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EDGE SCANNER
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SCANNER_API = "http://localhost:8001";
+
+const SCANNER_CONDITIONS = {
+  single_day_return_up:  { label: "Daily Return UP ≥", param: "threshold", unit: "%", default: 1 },
+  single_day_return_down:{ label: "Daily Return DOWN ≥", param: "threshold", unit: "%", default: 2 },
+  consecutive_up_days:   { label: "Consecutive UP days ≥", param: "streak", unit: "days", default: 3 },
+  consecutive_down_days: { label: "Consecutive DOWN days ≥", param: "streak", unit: "days", default: 3 },
+  day_of_week:           { label: "Day of Week", param: "dow", unit: "0=Mon 4=Fri", default: 0 },
+  month_of_year:         { label: "Month", param: "month", unit: "1-12", default: 1 },
+  opex_week:             { label: "OPEX Week", param: null },
+  first_n_trading_days:  { label: "First N Trading Days of Month", param: "n", unit: "days", default: 5 },
+  last_n_trading_days:   { label: "Last N Trading Days of Month", param: "n", unit: "days", default: 5 },
+  end_of_quarter:        { label: "End of Quarter", param: null },
+  gap_up:                { label: "Gap UP ≥", param: "threshold", unit: "%", default: 1 },
+  gap_down:              { label: "Gap DOWN ≥", param: "threshold", unit: "%", default: 1 },
+  at_52w_high:           { label: "At 52-Week High", param: null },
+  at_52w_low:            { label: "At 52-Week Low", param: null },
+  above_200ma:           { label: "Above 200-Day MA", param: null },
+  below_200ma:           { label: "Below 200-Day MA", param: null },
+  vix_bucket:            { label: "VIX Level Range", param: "range", unit: "low-high", default: "20-30" },
+  fed_decision_week:     { label: "Fed Decision Week", param: null },
+  event_trigger:         { label: "Event Type Trigger", param: "event_type", unit: "type", default: "rate_decision" },
+};
+
+let _scannerState = {
+  primaryTicker: "",
+  targetTicker: "",
+  primaryConditions: [],
+  secondaryConditions: [],
+  excludeEarnings: true,
+  results: null,
+  loading: false,
+  sortCol: "avg_return_d5",
+  sortDir: "desc",
+  savedScans: JSON.parse(localStorage.getItem("scanner_saved") || "[]"),
+  // AI Ask state
+  aiQuestion: "",
+  aiLoading: false,
+  aiResult: null,
+  aiHistory: JSON.parse(localStorage.getItem("scanner_ai_history") || "[]"),
+};
+
+function renderScanner() {
+  const c = document.getElementById("scanner-content");
+  const s = _scannerState;
+  c.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-secondary);letter-spacing:.1em">EDGE SCANNER</div>
+    </div>
+
+    <!-- AI ASK -->
+    <div class="card" style="margin-bottom:12px;border:1px solid var(--accent-dim)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div class="st" style="margin:0;color:var(--accent)">◇ ASK AI</div>
+        <span style="font-size:9px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;letter-spacing:.05em">NATURAL LANGUAGE → BACKTEST</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="ai-question" value="${s.aiQuestion}" placeholder="e.g. Which US equities go up in the week following a 0.25% FOMC rate cut?"
+          style="flex:1;font-size:12px" oninput="_scannerState.aiQuestion=this.value" onkeydown="if(event.key==='Enter')_runAiAsk()">
+        <button class="btn btn-p" style="font-size:10px;padding:7px 16px;white-space:nowrap" onclick="_runAiAsk()" ${s.aiLoading?"disabled":""}>
+          ${s.aiLoading ? "THINKING..." : "ASK"}
+        </button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">
+        ${_renderAiSuggestions()}
+      </div>
+      <div id="ai-results">${s.aiResult ? _renderAiResults(s.aiResult) : ""}</div>
+      ${_renderAiHistory(s.aiHistory)}
+    </div>
+
+    <!-- EVENT & DATA INVENTORY -->
+    <details style="margin-bottom:12px" id="scanner-inventory" onclick="setTimeout(_loadInventory,50)">
+      <summary class="card" style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="st" style="margin:0">DATA INVENTORY</div>
+          <span style="font-size:9px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace">EVENTS · TICKERS · CONDITIONS</span>
+        </div>
+        <span style="font-size:10px;color:var(--text-muted)">▼</span>
+      </summary>
+      <div class="card" style="margin-top:-1px;border-top:1px solid var(--border-subtle)">
+        <div id="inventory-content" style="font-family:'IBM Plex Mono',monospace;font-size:10px">
+          <div style="color:var(--text-muted)">Click to load inventory...</div>
+        </div>
+      </div>
+    </details>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+      <div style="flex:1;height:1px;background:var(--border-subtle)"></div>
+      <span style="font-size:9px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;letter-spacing:.1em">OR BUILD MANUALLY</span>
+      <div style="flex:1;height:1px;background:var(--border-subtle)"></div>
+    </div>
+
+    <!-- PRIMARY CONDITION -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="st">PRIMARY SIGNAL</div>
+      <div class="g2" style="margin-bottom:10px">
+        <div class="frow">
+          <label>Signal Asset</label>
+          <input id="scan-primary" value="${s.primaryTicker}" placeholder="e.g. SPY, DXY, VIX, CRUDE_OIL" oninput="_scannerState.primaryTicker=this.value.toUpperCase()">
+        </div>
+        <div class="frow">
+          <label>Condition Type</label>
+          <select id="scan-cond-type" onchange="_onCondTypeChange()">
+            <option value="">Select condition...</option>
+            ${Object.entries(SCANNER_CONDITIONS).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div id="scan-cond-param" style="margin-bottom:10px"></div>
+      <button class="btn btn-p" style="font-size:10px;padding:7px 14px" onclick="_addPrimaryCondition()">+ ADD CONDITION</button>
+      <div id="scan-primary-conditions" style="margin-top:10px">${_renderConditionPills(s.primaryConditions, "primary")}</div>
+    </div>
+
+    <!-- SECONDARY CONDITIONS -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="st">SECONDARY FILTERS (AND)</div>
+      <div class="g2" style="margin-bottom:10px">
+        <div class="frow">
+          <label>Filter Asset (optional, defaults to primary)</label>
+          <input id="scan-sec-ticker" placeholder="e.g. VIX, DXY" oninput="this.value=this.value.toUpperCase()">
+        </div>
+        <div class="frow">
+          <label>Condition Type</label>
+          <select id="scan-sec-cond-type">
+            <option value="">Select condition...</option>
+            ${Object.entries(SCANNER_CONDITIONS).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div id="scan-sec-param" style="margin-bottom:10px"></div>
+      <button class="btn btn-g" style="font-size:10px;padding:7px 14px" onclick="_addSecondaryCondition()">+ ADD FILTER</button>
+      <div id="scan-secondary-conditions" style="margin-top:10px">${_renderConditionPills(s.secondaryConditions, "secondary")}</div>
+    </div>
+
+    <!-- TARGET + OPTIONS -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="st">TARGET ASSET & OPTIONS</div>
+      <div class="g2">
+        <div class="frow">
+          <label>Target Asset (forward returns measured here)</label>
+          <input id="scan-target" value="${s.targetTicker}" placeholder="Leave blank = same as signal" oninput="_scannerState.targetTicker=this.value.toUpperCase()">
+        </div>
+        <div class="frow">
+          <label>Exclude Earnings Window</label>
+          <select id="scan-exclude-earnings" onchange="_scannerState.excludeEarnings=this.value==='true'">
+            <option value="true" ${s.excludeEarnings?"selected":""}>Yes (±3 trading days)</option>
+            <option value="false" ${!s.excludeEarnings?"selected":""}>No (include earnings)</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px">
+        <button class="btn btn-p" style="flex:1;padding:12px" onclick="_runScan()" ${s.loading?"disabled":""}>
+          ${s.loading ? "SCANNING..." : "◇ RUN SCAN"}
+        </button>
+        <button class="btn btn-g" style="padding:12px" onclick="_clearScan()">CLEAR</button>
+      </div>
+    </div>
+
+    <!-- RESULTS -->
+    <div id="scan-results">${s.results ? _renderScanResults(s.results) : ""}</div>
+
+    <!-- SAVED SCANS -->
+    ${s.savedScans.length ? `
+    <div class="card" style="margin-top:12px">
+      <div class="st">SAVED SCANS</div>
+      ${s.savedScans.map((sc, i) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-subtle)">
+          <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text-primary);cursor:pointer" onclick="_loadSavedScan(${i})">
+            ${sc.primaryTicker}${sc.targetTicker && sc.targetTicker !== sc.primaryTicker ? " → " + sc.targetTicker : ""}: ${sc.primaryConditions.map(c=>c.type).join(" + ")}
+          </div>
+          <button style="background:none;border:none;color:var(--negative);font-size:14px;cursor:pointer" onclick="_deleteSavedScan(${i})">×</button>
+        </div>
+      `).join("")}
+    </div>` : ""}
+  `;
+}
+
+function _onCondTypeChange() {
+  const sel = document.getElementById("scan-cond-type");
+  const cond = SCANNER_CONDITIONS[sel.value];
+  const container = document.getElementById("scan-cond-param");
+  if (!cond || !cond.param) { container.innerHTML = ""; return; }
+  if (cond.param === "range") {
+    container.innerHTML = `<div class="g2"><div class="frow"><label>Low</label><input id="scan-param-low" type="number" value="20" style="width:100%"></div><div class="frow"><label>High</label><input id="scan-param-high" type="number" value="30" style="width:100%"></div></div>`;
+  } else {
+    container.innerHTML = `<div class="frow"><label>${cond.label} (${cond.unit})</label><input id="scan-param-val" type="${cond.param==='event_type'?'text':'number'}" value="${cond.default}" style="width:200px"></div>`;
+  }
+}
+
+function _buildConditionFromUI(typeSelectId, paramContainerId) {
+  const sel = document.getElementById(typeSelectId);
+  const type = sel.value;
+  if (!type) return null;
+  const cond = SCANNER_CONDITIONS[type];
+  const result = { type, params: {} };
+  if (cond.param === "range") {
+    result.params.low = parseFloat(document.getElementById("scan-param-low")?.value || 0);
+    result.params.high = parseFloat(document.getElementById("scan-param-high")?.value || 100);
+  } else if (cond.param === "event_type") {
+    result.params.event_type = document.getElementById("scan-param-val")?.value || "rate_decision";
+  } else if (cond.param) {
+    result.params[cond.param] = parseFloat(document.getElementById("scan-param-val")?.value || cond.default);
+  }
+  return result;
+}
+
+function _addPrimaryCondition() {
+  const cond = _buildConditionFromUI("scan-cond-type", "scan-cond-param");
+  if (!cond) return;
+  _scannerState.primaryConditions.push(cond);
+  document.getElementById("scan-primary-conditions").innerHTML = _renderConditionPills(_scannerState.primaryConditions, "primary");
+  document.getElementById("scan-cond-type").value = "";
+  document.getElementById("scan-cond-param").innerHTML = "";
+}
+
+function _addSecondaryCondition() {
+  const type = document.getElementById("scan-sec-cond-type").value;
+  if (!type) return;
+  const cond = SCANNER_CONDITIONS[type];
+  const result = { type, params: {} };
+  const ticker = document.getElementById("scan-sec-ticker").value.trim().toUpperCase();
+  if (ticker) result.ticker = ticker;
+  if (cond.param === "range") {
+    // Reuse the secondary param area if built
+    result.params.low = 20; result.params.high = 30;
+  } else if (cond.param === "event_type") {
+    result.params.event_type = "rate_decision";
+  } else if (cond.param) {
+    result.params[cond.param] = cond.default;
+  }
+  _scannerState.secondaryConditions.push(result);
+  document.getElementById("scan-secondary-conditions").innerHTML = _renderConditionPills(_scannerState.secondaryConditions, "secondary");
+  document.getElementById("scan-sec-cond-type").value = "";
+  document.getElementById("scan-sec-ticker").value = "";
+}
+
+function _removeCondition(group, idx) {
+  if (group === "primary") _scannerState.primaryConditions.splice(idx, 1);
+  else _scannerState.secondaryConditions.splice(idx, 1);
+  renderScanner();
+}
+
+function _renderConditionPills(conditions, group) {
+  if (!conditions.length) return '<div style="font-size:10px;color:var(--text-muted);font-family:\'IBM Plex Mono\',monospace">No conditions added</div>';
+  return conditions.map((c, i) => {
+    const info = SCANNER_CONDITIONS[c.type] || { label: c.type };
+    const paramStr = Object.entries(c.params || {}).filter(([k]) => k !== "vix_df" && k !== "fed_dates" && k !== "dates").map(([k, v]) => `${k}:${v}`).join(", ");
+    const tickerStr = c.ticker ? `[${c.ticker}] ` : "";
+    return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg-hover);border:1px solid var(--border-visible);border-radius:3px;padding:4px 10px;margin:3px 4px 3px 0;font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text-primary)">
+      ${tickerStr}${info.label}${paramStr ? " ("+paramStr+")" : ""}
+      <button onclick="_removeCondition('${group}',${i})" style="background:none;border:none;color:var(--negative);font-size:13px;cursor:pointer;padding:0;line-height:1">×</button>
+    </span>`;
+  }).join("");
+}
+
+async function _runScan() {
+  const s = _scannerState;
+  if (!s.primaryTicker || !s.primaryConditions.length) {
+    alert("Set a signal asset and at least one primary condition.");
+    return;
+  }
+  s.loading = true;
+  renderScanner();
+
+  const body = {
+    primary_ticker: s.primaryTicker,
+    primary_conditions: s.primaryConditions,
+    target_ticker: s.targetTicker || null,
+    secondary_conditions: s.secondaryConditions.length ? s.secondaryConditions : null,
+    exclude_earnings: s.excludeEarnings,
+    horizons: [1, 2, 5, 10],
+  };
+
+  try {
+    const resp = await fetch(SCANNER_API + "/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    s.results = await resp.json();
+  } catch (e) {
+    s.results = { error: e.message };
+  }
+
+  s.loading = false;
+  renderScanner();
+}
+
+function _clearScan() {
+  _scannerState.primaryConditions = [];
+  _scannerState.secondaryConditions = [];
+  _scannerState.results = null;
+  _scannerState.primaryTicker = "";
+  _scannerState.targetTicker = "";
+  renderScanner();
+}
+
+function _saveScan() {
+  const s = _scannerState;
+  s.savedScans.push({
+    primaryTicker: s.primaryTicker,
+    targetTicker: s.targetTicker,
+    primaryConditions: [...s.primaryConditions],
+    secondaryConditions: [...s.secondaryConditions],
+    excludeEarnings: s.excludeEarnings,
+  });
+  localStorage.setItem("scanner_saved", JSON.stringify(s.savedScans));
+  renderScanner();
+}
+
+function _loadSavedScan(idx) {
+  const sc = _scannerState.savedScans[idx];
+  if (!sc) return;
+  _scannerState.primaryTicker = sc.primaryTicker;
+  _scannerState.targetTicker = sc.targetTicker;
+  _scannerState.primaryConditions = [...sc.primaryConditions];
+  _scannerState.secondaryConditions = [...sc.secondaryConditions];
+  _scannerState.excludeEarnings = sc.excludeEarnings;
+  renderScanner();
+}
+
+function _deleteSavedScan(idx) {
+  _scannerState.savedScans.splice(idx, 1);
+  localStorage.setItem("scanner_saved", JSON.stringify(_scannerState.savedScans));
+  renderScanner();
+}
+
+function _renderScanResults(r) {
+  if (r.error) {
+    return `<div class="card" style="border-color:var(--negative)"><div style="color:var(--negative);font-family:'IBM Plex Mono',monospace;font-size:12px">ERROR: ${r.error}</div></div>`;
+  }
+  if (r.sample_size === 0) {
+    return `<div class="card"><div style="color:var(--warning);font-family:'IBM Plex Mono',monospace;font-size:12px">${r.message || "No signals found"}</div></div>`;
+  }
+
+  const reliable = r.statistically_reliable;
+  const reliabilityBadge = reliable
+    ? `<span class="badge" style="background:var(--positive-dim);color:var(--positive)">N=${r.sample_size} RELIABLE</span>`
+    : `<span class="badge" style="background:var(--warning-dim);color:var(--warning)">N=${r.sample_size} LOW SAMPLE</span>`;
+
+  // Forward returns summary
+  const horizons = [1, 2, 5, 10];
+  const metricsHTML = horizons.map(h => {
+    const avg = r[`avg_return_d${h}`];
+    const med = r[`median_return_d${h}`];
+    const wr = r[`win_rate_d${h}`];
+    const sh = r[`sharpe_d${h}`];
+    if (avg == null) return "";
+    const color = avg >= 0 ? "var(--positive)" : "var(--negative)";
+    return `
+      <div class="card" style="text-align:center;padding:10px">
+        <div class="lbl">D+${h}</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:${color}">${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%</div>
+        <div style="font-size:10px;color:var(--text-secondary);margin-top:4px">
+          Med: ${med != null ? (med >= 0 ? "+" : "") + med.toFixed(2) + "%" : "—"} &nbsp;|&nbsp;
+          Win: ${wr != null ? wr.toFixed(1) + "%" : "—"} &nbsp;|&nbsp;
+          Sharpe: ${sh != null ? sh.toFixed(2) : "—"}
+        </div>
+      </div>`;
+  }).join("");
+
+  // Distribution histogram for D+5
+  const dist5 = r.distribution?.d5 || [];
+  const histHTML = dist5.length > 0 ? _renderHistogram(dist5, "D+5 Return Distribution") : "";
+
+  // Cross-asset label
+  const crossLabel = r.primary_ticker !== r.target_ticker
+    ? `<div style="font-size:11px;color:var(--warning);font-family:'IBM Plex Mono',monospace;margin-bottom:8px">CROSS-ASSET: ${r.primary_ticker} signal → ${r.target_ticker} returns</div>`
+    : "";
+
+  return `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <div class="st" style="margin:0">SCAN RESULTS</div>
+          ${crossLabel}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${reliabilityBadge}
+          <button class="btn btn-g" style="font-size:9px;padding:5px 10px" onclick="_saveScan()">SAVE</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
+        ${metricsHTML}
+      </div>
+
+      ${histHTML}
+
+      <!-- Signal dates -->
+      <details style="margin-top:12px">
+        <summary style="font-size:10px;color:var(--text-secondary);cursor:pointer;font-family:'IBM Plex Mono',monospace;letter-spacing:.05em">
+          SIGNAL DATES (${r.signal_dates?.length || 0})
+        </summary>
+        <div style="max-height:200px;overflow-y:auto;margin-top:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-secondary);columns:3;column-gap:12px">
+          ${(r.signal_dates || []).map(d => `<div>${d}</div>`).join("")}
+        </div>
+      </details>
+    </div>`;
+}
+
+// ── AI Ask Functions ───────────────────────────────────────────────────────
+
+const _AI_SUGGESTIONS = [
+  "What happens to SPY after 3 consecutive down days?",
+  "Which stocks rise in the week after a Fed rate decision?",
+  "Gold performance when VIX is above 30",
+  "EUR/USD behaviour during OPEX week",
+];
+
+function _setAiQuestion(q) {
+  _scannerState.aiQuestion = q;
+  const el = document.getElementById("ai-question");
+  if (el) el.value = q;
+  _runAiAsk();
+}
+
+function _loadAiHistoryItem(idx) {
+  const h = _scannerState.aiHistory[idx];
+  if (!h) return;
+  _scannerState.aiQuestion = h.q;
+  const el = document.getElementById("ai-question");
+  if (el) el.value = h.q;
+  _runAiAsk();
+}
+
+function _clearAiHistory() {
+  _scannerState.aiHistory = [];
+  localStorage.removeItem("scanner_ai_history");
+  renderScanner();
+}
+
+function _renderAiSuggestions() {
+  return _AI_SUGGESTIONS.map((q, i) =>
+    '<button class="btn btn-g" style="font-size:9px;padding:4px 8px" onclick="_setAiQuestion(_AI_SUGGESTIONS[' + i + '])">' +
+    (q.length > 45 ? q.slice(0, 42) + "..." : q) + '</button>'
+  ).join("");
+}
+
+// ── Data Inventory ──────────────────────────────────────────────────────────
+var _inventoryLoaded = false;
+var _inventoryEvents = [];
+var _inventoryTickers = [];
+var _inventorySectorFilter = "all";
+
+function _loadInventory() {
+  if (_inventoryLoaded) return;
+  _inventoryLoaded = true;
+  var el = document.getElementById("inventory-content");
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted)">Loading inventory...</div>';
+
+  Promise.all([
+    fetch(SCANNER_API + "/api/events").then(r => r.json()),
+    fetch(SCANNER_API + "/api/conditions").then(r => r.json()),
+    fetch(SCANNER_API + "/api/tickers").then(r => r.json()).catch(() => []),
+  ]).then(function([events, conditions, tickers]) {
+    _inventoryEvents = events || [];
+    _inventoryTickers = tickers || [];
+    _renderInventory(events, conditions, tickers);
+  }).catch(function(err) {
+    el.innerHTML = '<div style="color:var(--negative)">Error loading inventory: ' + err.message + '</div>';
+  });
+}
+
+function _renderInventory(events, conditions, tickers, searchFilter) {
+  var el = document.getElementById("inventory-content");
+  if (!el) return;
+  var html = "";
+
+  // ── Search bar ──
+  html += '<div style="display:flex;gap:8px;margin-bottom:12px">';
+  html += '<input id="inv-search" type="text" placeholder="Search events, tickers, conditions..." style="flex:1;font-size:11px;padding:6px 10px" value="' + (searchFilter || '') + '" oninput="_filterInventory(this.value)">';
+  html += '<button class="btn btn-p" style="font-size:9px;padding:6px 12px;white-space:nowrap" onclick="_showAddEventForm()">+ ADD EVENT</button>';
+  html += '<button class="btn btn-g" id="auto-detect-btn" style="font-size:9px;padding:6px 12px;white-space:nowrap" onclick="_autoDetectEvents()">⚡ SCAN FOR EVENTS</button>';
+  html += '</div>';
+
+  // ── Add event form (hidden by default) ──
+  html += '<div id="add-event-form" style="display:none;margin-bottom:14px;padding:12px;background:var(--bg-hover);border:1px solid var(--accent-dim);border-radius:4px">';
+  html += '<div style="font-size:10px;color:var(--accent);letter-spacing:.1em;margin-bottom:10px;font-weight:600">NEW MACRO EVENT</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+  html += '<div class="frow"><label>Date</label><input id="evt-date" type="date" style="font-size:11px"></div>';
+  html += '<div class="frow"><label>Type</label><select id="evt-type" style="font-size:11px"><option value="rate_decision">Rate Decision</option><option value="oil_shock">Oil Shock</option><option value="geopolitical">Geopolitical</option><option value="market_structure">Market Structure</option><option value="macro_surprise">Macro Surprise</option></select></div>';
+  html += '<div class="frow"><label>Magnitude</label><input id="evt-mag" type="number" step="0.01" placeholder="e.g. 120 or -0.25" style="font-size:11px"></div>';
+  html += '<div class="frow"><label>Geography</label><select id="evt-geo" style="font-size:11px"><option value="US">US</option><option value="Global">Global</option><option value="EU">EU</option><option value="UK">UK</option><option value="Japan">Japan</option><option value="China">China</option><option value="Middle East">Middle East</option></select></div>';
+  html += '<div class="frow" style="grid-column:1/-1"><label>Description</label><input id="evt-desc" placeholder="e.g. Crude oil hits $120/bbl" style="font-size:11px"></div>';
+  html += '<div class="frow"><label>Direction</label><select id="evt-dir" style="font-size:11px"><option value="">—</option><option value="hawkish">Hawkish</option><option value="dovish">Dovish</option><option value="bullish">Bullish</option><option value="bearish">Bearish</option><option value="shock">Shock</option></select></div>';
+  html += '<div class="frow"><label>Source</label><input id="evt-src" placeholder="e.g. bloomberg.com" style="font-size:11px"></div>';
+  html += '</div>';
+  html += '<div style="margin-top:10px;display:flex;gap:8px">';
+  html += '<button class="btn btn-p" style="font-size:10px;padding:8px 16px" onclick="_submitEvent()">SAVE EVENT</button>';
+  html += '<button class="btn btn-g" style="font-size:10px;padding:8px 16px" onclick="_hideAddEventForm()">CANCEL</button>';
+  html += '</div>';
+  html += '<div id="evt-status" style="margin-top:6px;font-size:10px"></div>';
+  html += '</div>';
+
+  // Apply search filter
+  var filteredEvents = events || [];
+  var filteredTickers = tickers || [];
+  if (searchFilter) {
+    var sf = searchFilter.toLowerCase();
+    filteredEvents = filteredEvents.filter(function(e) {
+      return (e.description || "").toLowerCase().includes(sf) ||
+             (e.event_type || "").toLowerCase().includes(sf) ||
+             (e.geography || "").toLowerCase().includes(sf) ||
+             (e.date || "").includes(sf);
+    });
+    filteredTickers = filteredTickers.filter(function(t) {
+      return ((t.ticker || t) + "").toLowerCase().includes(sf);
+    });
+  }
+
+  // ── Events by type ──
+  var byType = {};
+  filteredEvents.forEach(function(e) {
+    var t = e.event_type || "unknown";
+    if (!byType[t]) byType[t] = [];
+    byType[t].push(e);
+  });
+
+  html += '<div style="margin-bottom:14px">';
+  html += '<div style="font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:8px;font-weight:600">MACRO EVENTS (' + filteredEvents.length + (searchFilter ? ' matching' : ' total') + ')</div>';
+
+  var typeColors = {
+    rate_decision: "var(--accent)",
+    macro_surprise: "var(--warning)",
+    geopolitical: "var(--negative)",
+    market_structure: "#e06c75",
+    oil_shock: "#d19a66",
+  };
+
+  Object.keys(byType).sort().forEach(function(etype) {
+    var evts = byType[etype];
+    var color = typeColors[etype] || "var(--text-secondary)";
+    var geos = {};
+    evts.forEach(function(e) { var g = e.geography || "?"; geos[g] = (geos[g]||0) + 1; });
+    var geoStr = Object.entries(geos).sort(function(a,b){return b[1]-a[1];}).map(function(x){return x[0]+": "+x[1];}).join(", ");
+    var dates = evts.map(function(e){return e.date;}).sort();
+
+    html += '<details style="margin-bottom:6px"' + (searchFilter ? ' open' : '') + '>';
+    html += '<summary style="cursor:pointer;padding:6px 8px;background:var(--bg-hover);border-radius:3px;display:flex;justify-content:space-between;align-items:center">';
+    html += '<span style="color:' + color + ';font-weight:500">' + etype.toUpperCase().replace(/_/g," ") + ' <span style="color:var(--text-muted);font-weight:400">(' + evts.length + ')</span></span>';
+    html += '<span style="color:var(--text-muted);font-size:9px">' + dates[0] + ' \u2192 ' + dates[dates.length-1] + '</span>';
+    html += '</summary>';
+    html += '<div style="padding:6px 8px;max-height:250px;overflow-y:auto">';
+    html += '<div style="color:var(--text-muted);margin-bottom:4px;font-size:9px">Geography: ' + geoStr + '</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:9px">';
+    html += '<tr style="color:var(--text-muted)"><th style="text-align:left;padding:2px 4px">DATE</th><th style="text-align:left;padding:2px 4px">GEO</th><th style="text-align:right;padding:2px 4px">MAG</th><th style="text-align:left;padding:2px 4px">DESCRIPTION</th></tr>';
+    evts.sort(function(a,b){return b.date.localeCompare(a.date);}).forEach(function(e) {
+      var magColor = e.magnitude > 0 ? "var(--positive)" : e.magnitude < 0 ? "var(--negative)" : "var(--text-muted)";
+      html += '<tr style="border-top:1px solid var(--border-subtle)">';
+      html += '<td style="padding:2px 4px;white-space:nowrap;color:var(--text-secondary)">' + e.date + '</td>';
+      html += '<td style="padding:2px 4px;color:var(--text-muted)">' + (e.geography||"") + '</td>';
+      html += '<td style="text-align:right;padding:2px 4px;color:' + magColor + '">' + (e.magnitude != null ? e.magnitude : "") + '</td>';
+      html += '<td style="padding:2px 4px;color:var(--text-primary)">' + (e.description||"").slice(0,80) + '</td>';
+      html += '</tr>';
+    });
+    html += '</table></div></details>';
+  });
+  html += '</div>';
+
+  // ── Tickers with sector grouping ──
+  var tickerList = Array.isArray(filteredTickers) ? filteredTickers : [];
+
+  // Sector classification
+  var _sectorMap = {
+    "Technology": ["AAPL","MSFT","GOOGL","NVDA","META","INTC","AMD","AVGO","QCOM","CRM","ADBE","ORCL","SNOW","NET","DKNG","RBLX","HOOD","PATH","U","CFLT","MDB","HUBS","BILL","TTD","DUOL","PINS","SNAP","ROKU","SHOP","SE","MSTR","PLTR","COIN","SOFI","TSM","AMAT","ANSS","APP","ARM","ASML","CDNS","CDW","CRWD","CSGP","CTSH","DDOG","FTNT","GFS","INTU","KLAC","LRCX","MCHP","MRVL","NXPI","ON","PANW","SNPS","TEAM","WDAY","ZS","TXN","SMCI","ACN","NOW","FISV","FIS"],
+    "Healthcare": ["UNH","JNJ","PFE","ABBV","MRK","LLY","AMGN","BIIB","GILD","ISRG","DXCM","ILMN","REGN","VRTX","ABT","BMY","BSX","CI","CVS","DHR","EW","HCA","HUM","IDXX","MDT","SYK","TMO","ZBH","ZTS","AZN","GEHC","BDX"],
+    "Financial": ["JPM","BAC","GS","MS","C","WFC","V","MA","PYPL","SQ","AXP","BLK","CB","CME","COF","ICE","MET","MMC","PFG","PGR","PNC","PRU","SCHW","TFC","USB","MCK"],
+    "Consumer": ["AMZN","TSLA","WMT","COST","HD","MCD","NKE","SBUX","TGT","DIS","NFLX","BKNG","LULU","MAR","MNST","PEP","ROST","CCEP","DASH","EA","KDP","KHC","MDLZ","TTWO","CL","EL","HLT","HSY","KMB","KO","LOW","MO","PG","RCL","STZ","SYY","ABNB","RIVN","LCID","NIO","XPEV","LI","GME","AMC","BBBY","SPCE","OPEN","WISH","BABA","JD","PDD","TM","SONY","F","GM"],
+    "Energy": ["XOM","CVX","COP","SLB","EOG","MPC","OXY","PSX","VLO","BKR","FANG","TRGP","WMB","PXD"],
+    "Industrials": ["BA","CAT","GE","UPS","HON","MMM","CSX","DE","ECL","EMR","ETN","FDX","GD","ITW","JCI","LHX","LIN","LMT","NOC","NSC","PH","PPG","RTX","SHW","TDG","UNP","URI","VMC","WAB","WM","UBER","PCAR","ODFL","FAST","CTAS","PAYX","ROP","VRSK","ADP"],
+    "Utilities & Real Estate": ["NEE","D","DUK","SO","SRE","AEP","EXC","WEC","XEL","CEG","AMT","CCI","PSA","SPG","WELL"],
+    "Telecom & Media": ["T","VZ","TMUS","CMCSA","CHTR","WBD"],
+    "Indices & ETFs": ["SPY","QQQ","IWM","DIA","VTI","XLF","XLK","XLE","XLV","XLI","XLP","XLU","XLB","XLRE","XLC","TLT","HYG","LQD","GLD","SLV","USO","ARKK","XBI","KWEB","EEM","EFA","FXI","IBIT","SMH","SOXX","XHB","XRT","KRE","OIH","TQQQ","SQQQ","UVXY","VXX","RACE"],
+  };
+  // Build reverse map: ticker → sector
+  var _tickerToSector = {};
+  Object.keys(_sectorMap).forEach(function(sec) {
+    _sectorMap[sec].forEach(function(sym) { _tickerToSector[sym] = sec; });
+  });
+
+  // Deduplicate and classify
+  var seen = {};
+  var sectorGroups = {};
+  var unsorted = [];
+  tickerList.forEach(function(t) {
+    var sym = t.ticker || t;
+    if (seen[sym]) return;
+    seen[sym] = true;
+    var sector = _tickerToSector[sym] || "Other";
+    if (!sectorGroups[sector]) sectorGroups[sector] = [];
+    sectorGroups[sector].push(sym);
+  });
+
+  // Sector filter: also honor search filter for sector name
+  var activeSector = _inventorySectorFilter || "all";
+  if (searchFilter) {
+    var sfLower = searchFilter.toLowerCase();
+    // Check if search matches a sector name
+    var matchedSector = null;
+    Object.keys(sectorGroups).forEach(function(sec) {
+      if (sec.toLowerCase().includes(sfLower)) matchedSector = sec;
+    });
+    if (matchedSector && !activeSector || activeSector === "all") activeSector = "all"; // Still show filtered tickers
+  }
+
+  var totalTickers = Object.values(sectorGroups).reduce(function(sum, arr) { return sum + arr.length; }, 0);
+  html += '<div style="margin-bottom:14px">';
+  html += '<div style="font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:8px;font-weight:600">TICKERS (' + totalTickers + ' in database)</div>';
+
+  // Sector filter chips
+  var sectorOrder = ["Indices & ETFs","Technology","Healthcare","Financial","Consumer","Energy","Industrials","Utilities & Real Estate","Telecom & Media","Other"];
+  html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">';
+  html += '<span style="padding:3px 8px;font-size:9px;border-radius:3px;cursor:pointer;' + (activeSector === "all" ? 'background:var(--accent);color:var(--bg-primary)' : 'background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle)') + '" onclick="_setSectorFilter(\'all\')">ALL</span>';
+  sectorOrder.forEach(function(sec) {
+    if (!sectorGroups[sec] || sectorGroups[sec].length === 0) return;
+    var isActive = activeSector === sec;
+    var isIdx = sec === "Indices & ETFs";
+    html += '<span style="padding:3px 8px;font-size:9px;border-radius:3px;cursor:pointer;' +
+      (isActive ? 'background:var(--accent);color:var(--bg-primary)' : (isIdx ? 'background:rgba(82,139,255,0.15);color:var(--accent);border:1px solid var(--accent-dim)' : 'background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle)')) +
+      '" onclick="_setSectorFilter(\'' + sec + '\')">' + sec.toUpperCase() + ' (' + sectorGroups[sec].length + ')</span>';
+  });
+  html += '</div>';
+
+  // Ticker pills grouped or filtered
+  var displaySectors = activeSector === "all" ? sectorOrder : [activeSector];
+  displaySectors.forEach(function(sec) {
+    if (!sectorGroups[sec] || sectorGroups[sec].length === 0) return;
+    var isIdx = sec === "Indices & ETFs";
+    if (activeSector === "all") {
+      html += '<div style="font-size:9px;color:' + (isIdx ? 'var(--accent)' : 'var(--text-muted)') + ';margin:6px 0 3px;font-weight:' + (isIdx ? '600' : '400') + '">' + sec + '</div>';
+    }
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">';
+    sectorGroups[sec].sort().forEach(function(sym) {
+      var pillStyle = isIdx
+        ? 'background:rgba(82,139,255,0.12);border:1px solid var(--accent-dim);color:var(--accent);font-weight:500'
+        : 'background:var(--bg-hover);border:1px solid var(--border-subtle);color:var(--text-secondary)';
+      html += '<span style="' + pillStyle + ';border-radius:2px;padding:2px 6px;font-size:9px;cursor:pointer" onclick="_showTickerChart(\'' + sym + '\')">' + sym + '</span>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // ── Conditions ──
+  if (!searchFilter) {
+    html += '<div>';
+    html += '<div style="font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:8px;font-weight:600">SCANNER CONDITIONS (' + Object.keys(conditions || {}).length + ' types)</div>';
+    Object.entries(conditions || {}).forEach(function([name, info]) {
+      html += '<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px solid var(--border-subtle)">';
+      html += '<span style="color:var(--text-primary);min-width:180px">' + name + '</span>';
+      html += '<span style="color:var(--text-muted)">' + info.description + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+function _filterInventory(val) {
+  _renderInventory(_inventoryEvents, null, _inventoryTickers, val || null);
+  // Restore focus to the search input after re-render
+  var el = document.getElementById("inv-search");
+  if (el) { el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
+}
+
+function _setSectorFilter(sector) {
+  _inventorySectorFilter = sector;
+  var searchVal = document.getElementById("inv-search");
+  _renderInventory(_inventoryEvents, null, _inventoryTickers, (searchVal && searchVal.value) || null);
+}
+
+function _showAddEventForm() {
+  var form = document.getElementById("add-event-form");
+  if (form) form.style.display = "block";
+  // Set today's date as default
+  var dateInput = document.getElementById("evt-date");
+  if (dateInput) dateInput.value = new Date().toISOString().split("T")[0];
+}
+
+function _hideAddEventForm() {
+  var form = document.getElementById("add-event-form");
+  if (form) form.style.display = "none";
+}
+
+async function _submitEvent() {
+  var statusEl = document.getElementById("evt-status");
+  var body = {
+    date: document.getElementById("evt-date").value,
+    event_type: document.getElementById("evt-type").value,
+    description: document.getElementById("evt-desc").value,
+  };
+  var mag = document.getElementById("evt-mag").value;
+  if (mag) body.magnitude = parseFloat(mag);
+  var geo = document.getElementById("evt-geo").value;
+  if (geo) body.geography = geo;
+  var dir = document.getElementById("evt-dir").value;
+  if (dir) body.direction = dir;
+  var src = document.getElementById("evt-src").value;
+  if (src) body.source = src;
+
+  if (!body.date || !body.description) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--negative)">Date and description are required</span>';
+    return;
+  }
+
+  try {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Saving...</span>';
+    var resp = await fetch(SCANNER_API + "/api/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    var result = await resp.json();
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--positive)">Event saved! ID: ' + result.id + '</span>';
+    // Refresh inventory
+    _inventoryLoaded = false;
+    setTimeout(function() { _inventoryLoaded = false; _loadInventory(); }, 500);
+  } catch (e) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--negative)">Error: ' + e.message + '</span>';
+  }
+}
+
+// ── Central Bank Calendar Panel ──
+var _cbPanelLoaded = false;
+
+// TradingView symbols for country interest rates / bond yields
+var _cbRateSymbols = {
+  "FOMC":     { sym: "TVC:US02Y",  label: "US 2-Year Yield" },
+  "ECB":      { sym: "TVC:EU10Y",  label: "EU 10-Year Yield" },
+  "BOJ":      { sym: "TVC:JP10Y",  label: "Japan 10-Year Yield" },
+  "BOE":      { sym: "TVC:GB10Y",  label: "UK 10-Year Gilt" },
+  "BOC":      { sym: "TVC:CA10Y",  label: "Canada 10-Year Yield" },
+  "PBOC":     { sym: "TVC:CN10Y",  label: "China 10-Year Yield" },
+  "RBA":      { sym: "TVC:AU10Y",  label: "Australia 10-Year Yield" },
+  "RBNZ":     { sym: "TVC:NZ10Y",  label: "New Zealand 10-Year Yield" },
+  "BOK":      { sym: "TVC:KR10Y",  label: "South Korea 10-Year Yield" },
+  "RBI":      { sym: "TVC:IN10Y",  label: "India 10-Year Yield" },
+  "BCB":      { sym: "TVC:BR10Y",  label: "Brazil 10-Year Yield" },
+  "BANXICO":  { sym: "TVC:MX10Y",  label: "Mexico 10-Year Yield" },
+  "SNB":      { sym: "TVC:CH10Y",  label: "Switzerland 10-Year Yield" },
+  "RIKSBANK": { sym: "TVC:SE10Y",  label: "Sweden 10-Year Yield" },
+  "SARB":     { sym: "TVC:ZA10Y",  label: "South Africa 10-Year Yield" },
+  "TCMB":     { sym: "TVC:TR10Y",  label: "Turkey 10-Year Yield" },
+  "BI":       { sym: "TVC:ID10Y",  label: "Indonesia 10-Year Yield" },
+  "NORGES":   { sym: "TVC:NO10Y",  label: "Norway 10-Year Yield" },
+  "CBR":      { sym: "TVC:RU10Y",  label: "Russia 10-Year Yield" },
+};
+
+function _showCBRateChart(code) {
+  var info = _cbRateSymbols[code];
+  if (!info) return;
+  // Close the CB panel so the chart is visible
+  var panel = document.getElementById("cb-panel");
+  if (panel) panel.style.display = "none";
+  loadTVChart(info.sym);
+}
+
+// ── Macro Dashboard ──────────────────────────────────────────────────────────
+var _macroDashLoaded = false;
+
+// Symbol catalog for overlay categories
+// Use exchange-listed ETFs/tickers that work in free TradingView widget
+var _macroCatalog = {
+  yields: [
+    { sym: "NASDAQ:SHY", label: "US 1-3Y (SHY)" },
+    { sym: "NASDAQ:IEF", label: "US 7-10Y (IEF)" },
+    { sym: "NASDAQ:TLT", label: "US 20Y+ (TLT)" },
+    { sym: "NASDAQ:SHV", label: "US T-Bills (SHV)" },
+    { sym: "AMEX:IGOV", label: "Intl Gov (IGOV)" },
+    { sym: "AMEX:BWX", label: "Intl Tsy (BWX)" },
+    { sym: "AMEX:EMB", label: "EM Bonds (EMB)" },
+    { sym: "AMEX:HYG", label: "HY Corp (HYG)" },
+    { sym: "AMEX:LQD", label: "IG Corp (LQD)" },
+    { sym: "AMEX:TIP", label: "TIPS (TIP)" },
+  ],
+  fx: [
+    { sym: "FX_IDC:EURUSD", label: "EUR/USD" },
+    { sym: "FX_IDC:USDJPY", label: "USD/JPY" },
+    { sym: "FX_IDC:GBPUSD", label: "GBP/USD" },
+    { sym: "FX_IDC:USDCAD", label: "USD/CAD" },
+    { sym: "FX_IDC:AUDUSD", label: "AUD/USD" },
+    { sym: "FX_IDC:USDCNH", label: "USD/CNH" },
+    { sym: "FX_IDC:USDCHF", label: "USD/CHF" },
+    { sym: "AMEX:UUP", label: "DXY (UUP)" },
+  ],
+  equities: [
+    { sym: "AMEX:SPY", label: "SPY" },
+    { sym: "NASDAQ:QQQ", label: "QQQ" },
+    { sym: "AMEX:IWM", label: "IWM" },
+    { sym: "AMEX:EEM", label: "EEM" },
+    { sym: "AMEX:FXI", label: "FXI" },
+    { sym: "AMEX:XLF", label: "XLF" },
+    { sym: "AMEX:XLE", label: "XLE" },
+    { sym: "AMEX:XLK", label: "XLK" },
+  ],
+  commodities: [
+    { sym: "AMEX:GLD", label: "Gold (GLD)" },
+    { sym: "AMEX:SLV", label: "Silver (SLV)" },
+    { sym: "AMEX:USO", label: "WTI Oil (USO)" },
+    { sym: "AMEX:BNO", label: "Brent (BNO)" },
+    { sym: "AMEX:UNG", label: "Nat Gas (UNG)" },
+    { sym: "AMEX:DBA", label: "Agri (DBA)" },
+    { sym: "AMEX:UVXY", label: "VIX (UVXY)" },
+    { sym: "AMEX:COPX", label: "Copper (COPX)" },
+  ],
+};
+
+function _switchRatesTab(tab) {
+  var dash = document.getElementById("cb-tab-dashboard");
+  var cal = document.getElementById("cb-tab-calendar");
+  var macroTab = document.getElementById("cb-tab-macrodata");
+  var btnDash = document.getElementById("cb-tab-dash");
+  var btnCal = document.getElementById("cb-tab-cal");
+  var btnMacro = document.getElementById("cb-tab-macro");
+
+  // Hide all tabs, reset all buttons
+  if (dash) dash.style.display = "none";
+  if (cal) cal.style.display = "none";
+  if (macroTab) macroTab.style.display = "none";
+  [btnDash, btnCal, btnMacro].forEach(function(b) { if (b) { b.style.background = ""; b.style.color = ""; } });
+
+  if (tab === "dashboard") {
+    if (dash) dash.style.display = "block";
+    if (btnDash) { btnDash.style.background = "var(--accent)"; btnDash.style.color = "#000"; }
+    if (!_macroDashLoaded) _loadMacroDashboard();
+  } else if (tab === "calendar") {
+    if (cal) cal.style.display = "block";
+    if (btnCal) { btnCal.style.background = "var(--accent)"; btnCal.style.color = "#000"; }
+    if (!_cbPanelLoaded) _loadCBCalendar();
+  } else if (tab === "macrodata") {
+    if (macroTab) macroTab.style.display = "block";
+    if (btnMacro) { btnMacro.style.background = "var(--accent)"; btnMacro.style.color = "#000"; }
+    if (!_macroDataLoaded) _initMacroDataTab();
+  }
+}
+
+function _loadMacroDashboard() {
+  _macroDashLoaded = true;
+  // Add hover effects to mini cards
+  var cards = document.querySelectorAll(".macro-mini-card");
+  cards.forEach(function(c) {
+    c.addEventListener("mouseenter", function() { c.style.borderColor = "var(--accent)"; });
+    c.addEventListener("mouseleave", function() { c.style.borderColor = "var(--border-subtle)"; });
+  });
+  // Load upcoming CB summary into dashboard
+  _loadMacroUpcoming();
+}
+
+function _macroOpenChart(symbol) {
+  // Close panel and load into the existing right-side chart (which renders properly)
+  var panel = document.getElementById("cb-panel");
+  if (panel) panel.style.display = "none";
+  loadTVChart(symbol);
+}
+
+function _showMacroCat(cat) {
+  var container = document.getElementById("macro-overlay-chips");
+  if (!container) return;
+
+  // Highlight active category button
+  var btns = document.querySelectorAll(".macro-cat-btn");
+  btns.forEach(function(b) {
+    b.style.background = "";
+    b.style.color = "";
+    if (b.getAttribute("data-cat") === cat) {
+      b.style.background = "var(--accent)";
+      b.style.color = "#000";
+    }
+  });
+
+  var items = _macroCatalog[cat] || [];
+  var html = "";
+  items.forEach(function(item) {
+    html += '<span onclick="_macroOpenChart(\'' + item.sym + '\')" style="font-size:9px;padding:4px 8px;border-radius:3px;display:inline-block;background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-subtle);cursor:pointer;transition:all .15s" onmouseenter="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\'" onmouseleave="this.style.borderColor=\'var(--border-subtle)\';this.style.color=\'var(--text-secondary)\'">' + item.label + '</span>';
+  });
+  container.innerHTML = html;
+}
+
+function _loadMacroUpcoming() {
+  // Fetch and show a mini upcoming CB meetings summary on the dashboard tab
+  fetch(SCANNER_API + "/api/central-banks").then(function(r) { return r.json(); }).then(function(banks) {
+    var upcoming = banks.filter(function(b) { return b.days_until != null && b.days_until <= 14; });
+    var el = document.getElementById("macro-upcoming-summary");
+    if (!el || !upcoming.length) return;
+    var html = '<div style="font-size:9px;color:var(--text-muted);letter-spacing:.1em;margin-bottom:6px">UPCOMING RATE DECISIONS</div>';
+    html += '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;padding:8px">';
+    upcoming.forEach(function(b) {
+      var urgency = b.days_until <= 1 ? "var(--negative)" : b.days_until <= 3 ? "var(--warning)" : b.days_until <= 7 ? "var(--accent)" : "var(--text-muted)";
+      var rateStr = b.current_rate != null ? b.current_rate.toFixed(2) + "%" : "";
+      var tvSym = _cbRateSymbols[b.code];
+      var click = tvSym ? " onclick=\"_macroOpenChart('" + tvSym.sym + "')\" style=\"cursor:pointer\"" : "";
+      html += '<div' + click + ' style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border-subtle);cursor:' + (tvSym ? 'pointer' : 'default') + '">';
+      html += '<div><span style="color:var(--accent);font-weight:600">' + b.code + '</span> <span style="color:var(--text-secondary)">' + b.geography + '</span>';
+      if (rateStr) html += ' <span style="color:var(--text-muted)">' + rateStr + '</span>';
+      if (b.expected) {
+        var expColor = b.expected.startsWith("CUT") ? "var(--positive)" : b.expected.startsWith("HIKE") ? "var(--negative)" : "var(--text-muted)";
+        html += ' <span style="color:' + expColor + ';font-size:8px">→ ' + b.expected + '</span>';
+      }
+      html += '</div>';
+      html += '<div style="color:' + urgency + ';font-weight:600;white-space:nowrap">' + b.days_until + 'd <span style="font-weight:400;color:var(--text-muted)">' + b.next_meeting + '</span></div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  }).catch(function() {});
+}
+
+function _toggleCBPanel() {
+  var panel = document.getElementById("cb-panel");
+  if (!panel) return;
+  var isVisible = panel.style.display !== "none";
+  panel.style.display = isVisible ? "none" : "block";
+  if (!isVisible) {
+    if (!_macroDashLoaded) _loadMacroDashboard();
+    if (!_cbPanelLoaded) _loadCBCalendar();
+  }
+}
+
+// ── Macro Data Charts (macrotrends-style) ────────────────────────────────────
+var _macroDataLoaded = false;
+var _macroChart = null;           // Chart.js instance
+var _macroFullData = [];          // full dataset from API
+var _macroChartMode = "bar";      // "bar" or "line"
+var _macroCurrentZoom = 0;        // 0 = ALL
+var _macroCountries = [];
+var _macroIndicators = {};        // grouped by category
+var _macroCurrentIndicator = "";
+var _macroCurrentCountry = "";
+var _macroActiveCat = "all";
+
+async function _initMacroDataTab() {
+  _macroDataLoaded = true;
+  try {
+    // Load countries
+    var resp = await fetch(SCANNER_API + "/api/macro/countries");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    _macroCountries = await resp.json();
+    var sel = document.getElementById("macro-country-sel");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Select Country —</option>';
+    _macroCountries.forEach(function(c) {
+      sel.innerHTML += '<option value="' + c.code + '">' + c.name + ' (' + c.code + ')</option>';
+    });
+    // Default to US
+    sel.value = "US";
+    _onMacroCountryChange();
+  } catch (e) {
+    console.error("Macro init error:", e);
+  }
+}
+
+async function _onMacroCountryChange() {
+  var sel = document.getElementById("macro-country-sel");
+  var indSel = document.getElementById("macro-indicator-sel");
+  if (!sel || !indSel) return;
+  _macroCurrentCountry = sel.value;
+  if (!_macroCurrentCountry) {
+    indSel.innerHTML = '<option value="">Select country first</option>';
+    return;
+  }
+  indSel.innerHTML = '<option value="">Loading...</option>';
+
+  try {
+    var resp = await fetch(SCANNER_API + "/api/macro/indicators?country=" + _macroCurrentCountry);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    _macroIndicators = await resp.json();
+
+    // Build category tabs
+    var catTabs = document.getElementById("macro-cat-tabs");
+    if (catTabs) {
+      var cats = Object.keys(_macroIndicators);
+      var html = '<button class="macro-cat-tab active" onclick="_filterMacroCategory(\'all\')">All</button>';
+      cats.forEach(function(cat) {
+        html += '<button class="macro-cat-tab" onclick="_filterMacroCategory(\'' + cat + '\')">' + cat + '</button>';
+      });
+      catTabs.innerHTML = html;
+    }
+
+    // Populate indicator dropdown
+    _macroActiveCat = "all";
+    _populateMacroIndicators("all");
+
+    // Auto-select first indicator
+    if (indSel.options.length > 1) {
+      indSel.selectedIndex = 1;
+      _onMacroIndicatorChange();
+    }
+  } catch (e) {
+    indSel.innerHTML = '<option value="">Error loading indicators</option>';
+    console.error("Macro indicators error:", e);
+  }
+}
+
+function _populateMacroIndicators(cat) {
+  var indSel = document.getElementById("macro-indicator-sel");
+  if (!indSel) return;
+  indSel.innerHTML = '<option value="">— Select Indicator —</option>';
+
+  if (cat === "all") {
+    // Show all grouped by category
+    Object.keys(_macroIndicators).forEach(function(category) {
+      _macroIndicators[category].forEach(function(ind) {
+        indSel.innerHTML += '<option value="' + ind.code + '">' + ind.name + (ind.units ? ' (' + ind.units + ')' : '') + '</option>';
+      });
+    });
+  } else {
+    var inds = _macroIndicators[cat] || [];
+    inds.forEach(function(ind) {
+      indSel.innerHTML += '<option value="' + ind.code + '">' + ind.name + (ind.units ? ' (' + ind.units + ')' : '') + '</option>';
+    });
+  }
+}
+
+function _filterMacroCategory(cat) {
+  _macroActiveCat = cat;
+  // Update tab active states
+  var tabs = document.querySelectorAll(".macro-cat-tab");
+  tabs.forEach(function(t) { t.classList.remove("active"); });
+  // Find the clicked one
+  tabs.forEach(function(t) {
+    if ((cat === "all" && t.textContent === "All") || t.textContent === cat) {
+      t.classList.add("active");
+    }
+  });
+  _populateMacroIndicators(cat);
+}
+
+async function _onMacroIndicatorChange() {
+  var indSel = document.getElementById("macro-indicator-sel");
+  if (!indSel) return;
+  _macroCurrentIndicator = indSel.value;
+  if (!_macroCurrentIndicator || !_macroCurrentCountry) return;
+
+  try {
+    var resp = await fetch(SCANNER_API + "/api/macro/series?country=" + _macroCurrentCountry + "&indicator=" + _macroCurrentIndicator);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    var result = await resp.json();
+    _macroFullData = result.data || [];
+
+    // Update header
+    var header = document.getElementById("macro-chart-header");
+    var title = document.getElementById("macro-chart-title");
+    var subtitle = document.getElementById("macro-chart-subtitle");
+    if (header) header.style.display = "block";
+    if (title) title.textContent = result.indicator_name + " — " + result.country_name;
+    if (subtitle) subtitle.textContent = (result.category || "") + (result.units ? " · " + result.units : "") + " · " + _macroFullData.length + " years of data";
+
+    // Show zoom bar and stats
+    var zoomBar = document.getElementById("macro-zoom-bar");
+    var stats = document.getElementById("macro-chart-stats");
+    if (zoomBar) zoomBar.style.display = "flex";
+    if (stats) stats.style.display = "grid";
+
+    // Render chart with current zoom
+    _macroCurrentZoom = 0; // reset to ALL
+    _setMacroZoomActive(0);
+    _renderMacroChart(_macroFullData, result);
+  } catch (e) {
+    console.error("Macro series error:", e);
+  }
+}
+
+function _macroZoom(years) {
+  _macroCurrentZoom = years;
+  _setMacroZoomActive(years);
+  if (!_macroFullData.length) return;
+
+  var data = _macroFullData;
+  if (years > 0) {
+    var cutoff = new Date().getFullYear() - years;
+    data = _macroFullData.filter(function(d) { return d.year >= cutoff; });
+  }
+  _renderMacroChart(data);
+}
+
+function _setMacroZoomActive(years) {
+  var btns = document.querySelectorAll(".macro-zoom-btn");
+  btns.forEach(function(b) {
+    var r = parseInt(b.getAttribute("data-range"));
+    if (r === years) {
+      b.classList.add("active");
+    } else {
+      b.classList.remove("active");
+    }
+  });
+}
+
+function _toggleMacroChartMode() {
+  _macroChartMode = _macroChartMode === "bar" ? "line" : "bar";
+  var btn = document.getElementById("macro-chart-mode-btn");
+  if (btn) btn.textContent = _macroChartMode === "bar" ? "📊 BAR" : "📈 LINE";
+  // Re-render with current zoom
+  _macroZoom(_macroCurrentZoom);
+}
+
+function _renderMacroChart(data, meta) {
+  var canvas = document.getElementById("macro-chart-canvas");
+  if (!canvas) return;
+
+  // Destroy old chart
+  if (_macroChart) {
+    _macroChart.destroy();
+    _macroChart = null;
+  }
+
+  if (!data || !data.length) return;
+
+  var labels = data.map(function(d) { return d.year; });
+  var values = data.map(function(d) { return d.value; });
+
+  // Determine if this is a "change" type indicator (can be negative) for red/green bars
+  var hasNeg = values.some(function(v) { return v < 0; });
+  var isPercentChange = false;
+  if (meta) {
+    var name = (meta.indicator_name || "").toLowerCase();
+    isPercentChange = name.indexOf("growth") !== -1 || name.indexOf("change") !== -1 || name.indexOf("inflation") !== -1 ||
+                      (meta.units || "").indexOf("%") !== -1;
+  }
+
+  // Bar colors: red/green for change indicators, accent blue for absolute values
+  var bgColors, borderColors;
+  if (isPercentChange || hasNeg) {
+    bgColors = values.map(function(v) {
+      return v >= 0 ? "rgba(0,229,170,0.7)" : "rgba(244,63,94,0.7)";
+    });
+    borderColors = values.map(function(v) {
+      return v >= 0 ? "rgba(0,229,170,1)" : "rgba(244,63,94,1)";
+    });
+  } else {
+    bgColors = "rgba(124,147,240,0.6)";
+    borderColors = "rgba(124,147,240,1)";
+  }
+
+  var chartConfig = {
+    type: _macroChartMode,
+    data: {
+      labels: labels,
+      datasets: [{
+        label: meta ? meta.indicator_name : "Value",
+        data: values,
+        backgroundColor: bgColors,
+        borderColor: borderColors,
+        borderWidth: _macroChartMode === "line" ? 2 : 1,
+        borderRadius: _macroChartMode === "bar" ? 2 : 0,
+        fill: _macroChartMode === "line" ? { target: "origin", above: "rgba(0,229,170,0.08)", below: "rgba(244,63,94,0.08)" } : false,
+        pointRadius: _macroChartMode === "line" ? 0 : undefined,
+        pointHoverRadius: _macroChartMode === "line" ? 4 : undefined,
+        tension: _macroChartMode === "line" ? 0.3 : 0,
+        segment: _macroChartMode === "line" ? {
+          borderColor: function(ctx) {
+            var v = ctx.p1.parsed.y;
+            return v >= 0 ? "rgba(0,229,170,1)" : "rgba(244,63,94,1)";
+          }
+        } : undefined
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#0b1622",
+          titleColor: "#a8c4d8",
+          bodyColor: "#a8c4d8",
+          borderColor: "#1a2d42",
+          borderWidth: 1,
+          titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+          bodyFont: { family: "'IBM Plex Mono', monospace", size: 12 },
+          padding: 10,
+          callbacks: {
+            label: function(ctx) {
+              var v = ctx.parsed.y;
+              if (v == null) return "";
+              var units = meta ? (meta.units || "") : "";
+              if (units === "%" || (isPercentChange && !units)) return v.toFixed(2) + "%";
+              if (units === "USD" || units === "US$") {
+                if (Math.abs(v) >= 1e12) return "$" + (v / 1e12).toFixed(2) + "T";
+                if (Math.abs(v) >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+                if (Math.abs(v) >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
+                return "$" + v.toFixed(2);
+              }
+              if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + "B";
+              if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + "M";
+              return v.toFixed(2) + (units ? " " + units : "");
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(20,32,48,0.6)", drawBorder: false },
+          ticks: { color: "#6a8fa8", font: { family: "'IBM Plex Mono',monospace", size: 9 }, maxTicksLimit: 15, maxRotation: 0 }
+        },
+        y: {
+          grid: { color: "rgba(20,32,48,0.6)", drawBorder: false },
+          ticks: {
+            color: "#6a8fa8",
+            font: { family: "'IBM Plex Mono',monospace", size: 9 },
+            callback: function(value) {
+              var units = meta ? (meta.units || "") : "";
+              if (units === "%" || isPercentChange) return value.toFixed(1) + "%";
+              if (units === "USD" || units === "US$") {
+                if (Math.abs(value) >= 1e12) return "$" + (value / 1e12).toFixed(1) + "T";
+                if (Math.abs(value) >= 1e9) return "$" + (value / 1e9).toFixed(1) + "B";
+                if (Math.abs(value) >= 1e6) return "$" + (value / 1e6).toFixed(0) + "M";
+                return "$" + value.toFixed(0);
+              }
+              if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(1) + "B";
+              if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(0) + "M";
+              return value.toFixed(1);
+            }
+          }
+        }
+      }
+    }
+  };
+
+  _macroChart = new Chart(canvas, chartConfig);
+
+  // Update summary stats
+  _updateMacroStats(values, meta);
+}
+
+function _updateMacroStats(values, meta) {
+  var filtered = values.filter(function(v) { return v != null; });
+  if (!filtered.length) return;
+
+  var latest = filtered[filtered.length - 1];
+  var high = Math.max.apply(null, filtered);
+  var low = Math.min.apply(null, filtered);
+
+  var units = meta ? (meta.units || "") : "";
+  var isPercent = units === "%" || units.indexOf("%") !== -1;
+
+  function fmt(v) {
+    if (isPercent) return v.toFixed(2) + "%";
+    if (units === "USD" || units === "US$") {
+      if (Math.abs(v) >= 1e12) return "$" + (v / 1e12).toFixed(2) + "T";
+      if (Math.abs(v) >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+      if (Math.abs(v) >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
+      return "$" + v.toFixed(2);
+    }
+    if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + "B";
+    if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + "M";
+    return v.toFixed(2);
+  }
+
+  var el1 = document.getElementById("macro-stat-latest");
+  var el2 = document.getElementById("macro-stat-high");
+  var el3 = document.getElementById("macro-stat-low");
+  if (el1) el1.textContent = fmt(latest);
+  if (el2) el2.textContent = fmt(high);
+  if (el3) el3.textContent = fmt(low);
+}
+
+function _openMacroCompare() {
+  var panel = document.getElementById("macro-compare-panel");
+  if (!panel) return;
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+
+  // Build country checkboxes
+  var container = document.getElementById("macro-compare-checks");
+  if (!container || container.children.length > 0) return;
+
+  var html = "";
+  _macroCountries.forEach(function(c) {
+    var checked = c.code === _macroCurrentCountry ? " checked" : "";
+    html += '<label><input type="checkbox" value="' + c.code + '"' + checked + '> ' + c.code + '</label>';
+  });
+  container.innerHTML = html;
+}
+
+async function _runMacroCompare() {
+  if (!_macroCurrentIndicator) return;
+
+  var checks = document.querySelectorAll("#macro-compare-checks input:checked");
+  var codes = [];
+  checks.forEach(function(cb) { codes.push(cb.value); });
+  if (codes.length < 2) { alert("Select at least 2 countries to compare"); return; }
+
+  // Hide compare panel
+  document.getElementById("macro-compare-panel").style.display = "none";
+
+  try {
+    var startYear = _macroCurrentZoom > 0 ? new Date().getFullYear() - _macroCurrentZoom : 1960;
+    var resp = await fetch(SCANNER_API + "/api/macro/compare?indicator=" + _macroCurrentIndicator + "&countries=" + codes.join(",") + "&start_year=" + startYear);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    var series = await resp.json();
+    _renderMacroCompareChart(series);
+  } catch (e) {
+    console.error("Compare error:", e);
+  }
+}
+
+function _renderMacroCompareChart(series) {
+  var canvas = document.getElementById("macro-chart-canvas");
+  if (!canvas) return;
+  if (_macroChart) { _macroChart.destroy(); _macroChart = null; }
+  if (!series || !series.length) return;
+
+  // Collect all unique years for labels
+  var yearSet = {};
+  series.forEach(function(s) {
+    s.data.forEach(function(d) { yearSet[d.year] = true; });
+  });
+  var labels = Object.keys(yearSet).map(Number).sort();
+
+  // Color palette for multiple countries
+  var palette = [
+    { bg: "rgba(124,147,240,0.8)", border: "#7c93f0" },
+    { bg: "rgba(0,229,170,0.8)",   border: "#00e5aa" },
+    { bg: "rgba(244,63,94,0.8)",   border: "#f43f5e" },
+    { bg: "rgba(245,158,11,0.8)",  border: "#f59e0b" },
+    { bg: "rgba(6,182,212,0.8)",   border: "#06b6d4" },
+    { bg: "rgba(168,130,255,0.8)", border: "#a882ff" },
+    { bg: "rgba(255,107,107,0.8)", border: "#ff6b6b" },
+    { bg: "rgba(72,199,142,0.8)",  border: "#48c78e" },
+    { bg: "rgba(255,183,77,0.8)",  border: "#ffb74d" },
+    { bg: "rgba(144,202,249,0.8)", border: "#90caf9" },
+  ];
+
+  var datasets = series.map(function(s, i) {
+    var col = palette[i % palette.length];
+    // Map data to labels array
+    var valueMap = {};
+    s.data.forEach(function(d) { valueMap[d.year] = d.value; });
+    var values = labels.map(function(yr) { return valueMap[yr] != null ? valueMap[yr] : null; });
+
+    return {
+      label: s.country_name + " (" + s.country_code + ")",
+      data: values,
+      borderColor: col.border,
+      backgroundColor: col.bg,
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.3,
+      fill: false,
+      spanGaps: true
+    };
+  });
+
+  _macroChart = new Chart(canvas, {
+    type: "line",
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          labels: {
+            color: "#6a8fa8",
+            font: { family: "'IBM Plex Mono',monospace", size: 9 },
+            boxWidth: 12,
+            padding: 8
+          }
+        },
+        tooltip: {
+          backgroundColor: "#0b1622",
+          titleColor: "#a8c4d8",
+          bodyColor: "#a8c4d8",
+          borderColor: "#1a2d42",
+          borderWidth: 1,
+          titleFont: { family: "'IBM Plex Mono',monospace", size: 11 },
+          bodyFont: { family: "'IBM Plex Mono',monospace", size: 11 },
+          padding: 10
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(20,32,48,0.6)", drawBorder: false },
+          ticks: { color: "#6a8fa8", font: { family: "'IBM Plex Mono',monospace", size: 9 }, maxTicksLimit: 15, maxRotation: 0 }
+        },
+        y: {
+          grid: { color: "rgba(20,32,48,0.6)", drawBorder: false },
+          ticks: { color: "#6a8fa8", font: { family: "'IBM Plex Mono',monospace", size: 9 } }
+        }
+      }
+    }
+  });
+
+  // Update title
+  var title = document.getElementById("macro-chart-title");
+  if (title) title.textContent = "Comparing: " + series.map(function(s) { return s.country_code; }).join(" vs ");
+}
+
+async function _loadCBCalendar() {
+  var el = document.getElementById("cb-panel-content");
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--text-muted)">Loading calendar...</span>';
+  _cbPanelLoaded = true;
+
+  try {
+    var resp = await fetch(SCANNER_API + "/api/central-banks");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    var banks = await resp.json();
+
+    // Upcoming alerts (within 7 days)
+    var upcoming = banks.filter(function(b) { return b.days_until != null && b.days_until <= 7; });
+    var html = "";
+
+    if (upcoming.length > 0) {
+      html += '<div style="margin-bottom:14px;padding:10px;background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.25);border-radius:4px">';
+      html += '<div style="font-size:9px;color:var(--negative);letter-spacing:.1em;font-weight:600;margin-bottom:6px">UPCOMING THIS WEEK</div>';
+      upcoming.forEach(function(b) {
+        var urgency = b.days_until <= 1 ? "var(--negative)" : b.days_until <= 3 ? "var(--warning)" : "var(--accent)";
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(244,63,94,.1)">';
+        html += '<div><span style="color:var(--text-primary);font-weight:600">' + b.code + '</span> <span style="color:var(--text-secondary)">' + b.bank + '</span></div>';
+        html += '<div style="text-align:right"><span style="color:' + urgency + ';font-weight:600">' + b.days_until + 'd</span> <span style="color:var(--text-muted)">' + b.next_meeting + '</span></div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Group by region
+    var regions = {};
+    banks.forEach(function(b) {
+      var region = "Other";
+      if (["US","Canada"].includes(b.geography)) region = "Americas";
+      else if (["EU","UK","Switzerland","Sweden","Norway"].includes(b.geography)) region = "Europe";
+      else if (["Japan","China","Australia","New Zealand","South Korea","India","Indonesia","Thailand","Singapore","Malaysia","Philippines"].includes(b.geography)) region = "Asia-Pacific";
+      else if (["Brazil","Mexico"].includes(b.geography)) region = "Americas";
+      else if (["South Africa","Turkey"].includes(b.geography)) region = "EMEA";
+      else if (["Russia"].includes(b.geography)) region = "EMEA";
+      if (!regions[region]) regions[region] = [];
+      regions[region].push(b);
+    });
+
+    var regionOrder = ["Americas", "Europe", "Asia-Pacific", "EMEA", "Other"];
+    regionOrder.forEach(function(region) {
+      var rBanks = regions[region];
+      if (!rBanks || !rBanks.length) return;
+
+      html += '<div style="margin-bottom:14px">';
+      html += '<div style="font-size:9px;color:var(--accent);letter-spacing:.1em;font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border-visible)">' + region.toUpperCase() + '</div>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:10px">';
+      html += '<tr style="color:var(--text-muted)">';
+      html += '<th style="text-align:left;padding:3px 6px;font-weight:400">BANK</th>';
+      html += '<th style="text-align:left;padding:3px 6px;font-weight:400">COUNTRY</th>';
+      html += '<th style="text-align:right;padding:3px 6px;font-weight:400">RATE</th>';
+      html += '<th style="text-align:center;padding:3px 6px;font-weight:400">EXPECTED</th>';
+      html += '<th style="text-align:left;padding:3px 6px;font-weight:400">NEXT</th>';
+      html += '<th style="text-align:right;padding:3px 6px;font-weight:400">DAYS</th>';
+      html += '</tr>';
+
+      rBanks.forEach(function(b) {
+        var daysColor = "var(--text-muted)";
+        var daysBadge = "";
+        if (b.days_until != null) {
+          if (b.days_until <= 1) { daysColor = "var(--negative)"; daysBadge = " ⚠"; }
+          else if (b.days_until <= 3) { daysColor = "var(--negative)"; }
+          else if (b.days_until <= 7) { daysColor = "var(--warning)"; }
+          else if (b.days_until <= 14) { daysColor = "var(--accent)"; }
+        }
+
+        var rateColor = "var(--text-primary)";
+        if (b.current_rate >= 10) rateColor = "var(--negative)";
+        else if (b.current_rate >= 5) rateColor = "var(--warning)";
+        else if (b.current_rate <= 1) rateColor = "var(--accent)";
+
+        // Expected rate styling
+        var expectedStr = b.expected || "—";
+        var expectedColor = "var(--text-muted)";
+        if (expectedStr.startsWith("CUT")) expectedColor = "var(--positive)";
+        else if (expectedStr.startsWith("HIKE")) expectedColor = "var(--negative)";
+        else if (expectedStr.startsWith("HOLD")) expectedColor = "var(--text-secondary)";
+
+        // TradingView symbol for interest rates / bond yields
+        var tvRateSymbol = _cbRateSymbols[b.code] || null;
+        var clickStyle = tvRateSymbol ? "cursor:pointer" : "";
+        var clickHandler = tvRateSymbol ? ' onclick="_showCBRateChart(\'' + b.code + '\')"' : "";
+        var hoverStyle = tvRateSymbol ? ";opacity:.85" : "";
+
+        html += '<tr style="border-bottom:1px solid var(--border-subtle)' + hoverStyle + ';' + clickStyle + '"' + clickHandler + ' title="' + (tvRateSymbol ? 'Click to view rate chart' : '') + '">';
+        html += '<td style="padding:5px 6px;color:var(--accent);font-weight:500;' + (tvRateSymbol ? 'text-decoration:underline;text-underline-offset:2px' : 'color:var(--text-primary)') + '">' + b.code + '</td>';
+        html += '<td style="padding:5px 6px;color:var(--text-secondary)">' + b.geography + '</td>';
+        html += '<td style="text-align:right;padding:5px 6px;color:' + rateColor + ';font-weight:600">' + (b.current_rate != null ? b.current_rate.toFixed(2) + "%" : "—") + '</td>';
+        html += '<td style="text-align:center;padding:5px 6px;color:' + expectedColor + ';font-weight:500;font-size:9px">' + expectedStr + '</td>';
+        html += '<td style="padding:5px 6px;color:var(--text-primary)">' + (b.next_meeting || "—") + '</td>';
+        html += '<td style="text-align:right;padding:5px 6px;color:' + daysColor + ';font-weight:600">' + (b.days_until != null ? b.days_until + "d" + daysBadge : "—") + '</td>';
+        html += '</tr>';
+
+        // Show next 3 upcoming dates in a subtle sub-row
+        if (b.upcoming_dates && b.upcoming_dates.length > 1) {
+          html += '<tr><td colspan="6" style="padding:0 6px 4px;font-size:9px;color:var(--text-muted)">Upcoming: ' + b.upcoming_dates.slice(1, 4).join(" · ") + '</td></tr>';
+        }
+      });
+
+      html += '</table></div>';
+    });
+
+    html += '<div style="font-size:9px;color:var(--text-muted);padding-top:8px;border-top:1px solid var(--border-subtle)">' + banks.length + ' central banks tracked · Rates are approximate · Updated manually</div>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<span style="color:var(--negative)">Error: ' + e.message + '</span>';
+  }
+}
+
+// ── Auto Event Detection ──
+async function _autoDetectEvents() {
+  var btn = document.getElementById("auto-detect-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "⚡ SCANNING..."; }
+
+  try {
+    var resp = await fetch(SCANNER_API + "/api/events/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    var result = await resp.json();
+
+    if (result.detected > 0) {
+      var evtList = result.events.map(function(e) { return e.date + " — " + e.description; }).join("\n");
+      alert("✓ Detected " + result.detected + " new events:\n\n" + evtList);
+      // Refresh inventory
+      _inventoryLoaded = false;
+      _loadInventory();
+    } else {
+      alert("No significant new events detected in the last 7 days.");
+    }
+  } catch (e) {
+    alert("Error scanning for events: " + e.message);
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = "⚡ SCAN FOR EVENTS"; }
+}
+
+// ── TradingView Chart Embed ──
+function _showTickerChart(symbol) {
+  _showTradingViewChart(symbol);
+}
+
+// Load a symbol into the existing right-side TradingView chart
+// Shows the chart panel if hidden, then switches the ticker
+var _macroChartLock = false;
+function loadTVChart(symbol) {
+  _macroChartLock = true; // prevent scroll-sync from overriding
+  // Clear lock on next user scroll (so scroll-sync resumes when they interact)
+  var _unlockOnScroll = function() {
+    _macroChartLock = false;
+    window.removeEventListener('scroll', _unlockOnScroll);
+  };
+  window.addEventListener('scroll', _unlockOnScroll, { passive: true });
+  // Show chart panel directly (don't call _showChartPanel which reloads old ticker)
+  var panel = document.getElementById('chart-panel');
+  if (panel) panel.classList.remove('chart-hidden');
+  // Set ticker and load chart
+  _tvCurrentTicker = symbol;
+  var display = document.getElementById('chart-ticker-display');
+  if (display) display.textContent = symbol;
+  var tvLink = document.getElementById('chart-tv-open');
+  if (tvLink) tvLink.href = 'https://www.tradingview.com/chart/?symbol=' + symbol;
+  _loadOrUpdateTVChart(symbol, _tvCurrentTF);
+}
+
+function _showTradingViewChart(symbol, eventDates) {
+  // Use the existing in-page chart instead of a broken position:fixed overlay
+  // (TradingView WebGL canvas doesn't render inside position:fixed containers)
+  loadTVChart(symbol);
+}
+
+function _addChartOverlay() {
+  // Overlay functionality: switch the right-side chart to a new symbol
+  var input = document.getElementById("tv-overlay-input");
+  if (!input || !input.value.trim()) return;
+  var sym = input.value.trim().toUpperCase();
+  input.value = "";
+  loadTVChart(sym);
+}
+
+// Inventory is loaded via onclick on the details element
+
+function _renderAiHistory(history) {
+  if (!history || !history.length) return "";
+
+  var options = history.slice(0, 50).map(function(h, i) {
+    var label = h.q.length > 60 ? h.q.slice(0, 57) + "..." : h.q;
+    var badge = "";
+    if (h.scanType === "universe" && h.topResults && h.topResults.length) {
+      badge = " [" + h.topResults.length + " tickers]";
+    } else if (h.singleResult && h.singleResult.n > 0 && h.singleResult.d5 != null) {
+      badge = " [" + (h.singleResult.d5 >= 0 ? "+" : "") + h.singleResult.d5.toFixed(2) + "% d5]";
+    }
+    return '<option value="' + i + '">' + h.ts + ' — ' + label + badge + '</option>';
+  }).join("");
+
+  return '<div style="margin-top:10px;border-top:1px solid var(--border-visible);padding-top:10px">' +
+    '<div style="display:flex;align-items:center;gap:8px">' +
+      '<div style="font-size:9px;color:var(--text-muted);font-family:\'IBM Plex Mono\',monospace;letter-spacing:.1em;white-space:nowrap">PREVIOUS (' + history.length + ')</div>' +
+      '<select id="ai-history-select" style="flex:1;font-size:10px;padding:5px 8px;font-family:\'IBM Plex Mono\',monospace;background:var(--bg-hover);color:var(--text-secondary);border:1px solid var(--border-subtle);border-radius:3px" onchange="_previewHistoryItem(this.value)">' +
+        '<option value="">Select a previous search…</option>' +
+        options +
+      '</select>' +
+      '<button class="btn btn-p" style="font-size:9px;padding:5px 10px;white-space:nowrap" onclick="_loadSelectedHistory()">LOAD</button>' +
+      '<button class="btn btn-g" style="font-size:8px;padding:5px 8px;white-space:nowrap" onclick="_clearAiHistory()">CLEAR</button>' +
+    '</div>' +
+    '<div id="ai-history-preview" style="margin-top:6px"></div>' +
+  '</div>';
+}
+
+function _previewHistoryItem(idx) {
+  var previewEl = document.getElementById("ai-history-preview");
+  if (!previewEl || idx === "") { if (previewEl) previewEl.innerHTML = ""; return; }
+  var h = _scannerState.aiHistory[parseInt(idx)];
+  if (!h) return;
+  var html = '<div style="padding:8px;background:var(--bg-hover);border-radius:4px;font-family:\'IBM Plex Mono\',monospace;font-size:10px">';
+  if (h.interpretation) html += '<div style="color:var(--accent);margin-bottom:4px">' + h.interpretation + '</div>';
+  if (h.topResults && h.topResults.length) {
+    html += '<div style="color:var(--text-muted);margin-bottom:2px">Top results:</div>';
+    h.topResults.slice(0, 5).forEach(function(r) {
+      var d5col = r.d5 != null ? (r.d5 >= 0 ? "var(--positive)" : "var(--negative)") : "var(--text-muted)";
+      html += '<span style="display:inline-block;margin:1px 4px 1px 0;padding:2px 6px;background:var(--bg-surface);border-radius:2px;border:1px solid var(--border-subtle)">' +
+        r.ticker + ' <span style="color:' + d5col + '">' + (r.d5 != null ? (r.d5 >= 0 ? "+" : "") + r.d5.toFixed(2) + "%" : "") + '</span></span>';
+    });
+    if (h.topResults.length > 5) html += '<span style="color:var(--text-muted);font-size:9px"> +' + (h.topResults.length - 5) + ' more</span>';
+  } else if (h.singleResult && h.singleResult.n > 0) {
+    var sr = h.singleResult;
+    html += '<div style="color:var(--text-secondary)">' + sr.ticker + ': N=' + sr.n;
+    if (sr.d5 != null) html += ' | D+5: <span style="color:' + (sr.d5 >= 0 ? "var(--positive)" : "var(--negative)") + '">' + (sr.d5 >= 0 ? "+" : "") + sr.d5.toFixed(2) + '%</span>';
+    if (sr.wr5 != null) html += ' | Win: ' + sr.wr5.toFixed(1) + '%';
+    html += '</div>';
+  }
+  html += '</div>';
+  previewEl.innerHTML = html;
+}
+
+function _loadSelectedHistory() {
+  var sel = document.getElementById("ai-history-select");
+  if (!sel || sel.value === "") return;
+  _loadAiHistoryItem(parseInt(sel.value));
+}
+
+async function _runAiAsk() {
+  const s = _scannerState;
+  if (!s.aiQuestion.trim()) return;
+  s.aiLoading = true;
+  s.aiResult = null;
+  renderScanner();
+
+  try {
+    const resp = await fetch(SCANNER_API + "/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: s.aiQuestion, explain: true }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    s.aiResult = await resp.json();
+
+    // Save to history (full results for later reference)
+    var histEntry = {
+      q: s.aiQuestion,
+      ts: new Date().toLocaleString(),
+      interpretation: s.aiResult.interpretation || "",
+      scanType: s.aiResult.scan_type || "single",
+      explanation: s.aiResult.explanation || "",
+      // For universe scans, save top results summary (trim to keep localStorage reasonable)
+      topResults: [],
+      singleResult: null,
+    };
+    if (s.aiResult.scan_type === "universe" && Array.isArray(s.aiResult.results)) {
+      histEntry.topResults = s.aiResult.results
+        .filter(function(r){ return r.sample_size > 0; })
+        .sort(function(a,b){ return Math.abs(b.avg_return_d5 || 0) - Math.abs(a.avg_return_d5 || 0); })
+        .slice(0, 15)
+        .map(function(r){ return { ticker: r.target_ticker, n: r.sample_size, d1: r.avg_return_d1, d5: r.avg_return_d5, d10: r.avg_return_d10, wr5: r.win_rate_d5, sharpe5: r.sharpe_d5 }; });
+    } else if (s.aiResult.results && typeof s.aiResult.results === "object") {
+      var rr = s.aiResult.results;
+      histEntry.singleResult = { ticker: rr.target_ticker, n: rr.sample_size, d1: rr.avg_return_d1, d2: rr.avg_return_d2, d5: rr.avg_return_d5, d10: rr.avg_return_d10, wr5: rr.win_rate_d5, sharpe5: rr.sharpe_d5 };
+    }
+    s.aiHistory.unshift(histEntry);
+    if (s.aiHistory.length > 50) s.aiHistory = s.aiHistory.slice(0, 50);
+    localStorage.setItem("scanner_ai_history", JSON.stringify(s.aiHistory));
+  } catch (e) {
+    s.aiResult = { error: e.message };
+  }
+
+  s.aiLoading = false;
+  renderScanner();
+}
+
+function _renderAiResults(r) {
+  if (r.error) {
+    return '<div style="margin-top:10px;padding:10px;border:1px solid var(--negative);border-radius:4px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--negative)">' + r.error + '</div>';
+  }
+
+  var html = "";
+
+  // Interpretation
+  if (r.interpretation) {
+    html += '<div style="margin-top:10px;padding:10px;background:var(--bg-hover);border-radius:4px;font-size:11px;color:var(--text-secondary);font-family:\'IBM Plex Mono\',monospace">' +
+      '<span style="color:var(--accent)">INTERPRETED AS:</span> ' + r.interpretation +
+    '</div>';
+  }
+
+  // Scan params summary
+  if (r.scan_params) {
+    var p = r.scan_params;
+    var condStr = (p.primary_conditions || []).map(function(c){ return c.type; }).join(" + ");
+    var targetInfo = r.scan_type === "universe"
+      ? "Universe: " + ((p.target_tickers && p.target_tickers.length) || 0) + " tickers"
+      : "Target: " + (p.target_ticker || p.primary_ticker);
+    html += '<div style="margin-top:6px;font-size:10px;color:var(--text-muted);font-family:\'IBM Plex Mono\',monospace">' +
+      'Signal: ' + p.primary_ticker + ' | Conditions: ' + condStr + ' | ' + targetInfo +
+    '</div>';
+  }
+
+  // AI Explanation
+  if (r.explanation) {
+    html += '<div style="margin-top:10px;padding:12px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:4px">' +
+      '<div style="font-size:9px;color:var(--accent);font-family:\'IBM Plex Mono\',monospace;letter-spacing:.1em;margin-bottom:6px">AI ANALYSIS</div>' +
+      '<div style="font-size:12px;color:var(--text-primary);line-height:1.6;white-space:pre-wrap">' + r.explanation + '</div>' +
+    '</div>';
+  }
+
+  // Results
+  if (r.scan_type === "universe" && Array.isArray(r.results)) {
+    html += _renderUniverseAiResults(r.results);
+  } else if (r.results && typeof r.results === "object") {
+    html += '<div style="margin-top:10px">' + _renderScanResults(r.results) + '</div>';
+  }
+
+  return html;
+}
+
+function _fmtReturn(v) {
+  if (v == null) return "\u2014";
+  var color = v >= 0 ? "var(--positive)" : "var(--negative)";
+  var sign = v >= 0 ? "+" : "";
+  return '<span style="color:' + color + '">' + sign + v.toFixed(2) + '%</span>';
+}
+
+function _renderUniverseAiResults(results) {
+  if (!results.length) return '<div style="margin-top:10px;font-size:11px;color:var(--text-muted)">No results found.</div>';
+
+  var valid = results.filter(function(r){ return r.sample_size > 0 && r.avg_return_d5 != null; });
+  if (!valid.length) return '<div style="margin-top:10px;font-size:11px;color:var(--text-muted)">No matching signals found across the universe.</div>';
+
+  valid.sort(function(a, b){ return Math.abs(b.avg_return_d5 || 0) - Math.abs(a.avg_return_d5 || 0); });
+
+  var html = '<div style="margin-top:12px">' +
+    '<div class="st">UNIVERSE RESULTS (' + valid.length + ' tickers with signals)</div>' +
+    '<div style="overflow-x:auto;margin-top:8px">' +
+    '<table style="width:100%;border-collapse:collapse;font-family:\'IBM Plex Mono\',monospace;font-size:10px">' +
+    '<thead><tr style="border-bottom:1px solid var(--border-visible)">' +
+    '<th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-weight:400">TICKER</th>' +
+    '<th style="text-align:right;padding:6px 8px;color:var(--text-muted);font-weight:400">N</th>' +
+    '<th style="text-align:right;padding:6px 8px;color:var(--text-muted);font-weight:400">D+1</th>' +
+    '<th style="text-align:right;padding:6px 8px;color:var(--text-muted);font-weight:400">D+5</th>' +
+    '<th style="text-align:right;padding:6px 8px;color:var(--text-muted);font-weight:400">D+10</th>' +
+    '<th style="text-align:right;padding:6px 8px;color:var(--text-muted);font-weight:400">WIN%</th>' +
+    '<th style="text-align:right;padding:6px 8px;color:var(--text-muted);font-weight:400">SHARPE</th>' +
+    '</tr></thead><tbody>';
+
+  for (var i = 0; i < Math.min(valid.length, 30); i++) {
+    var r = valid[i];
+    var reliable = r.sample_size >= 30;
+    var wrColor = (r.win_rate_d5 != null && r.win_rate_d5 >= 55) ? "var(--positive)" : "var(--text-secondary)";
+    var shColor = (r.sharpe_d5 != null && r.sharpe_d5 > 0.5) ? "var(--positive)" : "var(--text-secondary)";
+    var warn = reliable ? "" : ' <span style="color:var(--warning);font-size:8px">\u26A0</span>';
+
+    html += '<tr style="border-bottom:1px solid var(--border-subtle)">' +
+      '<td style="padding:6px 8px;color:var(--text-primary);font-weight:500;cursor:pointer;text-decoration:underline" onclick="_showTradingViewChart(\'' + r.target_ticker + '\')">' + r.target_ticker + warn + '</td>' +
+      '<td style="text-align:right;padding:6px 8px;color:var(--text-secondary)">' + r.sample_size + '</td>' +
+      '<td style="text-align:right;padding:6px 8px">' + _fmtReturn(r.avg_return_d1) + '</td>' +
+      '<td style="text-align:right;padding:6px 8px">' + _fmtReturn(r.avg_return_d5) + '</td>' +
+      '<td style="text-align:right;padding:6px 8px">' + _fmtReturn(r.avg_return_d10) + '</td>' +
+      '<td style="text-align:right;padding:6px 8px;color:' + wrColor + '">' + (r.win_rate_d5 != null ? r.win_rate_d5.toFixed(1) + "%" : "\u2014") + '</td>' +
+      '<td style="text-align:right;padding:6px 8px;color:' + shColor + '">' + (r.sharpe_d5 != null ? r.sharpe_d5.toFixed(2) : "\u2014") + '</td>' +
+    '</tr>';
+  }
+
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function _renderHistogram(values, title) {
+  if (!values.length) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const bucketCount = Math.min(30, Math.max(10, Math.ceil(Math.sqrt(values.length))));
+  const step = (max - min) / bucketCount || 1;
+  const buckets = new Array(bucketCount).fill(0);
+  for (const v of values) {
+    let idx = Math.floor((v - min) / step);
+    if (idx >= bucketCount) idx = bucketCount - 1;
+    if (idx < 0) idx = 0;
+    buckets[idx]++;
+  }
+  const maxBucket = Math.max(...buckets);
+  const barWidth = 100 / bucketCount;
+
+  const bars = buckets.map((count, i) => {
+    const bucketMid = min + (i + 0.5) * step;
+    const height = maxBucket > 0 ? (count / maxBucket) * 100 : 0;
+    const color = bucketMid >= 0 ? "var(--positive)" : "var(--negative)";
+    const opacity = 0.4 + (count / maxBucket) * 0.6;
+    return `<div style="width:${barWidth}%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+      <div style="width:80%;height:${height}%;background:${color};opacity:${opacity};border-radius:1px 1px 0 0;min-height:${count > 0 ? 2 : 0}px"></div>
+    </div>`;
+  }).join("");
+
+  return `
+    <div style="margin-top:12px">
+      <div class="lbl" style="margin-bottom:8px">${title}</div>
+      <div style="height:120px;display:flex;align-items:flex-end;border-bottom:1px solid var(--border-visible);padding:0 2px">
+        ${bars}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;font-family:'IBM Plex Mono',monospace;color:var(--text-muted);margin-top:4px">
+        <span>${min.toFixed(1)}%</span>
+        <span>0%</span>
+        <span>${max.toFixed(1)}%</span>
+      </div>
+    </div>`;
+}
+
 </script>
 
 <!-- SECTOR MODAL -->
