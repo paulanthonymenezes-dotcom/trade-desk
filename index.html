@@ -33,12 +33,12 @@
   --overlay-bg: rgba(0,0,0,.9);
 }
 [data-theme="koyfin"] {
-  --bg-primary: #0f1117;
+  --bg-primary: #0d1117;
   --bg-card: #161b22;
   --bg-hover: #1c2128;
   --bg-surface: #1c2128;
-  --border-subtle: #30363d;
-  --border-visible: #30363d;
+  --border-subtle: #21262d;
+  --border-visible: #21262d;
   --text-primary: #ffffff;
   --text-secondary: #8b949e;
   --text-tertiary: #484f58;
@@ -46,71 +46,71 @@
   --positive: #3fb950;
   --negative: #f85149;
   --warning: #d29922;
-  --positive-dim: rgba(63,185,80,.15);
-  --negative-dim: rgba(248,81,73,.15);
-  --negative-hover: rgba(248,81,73,.4);
-  --warning-dim: rgba(210,153,34,.15);
-  --warning-faint: rgba(210,153,34,.08);
+  --positive-dim: rgba(63,185,80,.12);
+  --negative-dim: rgba(248,81,73,.12);
+  --negative-hover: rgba(248,81,73,.35);
+  --warning-dim: rgba(210,153,34,.12);
+  --warning-faint: rgba(210,153,34,.06);
   --accent: #2f81f7;
-  --accent-dim: rgba(47,129,247,.15);
-  --overlay-bg: rgba(15,17,23,.95);
+  --accent-dim: rgba(47,129,247,.12);
+  --overlay-bg: rgba(13,17,23,.95);
 }
 [data-theme="koyfin"] .btn-p{background:#2f81f7;color:#fff;font-weight:600}
 [data-theme="koyfin"] .btn-warn{background:#d29922;color:#fff;font-weight:600}
 [data-theme="koyfin"] .stats-pill.active{background:#2f81f7!important;color:#fff!important;border-color:#2f81f7!important}
-[data-theme="koyfin"] .side-btn.active{color:#2f81f7;border-left-color:#2f81f7}
-[data-theme="koyfin"] .nav-btn.active{color:#2f81f7}
-[data-theme="koyfin"] .chart-tf-btn.active{border-color:#2f81f7;color:#2f81f7}
-[data-theme="koyfin"] input:focus,[data-theme="koyfin"] textarea:focus,[data-theme="koyfin"] select:focus{border-color:#2f81f7}
+[data-theme="koyfin"] .side-btn.active{color:#fff;border-left-color:#2f81f7;background:transparent}
+[data-theme="koyfin"] .nav-btn.active{color:#fff}
+[data-theme="koyfin"] .chart-tf-btn.active{border-color:#8b949e;color:#fff}
+[data-theme="koyfin"] input:focus,[data-theme="koyfin"] textarea:focus,[data-theme="koyfin"] select:focus{border-color:#8b949e}
 [data-theme="koyfin"] .st{background:transparent;padding:0;display:inline}
-[data-theme="koyfin"] #left-sidebar{background:#0f1117;border-right-color:#30363d}
-[data-theme="koyfin"] #positions-cards .card+.card{border-top-color:#30363d;border-top-width:1px}
+[data-theme="koyfin"] #left-sidebar{background:#0d1117;border-right-color:#21262d}
+[data-theme="koyfin"] #positions-cards .card+.card{border-top-color:#21262d;border-top-width:1px}
 /* ── Base ─────────────────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);font-family:'Inter',sans-serif;overscroll-behavior:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
 ::-webkit-scrollbar{width:2px;height:2px}
 ::-webkit-scrollbar-thumb{background:var(--border-visible)}
-input,textarea,select{background:var(--bg-card);border:1px solid var(--border-visible);color:var(--text-primary);font-family:'Inter',sans-serif;font-size:12px;padding:6px 8px;border-radius:4px;outline:none;width:100%;-webkit-appearance:none;font-variant-numeric:tabular-nums}
-input:focus,textarea:focus,select:focus{border-color:var(--accent)}
+input,textarea,select{background:var(--bg-hover);border:1px solid var(--border-subtle);color:var(--text-primary);font-family:'Inter',sans-serif;font-size:11px;padding:5px 7px;border-radius:4px;outline:none;width:100%;-webkit-appearance:none;font-variant-numeric:tabular-nums}
+input:focus,textarea:focus,select:focus{border-color:var(--text-tertiary)}
 select option{background:var(--bg-card)}
 button{cursor:pointer;font-family:'Inter',sans-serif;-webkit-tap-highlight-color:transparent}
-.lbl{font-size:11px;color:var(--text-secondary);font-weight:500;letter-spacing:0;margin-bottom:4px}
-.val{font-family:'Inter',sans-serif;font-size:13px;color:var(--text-primary);font-weight:600;font-variant-numeric:tabular-nums}
+.lbl{font-size:11px;color:var(--text-secondary);font-weight:500;letter-spacing:0;margin-bottom:3px}
+.val{font-size:13px;color:var(--text-primary);font-weight:600;font-variant-numeric:tabular-nums}
 .pos{color:var(--positive)!important}
 .neg{color:var(--negative)!important}
-.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px;padding:10px}
-.badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0}
-.btn{border-radius:4px;font-size:11px;letter-spacing:0;padding:6px 14px;border:none;cursor:pointer;font-weight:500}
+.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px;padding:7px 8px}
+.badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;letter-spacing:0}
+.btn{border-radius:4px;font-size:11px;letter-spacing:0;padding:5px 12px;border:none;cursor:pointer;font-weight:500}
 .btn-p{background:var(--accent);color:#fff;font-weight:600}
-.btn-g{background:transparent;color:var(--text-secondary);border:1px solid var(--border-visible)}
+.btn-g{background:transparent;color:var(--text-secondary);border:1px solid var(--border-subtle)}
 .btn-warn{background:var(--warning);color:#fff;font-weight:600}
 .btn-danger{background:var(--negative);color:#fff;font-weight:600}
-.frow{margin-bottom:10px}
-.frow label{display:block;font-size:11px;color:var(--text-secondary);font-weight:500;letter-spacing:0;margin-bottom:4px}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.frow{margin-bottom:8px}
+.frow label{display:block;font-size:11px;color:var(--text-secondary);font-weight:500;letter-spacing:0;margin-bottom:3px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
 .overlay{position:fixed;inset:0;background:var(--overlay-bg);display:flex;align-items:flex-end;justify-content:center;z-index:200;padding:0}
-.modal{background:var(--bg-card);border:1px solid var(--border-visible);border-radius:6px 6px 0 0;padding:16px;width:100%;max-height:92vh;overflow-y:auto}
-.st{font-family:'Inter',sans-serif;font-size:11px;color:var(--text-secondary);letter-spacing:0.02em;text-transform:uppercase;font-weight:600;margin-bottom:10px;margin-top:14px}
-th{padding:6px 8px;text-align:left;color:var(--text-secondary);font-size:11px;letter-spacing:0;font-weight:500;font-family:'Inter',sans-serif;white-space:nowrap}
-td{padding:6px 8px;font-size:11px;font-family:'Inter',sans-serif;color:var(--text-primary);white-space:nowrap;font-variant-numeric:tabular-nums}
+.modal{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px 4px 0 0;padding:14px;width:100%;max-height:92vh;overflow-y:auto}
+.st{font-size:12px;color:var(--text-secondary);letter-spacing:0.06em;text-transform:uppercase;font-weight:600;margin-bottom:8px;margin-top:12px}
+th{padding:4px 6px;text-align:left;color:var(--text-secondary);font-size:10px;letter-spacing:0.04em;font-weight:500;text-transform:uppercase;white-space:nowrap}
+td{padding:4px 6px;font-size:11px;color:var(--text-primary);white-space:nowrap;font-variant-numeric:tabular-nums}
 table{width:100%;border-collapse:collapse}
 .trow:hover{background:var(--bg-hover)}
 #bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--bg-card);border-top:1px solid var(--border-subtle);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom,0px)}
-.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;padding:8px 4px 6px;gap:2px;background:none;border:none;color:var(--text-secondary);font-size:10px;letter-spacing:0;text-transform:none}
-.nav-btn.active{color:var(--accent)}
-.nav-icon{font-size:16px;line-height:1}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;padding:7px 4px 5px;gap:2px;background:none;border:none;color:var(--text-tertiary);font-size:9px;letter-spacing:0;text-transform:none}
+.nav-btn.active{color:#fff}
+.nav-icon{font-size:15px;line-height:1}
 /* ── Left Sidebar (desktop) ──────────────────────────────────────────────── */
 #left-sidebar{display:none}
-.side-btn{display:flex;flex-direction:row;align-items:center;padding:10px 16px;gap:10px;background:none;border:none;color:var(--text-secondary);font-size:11px;letter-spacing:0;text-transform:none;cursor:pointer;border-left:3px solid transparent;font-family:'Inter',sans-serif;font-weight:500;width:100%}
+.side-btn{display:flex;flex-direction:row;align-items:center;padding:8px 14px;gap:10px;background:none;border:none;color:var(--text-secondary);font-size:11px;letter-spacing:0;text-transform:none;cursor:pointer;border-left:2px solid transparent;font-family:'Inter',sans-serif;font-weight:400;width:100%}
 .side-btn:hover{background:var(--bg-hover)}
-.side-btn.active{color:#fff;border-left-color:var(--accent);background:var(--bg-hover)}
-.side-btn .nav-icon{font-size:16px;line-height:1;min-width:20px;text-align:center}
-.side-label{font-size:12px;letter-spacing:0}
-.iv-pill{display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;font-family:'Inter',sans-serif}
-#main{padding:10px 12px 100px;max-width:900px;margin:0 auto}
-#topbar{border-bottom:1px solid var(--border-subtle);padding:0 12px;display:flex;align-items:center;height:44px;position:sticky;top:0;background:var(--bg-primary);z-index:50}
-#positions-cards .card+.card{border-top:1px solid var(--border-visible);margin-top:8px;padding-top:10px}
+.side-btn.active{color:#fff;border-left-color:var(--accent);background:transparent;font-weight:500}
+.side-btn .nav-icon{font-size:15px;line-height:1;min-width:18px;text-align:center}
+.side-label{font-size:11px;letter-spacing:0}
+.iv-pill{display:inline-flex;align-items:center;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600}
+#main{padding:8px 10px 100px;max-width:900px;margin:0 auto}
+#topbar{border-bottom:1px solid var(--border-subtle);padding:0 10px;display:flex;align-items:center;height:40px;position:sticky;top:0;background:var(--bg-primary);z-index:50}
+#positions-cards .card+.card{border-top:1px solid var(--border-subtle);margin-top:6px;padding-top:8px}
 .section{display:none}
 .section.active{display:block}
 .stats-pill.active{background:var(--accent)!important;color:#fff!important;font-weight:600;border-color:var(--accent)!important}
@@ -234,14 +234,14 @@ table{width:100%;border-collapse:collapse}
   </div>
 
   <!-- Calendar Tab -->
-  <div id="cb-tab-calendar" style="display:none;padding:14px 16px;font-variant-numeric:tabular-nums;font-size:10px">
+  <div id="cb-tab-calendar" style="display:none;padding:10px 12px;font-variant-numeric:tabular-nums;font-size:10px">
     <div id="cb-panel-content">
       <div style="color:var(--text-muted)">Loading...</div>
     </div>
   </div>
 
   <!-- Macro Data Tab: macrotrends-style charts -->
-  <div id="cb-tab-macrodata" style="display:none;padding:14px 16px;font-variant-numeric:tabular-nums;font-size:10px">
+  <div id="cb-tab-macrodata" style="display:none;padding:10px 12px;font-variant-numeric:tabular-nums;font-size:10px">
 
     <!-- Country + Indicator Selectors -->
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -490,7 +490,7 @@ table{width:100%;border-collapse:collapse}
     </div>
 
     <!-- REQUIRED EXIT RULES -->
-    <div style="background:var(--bg-primary);border:1px solid var(--positive-dim);border-radius:4px;padding:14px;margin-bottom:12px">
+    <div style="background:var(--bg-primary);border:1px solid var(--positive-dim);border-radius:4px;padding:10px;margin-bottom:10px">
       <div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--positive);letter-spacing:0.02em;margin-bottom:4px">EXIT RULES — REQUIRED</div>
       <div style="font-size:10px;color:var(--text-secondary);margin-bottom:12px">Pick from your watchlist S/R levels, or enter a custom price.</div>
       <div class="frow">
@@ -784,14 +784,14 @@ const THEMES = {
     accent:'#7c93f0', accentDim:'rgba(124,147,240,.2)',
   },
   koyfin: {
-    bg:'#0f1117', bgCard:'#161b22', bgHover:'#1c2128',
-    border:'#30363d', borderVis:'#30363d',
+    bg:'#0d1117', bgCard:'#161b22', bgHover:'#1c2128',
+    border:'#21262d', borderVis:'#21262d',
     text:'#ffffff', textSec:'#8b949e', textTri:'#484f58', textMut:'#484f58',
     pos:'#3fb950', neg:'#f85149', warn:'#d29922',
-    posDim:'rgba(63,185,80,.15)', negDim:'rgba(248,81,73,.15)', negHov:'rgba(248,81,73,.4)',
-    warnDim:'rgba(210,153,34,.15)', warnFaint:'rgba(210,153,34,.08)',
-    bgOverlay:'rgba(15,17,23,.95)',
-    accent:'#2f81f7', accentDim:'rgba(47,129,247,.15)',
+    posDim:'rgba(63,185,80,.12)', negDim:'rgba(248,81,73,.12)', negHov:'rgba(248,81,73,.35)',
+    warnDim:'rgba(210,153,34,.12)', warnFaint:'rgba(210,153,34,.06)',
+    bgOverlay:'rgba(13,17,23,.95)',
+    accent:'#2f81f7', accentDim:'rgba(47,129,247,.12)',
   }
 };
 let C = {...THEMES.koyfin}; // active color palette (koyfin default)
@@ -2157,10 +2157,10 @@ function renderWatchlist() {
     const openPos = STATE.trades.filter(t=>t.status==="Open"&&t.ticker===ticker);
     const hasPos = openPos.length > 0;
 
-    return `<div class="card" data-chart-ticker="${ticker}" style="padding:14px">
+    return `<div class="card" data-chart-ticker="${ticker}" style="padding:10px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:${q?10:0}px">
         <div style="display:flex;align-items:center;gap:10px">
-          <div style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;color:${hasPos?C.pos:C.text};cursor:pointer" onclick="selectChartTicker('${ticker}')" title="View chart">${ticker}</div>
+          <div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${hasPos?C.pos:C.text};cursor:pointer" onclick="selectChartTicker('${ticker}')" title="View chart">${ticker}</div>
           ${hasPos?`<span style="font-size:9px;color:${C.pos};border:1px solid ${C.pos}33;padding:1px 5px;border-radius:2px">LIVE</span>`:""}
           ${earnDays!==null&&earnDays>=0?`<span style="font-size:9px;color:${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec};border:1px solid ${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec}33;padding:1px 5px;border-radius:2px">EARN ${_shortDate(earn)} (${earnDays}d)</span>`:""}
           ${sectorBadge(ticker)}
@@ -2175,7 +2175,7 @@ function renderWatchlist() {
       ${q ? `
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
           <div style="display:flex;align-items:baseline;gap:6px">
-            <div style="font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;color:${C.text}">$${q.price.toFixed(2)}</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:${C.text}">$${q.price.toFixed(2)}</div>
             ${q.source==="mda-delayed"?`<span style="font-size:8px;color:${C.warn};border:1px solid ${C.warn}44;padding:1px 4px;border-radius:2px">DELAYED</span>`:""}
           </div>
           <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>
@@ -2690,8 +2690,8 @@ function renderPositions() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
           <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-            <div style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:${C.text}">${t.ticker}</div>
-            ${q ? `<div style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:${q.changePct>=0?C.pos:C.neg}">$${q.price.toFixed(2)}</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${C.text}">${t.ticker}</div>
+            ${q ? `<div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${q.changePct>=0?C.pos:C.neg}">$${q.price.toFixed(2)}</div>
             <div style="font-size:10px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>${q.source==="mda-delayed"?`<span style="font-size:8px;color:${C.warn};border:1px solid ${C.warn}44;padding:1px 4px;border-radius:2px">DELAYED</span>`:""}` : `<div style="font-size:10px;color:${C.textSec}">loading...</div>`}
           </div>
           <div style="font-size:10px;color:${C.text};margin-top:3px">${isStock
@@ -2838,24 +2838,24 @@ function renderPositions() {
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:${hasMaeMfe && livePnl !== null ? '8' : '0'}px">
             <div style="background:${C.bgCard};border:1px solid ${livePnlColor}22;border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${livePnlColor};letter-spacing:0;margin-bottom:3px">UNREALIZED</div>
-              <div style="font-variant-numeric:tabular-nums;font-size:15px;color:${livePnlColor};font-weight:600">${livePnl!==null?(livePnl>=0?"+$":"-$")+Math.abs(livePnl).toFixed(0):"—"}</div>
+              <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${livePnlColor};font-weight:600">${livePnl!==null?(livePnl>=0?"+$":"-$")+Math.abs(livePnl).toFixed(0):"—"}</div>
               ${livePnl!==null&&maxLoss&&maxLoss>0?`<div style="font-size:9px;color:${C.textTri};margin-top:2px">${livePnl<0?(Math.abs(livePnl)/maxLoss*100).toFixed(0)+"% of max loss":"safe"}</div>`:""}
             </div>
             ${mae?.pnl!=null?`<div style="background:${C.bgCard};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${C.neg};letter-spacing:0;margin-bottom:3px">MAE — WORST</div>
-              <div style="font-variant-numeric:tabular-nums;font-size:15px;color:${C.neg};font-weight:600">${mae.pnl>=0?"+$":"-$"}${Math.abs(mae.pnl).toFixed(0)}</div>
+              <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.neg};font-weight:600">${mae.pnl>=0?"+$":"-$"}${Math.abs(mae.pnl).toFixed(0)}</div>
               <div style="font-size:9px;color:${C.textTri};margin-top:2px">$${mae.price?.toFixed(0)||"?"} · ${mae.date?.slice(5)||""}</div>
             </div>`:`<div style="background:${C.bgCard};border:1px solid ${C.border};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${C.textSec};letter-spacing:0;margin-bottom:3px">MAE — WORST</div>
-              <div style="font-variant-numeric:tabular-nums;font-size:15px;color:${C.textMut};font-weight:600">—</div>
+              <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.textMut};font-weight:600">—</div>
             </div>`}
             ${mfe?.pnl!=null?`<div style="background:${C.bgCard};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${mfe.pnl>=0?C.pos:C.warn};letter-spacing:0;margin-bottom:3px">MFE — BEST</div>
-              <div style="font-variant-numeric:tabular-nums;font-size:15px;color:${mfe.pnl>=0?C.pos:C.warn};font-weight:600">${mfe.pnl>=0?"+$":"-$"}${Math.abs(mfe.pnl).toFixed(0)}</div>
+              <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${mfe.pnl>=0?C.pos:C.warn};font-weight:600">${mfe.pnl>=0?"+$":"-$"}${Math.abs(mfe.pnl).toFixed(0)}</div>
               <div style="font-size:9px;color:${C.textTri};margin-top:2px">$${mfe.price?.toFixed(0)||"?"} · ${mfe.date?.slice(5)||""}</div>
             </div>`:`<div style="background:${C.bgCard};border:1px solid ${C.border};border-radius:3px;padding:8px 10px">
               <div style="font-size:9px;color:${C.textSec};letter-spacing:0;margin-bottom:3px">MFE — BEST</div>
-              <div style="font-variant-numeric:tabular-nums;font-size:15px;color:${C.textMut};font-weight:600">—</div>
+              <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.textMut};font-weight:600">—</div>
             </div>`}
           </div>
 
@@ -2949,7 +2949,7 @@ function renderDiary() {
 
   let html = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-      <button onclick="currentDiaryId=null;renderDiaryList()" style="background:none;border:none;color:${C.textSec};font-size:20px">←</button>
+      <button onclick="currentDiaryId=null;renderDiaryList()" style="background:none;border:none;color:${C.textSec};font-size:16px">←</button>
       <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.text};font-weight:600">${t.ticker} · ${t.longStrike}/${t.shortStrike}</div>
       <span class="badge" style="background:${statusColors[t.status]||"#374151"}22;color:${statusColors[t.status]||C.text}">${t.status}</span>
     </div>
@@ -3038,7 +3038,7 @@ function renderDiary() {
     <div class="card" style="margin-bottom:10px">
       <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">ENTRY CHART</div>
       ${t.chartLink?`<img src="${t.chartLink}" style="width:100%;border-radius:4px;border:1px solid ${C.borderVis};max-height:300px;object-fit:contain;background:${C.bg};cursor:pointer" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:${C.warn};border:1px dashed ${C.warn}33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">`
-        :`<div style="padding:20px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">No entry chart yet</div>`}
+        :`<div style="padding:12px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">No entry chart yet</div>`}
       <div style="display:flex;gap:6px;margin-top:8px">
         <button class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px" onclick="regenTradeChart(${t.id},'entry')">↻ REGENERATE</button>
         <label class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px;text-align:center;cursor:pointer">📎 UPLOAD<input type="file" accept="image/*" style="display:none" onchange="uploadTradeChart(this,${t.id},'entry')"></label>
@@ -3049,8 +3049,8 @@ function renderDiary() {
     <div class="card" style="margin-bottom:10px">
       <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">EXIT CHART</div>
       ${t.exitChartLink?`<img src="${t.exitChartLink}" style="width:100%;border-radius:4px;border:1px solid ${C.borderVis};max-height:300px;object-fit:contain;background:${C.bg};cursor:pointer" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div style=\\'padding:12px;font-size:11px;color:${C.warn};border:1px dashed ${C.warn}33;border-radius:4px;text-align:center\\'>Chart image failed to load</div>'">`
-        :t.exitDate?`<div style="padding:20px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">No exit chart yet — click regenerate</div>`
-        :`<div style="padding:20px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">Trade still open — exit chart generated on close</div>`}
+        :t.exitDate?`<div style="padding:12px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">No exit chart yet — click regenerate</div>`
+        :`<div style="padding:12px;font-size:11px;color:${C.textSec};border:1px dashed ${C.border};border-radius:4px;text-align:center">Trade still open — exit chart generated on close</div>`}
       <div style="display:flex;gap:6px;margin-top:8px">
         <button class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px" onclick="regenTradeChart(${t.id},'exit')" ${!t.exitDate?'disabled':''}>↻ REGENERATE</button>
         <label class="btn btn-g" style="flex:1;font-size:10px;padding:4px 8px;text-align:center;cursor:pointer">📎 UPLOAD<input type="file" accept="image/*" style="display:none" onchange="uploadTradeChart(this,${t.id},'exit')"></label>
@@ -3127,7 +3127,7 @@ function renderDiaryJournalView() {
   let html = diarySubTabs();
 
   // Today's entry / manual input
-  html += `<div class="card" style="padding:14px;margin-bottom:12px;border:1px solid ${C.border}">
+  html += `<div class="card" style="padding:10px;margin-bottom:10px;border:1px solid ${C.border}">
     <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">TODAY — ${today}</div>`;
   if (todayEntry.reflection) {
     html += `<div style="font-size:12px;color:${C.text};line-height:1.5;white-space:pre-wrap;margin-bottom:10px">${escHtml(todayEntry.reflection)}</div>
@@ -3140,7 +3140,7 @@ function renderDiaryJournalView() {
   html += `</div>`;
 
   // Add entry for a past date
-  html += `<div class="card" style="padding:14px;margin-bottom:12px;border:1px solid ${C.border}">
+  html += `<div class="card" style="padding:10px;margin-bottom:10px;border:1px solid ${C.border}">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
       <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em">ADD PAST ENTRY</div>
       <input type="date" id="journal-past-date" max="${today}" style="background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:3px;padding:4px 8px;font-variant-numeric:tabular-nums;font-size:11px">
@@ -3151,7 +3151,7 @@ function renderDiaryJournalView() {
 
   // Morning brief expandable (if exists for today)
   if (todayEntry.morningBrief) {
-    html += `<details class="card" style="padding:14px;margin-bottom:12px;border:1px solid ${C.border}">
+    html += `<details class="card" style="padding:10px;margin-bottom:10px;border:1px solid ${C.border}">
       <summary style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;cursor:pointer">MORNING BRIEF — ${today}</summary>
       <div style="font-size:11px;color:${C.text};line-height:1.5;white-space:pre-wrap;margin-top:10px">${escHtml(todayEntry.morningBrief)}</div>
     </details>`;
@@ -3164,7 +3164,7 @@ function renderDiaryJournalView() {
     for (const [date, entry] of pastEntries) {
       const d = new Date(date + 'T12:00:00');
       const dayLabel = `${dayNames[d.getDay()]} ${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-      html += `<div class="card" style="padding:14px;margin-bottom:8px;border:1px solid ${C.border}">
+      html += `<div class="card" style="padding:10px;margin-bottom:8px;border:1px solid ${C.border}">
         <div style="font-variant-numeric:tabular-nums;font-size:11px;font-weight:600;color:${C.text};margin-bottom:6px">${dayLabel}</div>`;
       if (entry.reflection) {
         html += `<div style="font-size:12px;color:${C.text};line-height:1.5;white-space:pre-wrap">${escHtml(entry.reflection)}</div>`;
@@ -3177,7 +3177,7 @@ function renderDiaryJournalView() {
       html += `</div>`;
     }
   } else if (!todayEntry.reflection) {
-    html += `<div style="font-size:11px;color:${C.textSec};opacity:.5;padding:20px 0;text-align:center">No journal entries yet. Write your first reflection above, or reply to the post-session prompt on Telegram.</div>`;
+    html += `<div style="font-size:11px;color:${C.textSec};opacity:.5;padding:12px 0;text-align:center">No journal entries yet. Write your first reflection above, or reply to the post-session prompt on Telegram.</div>`;
   }
 
   document.getElementById("diary-content").innerHTML = html;
@@ -3417,7 +3417,7 @@ function renderChecklistReadOnly(cl, open, date, compact) {
   let h = '';
 
   if (!compact) {
-    h += `<div class="card" style="padding:14px;margin-bottom:10px;border:1px solid ${C.pos}44;background:${C.posDim}">
+    h += `<div class="card" style="padding:10px;margin-bottom:8px;border:1px solid ${C.pos}44;background:${C.posDim}">
       <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.pos};letter-spacing:0.02em;margin-bottom:4px">✅ PRE-MARKET PLAN LOCKED</div>
       <div style="font-size:10px;color:rgba(255,255,255,0.5)">Saved at ${cl.savedAt ? new Date(cl.savedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : ''} — this is your contract for the session</div>
       <button class="btn btn-g" onclick="unlockChecklist('${date}')" style="font-size:9px;margin-top:8px;opacity:.6">EDIT</button>
@@ -3578,7 +3578,7 @@ function renderStatsContent(force) {
 
 // ── 1. OVERVIEW ─────────────────────────────────────────────────────────────
 function renderStatsOverview(closed) {
-  if (!closed.length) return `<div class="card" style="padding:16px;opacity:.5;font-size:11px;color:${C.textSec}">No closed trades yet. Close a trade to see performance analytics.</div>`;
+  if (!closed.length) return `<div class="card" style="padding:10px;opacity:.5;font-size:11px;color:${C.textSec}">No closed trades yet. Close a trade to see performance analytics.</div>`;
   const pnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
   const wins = closed.filter(t=>(t.realizedPnl||0)>0);
   const losses = closed.filter(t=>(t.realizedPnl||0)<=0);
@@ -3616,7 +3616,7 @@ function renderStatsOverview(closed) {
 
     ${eqData.length > 1 ? `
     ${sectionHdr("EQUITY CURVE")}
-    <div class="card" style="padding:14px;margin-bottom:8px">
+    <div class="card" style="padding:10px;margin-bottom:8px">
       <div style="display:flex;align-items:flex-end;justify-content:center;height:80px;gap:1px">
         ${eqData.map(v=>{
           const h = Math.max(2, Math.round(Math.abs(v)/eqMax*70));
@@ -3946,7 +3946,7 @@ function renderStatsMAEMFE(closed) {
 
     ${avgLeft!==null?`<div class="card" style="padding:12px;margin-bottom:8px;border-left:3px solid ${C.warn}">
       <div style="font-size:10px;color:${C.textSec}">AVG PROFIT LEFT ON TABLE (WINNERS)</div>
-      <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.warn};margin-top:4px">$${avgLeft.toFixed(0)}</div>
+      <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.warn};margin-top:4px">$${avgLeft.toFixed(0)}</div>
       <div style="font-size:9px;color:${C.textSec};margin-top:3px">MFE minus realized P&L — how much more you could have captured</div>
     </div>`:""}
 
@@ -4067,9 +4067,9 @@ function renderStatsStrategies(closed) {
     </div>` : ""}
 
     ${bestDTE ? `
-    <div class="card" style="padding:14px;border-left:3px solid ${C.pos};margin-bottom:8px">
+    <div class="card" style="padding:10px;border-left:3px solid ${C.pos};margin-bottom:8px">
       <div style="font-size:10px;color:${C.textSec};margin-bottom:4px">OPTIMAL DTE RANGE</div>
-      <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.pos}">${bestDTE[0]}</div>
+      <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.pos}">${bestDTE[0]}</div>
       <div style="font-size:10px;color:${C.textSec};margin-top:4px">Avg P&L: <span style="font-variant-numeric:tabular-nums;color:${C.pos}">${fmt$(bestDTE[1].pnl/bestDTE[1].count)}</span>/trade across ${bestDTE[1].count} trades</div>
     </div>` : ""}
 
@@ -4147,9 +4147,9 @@ function renderStatsDiscipline(closed) {
 
   return `
     ${discScore!==null ? `
-    <div class="card" style="padding:16px;text-align:center;margin-bottom:12px">
+    <div class="card" style="padding:10px;text-align:center;margin-bottom:10px">
       <div class="lbl">DISCIPLINE SCORE</div>
-      <div style="font-variant-numeric:tabular-nums;font-size:36px;color:${scoreCol}">${discScore}%</div>
+      <div style="font-variant-numeric:tabular-nums;font-size:28px;color:${scoreCol}">${discScore}%</div>
       <div style="height:4px;background:${C.borderVis};border-radius:2px;margin-top:8px"><div style="height:100%;width:${discScore}%;background:${scoreCol};border-radius:2px"></div></div>
       <div style="font-size:9px;color:${C.textSec};margin-top:6px">${adherencePct!==null&&thesisPct!==null?"60% rule adherence + 40% thesis accuracy":"Based on rule adherence"}</div>
     </div>` : ""}
@@ -4159,17 +4159,17 @@ function renderStatsDiscipline(closed) {
     <div class="g3" style="margin-bottom:8px">
       <div class="card" style="padding:10px;border-left:3px solid ${C.pos}">
         <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">FOLLOWED</div>
-        <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.pos}">${yes.length}</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.pos}">${yes.length}</div>
         <div style="font-size:10px;color:${yesPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(yesPnl)}</div>
       </div>
       <div class="card" style="padding:10px;border-left:3px solid ${C.warn}">
         <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">PARTIAL</div>
-        <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.warn}">${partial.length}</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.warn}">${partial.length}</div>
         <div style="font-size:10px;color:${partialPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(partialPnl)}</div>
       </div>
       <div class="card" style="padding:10px;border-left:3px solid ${C.neg}">
         <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">DEVIATED</div>
-        <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.neg}">${no.length}</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.neg}">${no.length}</div>
         <div style="font-size:10px;color:${noPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(noPnl)}</div>
       </div>
     </div>
@@ -4196,17 +4196,17 @@ function renderStatsDiscipline(closed) {
     <div class="g3" style="margin-bottom:8px">
       <div class="card" style="padding:10px;border-left:3px solid ${C.pos}">
         <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">CORRECT</div>
-        <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.pos}">${correct.length}</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.pos}">${correct.length}</div>
         <div style="font-size:10px;color:${correctPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(correctPnl)}</div>
       </div>
       <div class="card" style="padding:10px;border-left:3px solid ${C.warn}">
         <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">PARTIAL</div>
-        <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.warn}">${partialT.length}</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.warn}">${partialT.length}</div>
         <div style="font-size:10px;color:${partialTPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(partialTPnl)}</div>
       </div>
       <div class="card" style="padding:10px;border-left:3px solid ${C.neg}">
         <div style="font-size:9px;color:${C.textSec};margin-bottom:4px">WRONG</div>
-        <div style="font-variant-numeric:tabular-nums;font-size:18px;color:${C.neg}">${wrong.length}</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.neg}">${wrong.length}</div>
         <div style="font-size:10px;color:${wrongPnl>=0?C.pos:C.neg};margin-top:2px">${fmt$(wrongPnl)}</div>
       </div>
     </div>
@@ -4359,8 +4359,8 @@ function renderStatsAI(closed) {
   const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
 
   return `
-    <div class="card" style="padding:16px;margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="card" style="padding:10px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div>
           <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.pos};letter-spacing:0.02em">AI TRADE COACH</div>
           <div style="font-size:10px;color:${C.textSec};margin-top:2px">Conversational analysis of your stats + open positions</div>
@@ -4395,7 +4395,7 @@ function renderStatsAI(closed) {
     </div>
 
     <!-- Trading Rules / AI Memory -->
-    <div class="card" style="padding:16px">
+    <div class="card" style="padding:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;cursor:pointer" onclick="toggleRulesPanel()">
         <div>
           <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.warn};letter-spacing:0.02em">MY TRADING RULES</div>
@@ -4628,10 +4628,10 @@ function renderForecast() {
 
     <!-- Rate cards -->
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
-      ${scenarios.map(s=>`<div class="card" style="padding:10px 14px;border-left:3px solid ${s.color}">
+      ${scenarios.map(s=>`<div class="card" style="padding:8px 10px;border-left:3px solid ${s.color}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
           <span style="font-size:11px;color:${C.text};font-family:'Inter',sans-serif;font-variant-numeric:tabular-nums">${s.label}</span>
-          <span style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:${s.color}">${s.rate.toFixed(2)}% / mo</span>
+          <span style="font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:${s.color}">${s.rate.toFixed(2)}% / mo</span>
         </div>
         <div style="display:flex;justify-content:space-between">
           <span style="font-size:10px;color:${C.text}">${s.count} trades · ${s.period}</span>
@@ -7261,7 +7261,7 @@ function _renderScanResults(r) {
     return `
       <div class="card" style="text-align:center;padding:10px">
         <div class="lbl">D+${h}</div>
-        <div style="font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;color:${color}">${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:${color}">${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%</div>
         <div style="font-size:10px;color:var(--text-secondary);margin-top:4px">
           Med: ${med != null ? (med >= 0 ? "+" : "") + med.toFixed(2) + "%" : "—"} &nbsp;|&nbsp;
           Win: ${wr != null ? wr.toFixed(1) + "%" : "—"} &nbsp;|&nbsp;
