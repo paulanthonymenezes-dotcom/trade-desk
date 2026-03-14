@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/scanner/:path*", "destination": "http://64.225.57.14:8787/:path*" }
+  ]
+}
