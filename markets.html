@@ -47,14 +47,22 @@ html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);fon
 #topbar .logo{font-size:13px;font-weight:700;letter-spacing:0.02em;color:var(--text-primary)}
 #topbar .logo a{color:inherit;text-decoration:none}
 #topbar .logo a:hover{color:var(--accent)}
-#topbar .nav-links{display:flex;gap:16px;margin-left:24px}
-#topbar .nav-link{font-size:11px;color:var(--text-secondary);text-decoration:none;font-weight:500;letter-spacing:0}
-#topbar .nav-link:hover{color:var(--text-primary)}
-#topbar .nav-link.active{color:var(--accent)}
 #topbar .right{margin-left:auto;display:flex;align-items:center;gap:12px}
 #topbar .timestamp{font-size:10px;color:var(--text-tertiary)}
 #topbar .refresh-btn{background:none;border:1px solid var(--border-subtle);color:var(--text-secondary);font-size:10px;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:'Inter',sans-serif}
 #topbar .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+#left-sidebar{display:none}
+.side-btn{display:flex;flex-direction:row;align-items:center;padding:8px 14px;gap:10px;background:none;border:none;color:var(--text-secondary);font-size:11px;letter-spacing:0;cursor:pointer;border-left:2px solid transparent;font-family:'Inter',sans-serif;font-weight:400;width:100%}
+.side-btn:hover{background:var(--bg-hover)}
+.side-btn.active{color:#fff;border-left-color:var(--accent);background:transparent;font-weight:500}
+.side-btn .nav-icon{font-size:15px;line-height:1;min-width:18px;text-align:center}
+.side-label{font-size:11px;letter-spacing:0}
+/* Mobile bottom nav */
+#bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--bg-card);border-top:1px solid var(--border-subtle);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom,0px)}
+.mob-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;padding:7px 4px 5px;gap:2px;background:none;border:none;color:var(--text-tertiary);font-size:9px;letter-spacing:0;cursor:pointer}
+.mob-nav-btn.active{color:#fff}
 
 #dashboard{
   max-width:1600px;margin:0 auto;
@@ -63,6 +71,16 @@ html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);fon
   grid-template-columns:1fr 1fr;
   gap:10px;
 }
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+@media(min-width:1200px){
+  #left-sidebar{display:flex;flex-direction:column;position:fixed;left:0;top:44px;bottom:0;width:200px;background:var(--bg-primary);border-right:1px solid var(--border-subtle);z-index:60;padding-top:8px}
+  #bottom-nav{display:none}
+  #topbar{padding-left:212px}
+  #dashboard{margin-left:200px;padding-left:16px}
+}
+.side-divider{height:1px;background:var(--border-subtle);margin:8px 14px}
 
 /* ── Section boxes ─────────────────────────────────────────────────────────── */
 .section-box{
@@ -171,6 +189,38 @@ html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);fon
 .strike-prox-marker{position:absolute;top:-2px;width:8px;height:8px;border-radius:50%;background:var(--accent);transform:translateX(-50%)}
 .em-val{font-size:11px;color:var(--text-secondary);font-weight:500}
 
+/* ── Watchlist Cards ────────────────────────────────────────────────────────── */
+.wl-card{
+  background:var(--bg-card);border:1px solid var(--border-subtle);
+  border-radius:6px;padding:10px 14px;margin-bottom:8px;
+  cursor:pointer;transition:border-color .15s;
+}
+.wl-card:hover{border-color:var(--border-visible)}
+.wl-card-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.wl-ticker{font-size:14px;font-weight:700;color:var(--text-primary)}
+.wl-price{font-size:13px;font-weight:600;margin-left:auto}
+.wl-sector{font-size:9px;padding:1px 5px;border-radius:3px;background:var(--bg-hover);color:var(--text-secondary);font-weight:500}
+.wl-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+.wl-meta-item .ml{font-size:9px;color:var(--text-tertiary);margin-bottom:1px}
+.wl-meta-item .mv{font-size:11px;font-weight:600;color:var(--text-primary)}
+.wl-target{
+  margin-top:6px;padding:4px 8px;border-radius:4px;
+  font-size:10px;font-weight:500;display:inline-flex;align-items:center;gap:4px;
+}
+.wl-target.below{background:var(--positive-dim);color:var(--positive)}
+.wl-target.above{background:var(--negative-dim);color:var(--negative)}
+.wl-sr{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.wl-sr-pill{font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--border-subtle);color:var(--text-secondary)}
+.wl-sr-pill.res{border-color:rgba(248,81,73,.3);color:var(--negative)}
+.wl-sr-pill.sup{border-color:rgba(63,185,80,.3);color:var(--positive)}
+.wl-notes{margin-top:6px;padding-top:6px;border-top:1px solid var(--border-subtle)}
+.wl-note{font-size:10px;color:var(--text-secondary);line-height:1.5;margin-bottom:3px}
+.wl-note-bias{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:3px;vertical-align:middle}
+.wl-note-bias.bullish{background:var(--positive)}
+.wl-note-bias.bearish{background:var(--negative)}
+.wl-note-bias.neutral{background:var(--text-tertiary)}
+.wl-note-date{font-size:9px;color:var(--text-tertiary);margin-left:4px}
+
 /* ── Calendar ──────────────────────────────────────────────────────────────── */
 .cal-impact{
   display:inline-block;width:8px;height:8px;border-radius:50%;
@@ -194,13 +244,12 @@ html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);fon
 
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media(max-width:900px){
-  #dashboard{grid-template-columns:1fr;padding:8px 8px 40px}
+  #dashboard{grid-template-columns:1fr;padding:8px 8px 80px}
   .section-box.full-width{grid-column:1}
   .pos-expand-inner{grid-template-columns:1fr}
   .pos-detail-grid{grid-template-columns:repeat(2,1fr)}
   .pos-chart{height:280px}
-  #topbar .nav-links{gap:10px}
-  #topbar .nav-link{font-size:10px}
+  .wl-meta{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:600px){
   .data-table td,.data-table th{padding:5px 8px;font-size:11px}
@@ -214,105 +263,122 @@ html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);fon
 
 <div id="topbar">
   <div class="logo"><a href="/">◈ TRADE DESK</a></div>
-  <div class="nav-links">
-    <a href="/" class="nav-link">Positions</a>
-    <a href="/markets.html" class="nav-link active">Markets</a>
-  </div>
   <div class="right">
     <span class="timestamp" id="last-updated"></span>
     <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
   </div>
 </div>
 
+<!-- Sidebar (desktop) -->
+<nav id="left-sidebar">
+  <a href="/" class="side-btn"><span class="nav-icon">📊</span><span class="side-label">Positions</span></a>
+  <div class="side-divider"></div>
+  <button class="side-btn active" data-tab="markets" onclick="switchTab('markets')"><span class="nav-icon">🌍</span><span class="side-label">Markets</span></button>
+  <button class="side-btn" data-tab="watchlist" onclick="switchTab('watchlist')"><span class="nav-icon">👁</span><span class="side-label">Watchlist</span></button>
+</nav>
+
+<!-- Bottom nav (mobile) -->
+<div id="bottom-nav">
+  <a href="/" class="mob-nav-btn"><span style="font-size:15px">📊</span>Positions</a>
+  <button class="mob-nav-btn active" data-tab="markets" onclick="switchTab('markets')"><span style="font-size:15px">🌍</span>Markets</button>
+  <button class="mob-nav-btn" data-tab="watchlist" onclick="switchTab('watchlist')"><span style="font-size:15px">👁</span>Watchlist</button>
+</div>
+
 <div id="dashboard">
-  <!-- US Equity Markets -->
-  <div class="section-box" id="sec-indices">
-    <div class="section-header">
-      <span class="section-title">US Equity Markets</span>
+  <!-- ═══ MARKETS TAB ═══ -->
+  <div class="tab-content active" id="tab-markets" style="display:contents">
+    <!-- Open Positions (TOP) -->
+    <div class="section-box full-width" id="sec-positions">
+      <div class="section-header">
+        <span class="section-title">Open Positions</span>
+        <span class="section-subtitle" id="pos-count"></span>
+      </div>
+      <div id="positions-body"><div class="loading">Loading...</div></div>
     </div>
-    <div id="indices-body"><div class="loading">Loading...</div></div>
+
+    <!-- US Equity Markets -->
+    <div class="section-box" id="sec-indices">
+      <div class="section-header"><span class="section-title">US Equity Markets</span></div>
+      <div id="indices-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Volatility -->
+    <div class="section-box" id="sec-vix">
+      <div class="section-header"><span class="section-title">Volatility</span></div>
+      <div id="vix-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- US Equity Sectors -->
+    <div class="section-box full-width" id="sec-sectors">
+      <div class="section-header"><span class="section-title">US Equity Sectors</span></div>
+      <div id="sectors-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Global Yields -->
+    <div class="section-box full-width" id="sec-yields">
+      <div class="section-header"><span class="section-title">Global Government Bond Yields</span></div>
+      <div id="yields-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Global Markets -->
+    <div class="section-box" id="sec-global-broad">
+      <div class="section-header"><span class="section-title">Global Markets</span></div>
+      <div id="global-broad-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Developed Markets -->
+    <div class="section-box" id="sec-global-dev">
+      <div class="section-header"><span class="section-title">Developed Markets</span></div>
+      <div id="global-dev-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Emerging Markets -->
+    <div class="section-box" id="sec-global-em">
+      <div class="section-header"><span class="section-title">Emerging Markets</span></div>
+      <div id="global-em-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Currencies & Crypto -->
+    <div class="section-box" id="sec-currencies">
+      <div class="section-header"><span class="section-title">Currencies & Crypto</span></div>
+      <div id="currencies-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Commodities -->
+    <div class="section-box" id="sec-commodities">
+      <div class="section-header"><span class="section-title">Commodities</span></div>
+      <div id="commodities-body"><div class="loading">Loading...</div></div>
+    </div>
+
+    <!-- Economic Calendar -->
+    <div class="section-box" id="sec-calendar">
+      <div class="section-header">
+        <span class="section-title">Economic Calendar</span>
+        <span class="section-subtitle" id="cal-range"></span>
+      </div>
+      <div id="calendar-body"><div class="loading">Loading...</div></div>
+    </div>
   </div>
 
-  <!-- VIX + Volatility -->
-  <div class="section-box" id="sec-vix">
-    <div class="section-header">
-      <span class="section-title">Volatility</span>
+  <!-- ═══ WATCHLIST TAB ═══ -->
+  <div class="tab-content" id="tab-watchlist" style="display:none">
+    <!-- Open Positions (also on this tab) -->
+    <div class="section-box full-width" id="sec-positions-wl">
+      <div class="section-header">
+        <span class="section-title">Open Positions</span>
+        <span class="section-subtitle" id="pos-count-wl"></span>
+      </div>
+      <div id="positions-body-wl"><div class="loading">Loading...</div></div>
     </div>
-    <div id="vix-body"><div class="loading">Loading...</div></div>
-  </div>
 
-  <!-- US Equity Sectors -->
-  <div class="section-box full-width" id="sec-sectors">
-    <div class="section-header">
-      <span class="section-title">US Equity Sectors</span>
+    <!-- Watchlist -->
+    <div class="section-box full-width" id="sec-watchlist">
+      <div class="section-header">
+        <span class="section-title">Watchlist</span>
+        <span class="section-subtitle" id="wl-count"></span>
+      </div>
+      <div id="watchlist-body"><div class="loading">Loading...</div></div>
     </div>
-    <div id="sectors-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Global Yields -->
-  <div class="section-box full-width" id="sec-yields">
-    <div class="section-header">
-      <span class="section-title">Global Government Bond Yields</span>
-    </div>
-    <div id="yields-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Global Markets — Broad -->
-  <div class="section-box" id="sec-global-broad">
-    <div class="section-header">
-      <span class="section-title">Global Markets</span>
-    </div>
-    <div id="global-broad-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Global Developed -->
-  <div class="section-box" id="sec-global-dev">
-    <div class="section-header">
-      <span class="section-title">Developed Markets</span>
-    </div>
-    <div id="global-dev-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Global Emerging -->
-  <div class="section-box" id="sec-global-em">
-    <div class="section-header">
-      <span class="section-title">Emerging Markets</span>
-    </div>
-    <div id="global-em-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Currencies -->
-  <div class="section-box" id="sec-currencies">
-    <div class="section-header">
-      <span class="section-title">Currencies & Crypto</span>
-    </div>
-    <div id="currencies-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Commodities -->
-  <div class="section-box" id="sec-commodities">
-    <div class="section-header">
-      <span class="section-title">Commodities</span>
-    </div>
-    <div id="commodities-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Economic Calendar -->
-  <div class="section-box" id="sec-calendar">
-    <div class="section-header">
-      <span class="section-title">Economic Calendar</span>
-      <span class="section-subtitle" id="cal-range"></span>
-    </div>
-    <div id="calendar-body"><div class="loading">Loading...</div></div>
-  </div>
-
-  <!-- Current Positions -->
-  <div class="section-box full-width" id="sec-positions">
-    <div class="section-header">
-      <span class="section-title">Open Positions</span>
-      <span class="section-subtitle" id="pos-count"></span>
-    </div>
-    <div id="positions-body"><div class="loading">Loading...</div></div>
   </div>
 </div>
 
@@ -327,11 +393,34 @@ const REFRESH_INTERVAL = 60_000;
 let _marketData = null;
 let _positions = [];
 let _calendar = [];
+let _watchlist = { tickers: [], targets: {}, notes: {}, srLevels: {}, sectors: {} };
+let _wlQuotes = {};        // ticker -> {price, change, changePct}
 let _expandedPos = null;
 let _posQuotes = {};       // ticker -> {price, change, changePct, prevClose}
 let _posCandles = {};      // ticker -> {t:[], c:[], o:[], h:[], l:[]}
 let _posIV = {};           // ticker -> {currentIV, ivr, history:[{date,iv}]}
 let _posSpreads = {};      // tradeId -> {mid, high, low, shortDelta, ts}
+let _activeTab = 'markets';
+
+// ── Tab Switching ──────────────────────────────────────────────────────────
+function switchTab(tab) {
+  _activeTab = tab;
+  // Toggle tab containers
+  document.querySelectorAll('.tab-content').forEach(el => {
+    if (el.id === 'tab-' + tab) { el.classList.add('active'); el.style.display = 'contents'; }
+    else { el.classList.remove('active'); el.style.display = 'none'; }
+  });
+  // Sidebar active states
+  document.querySelectorAll('.side-btn[data-tab]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  // Mobile bottom nav active states
+  document.querySelectorAll('.mob-nav-btn[data-tab]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  // If switching to watchlist and not loaded yet, load it
+  if (tab === 'watchlist' && !_watchlist.tickers.length) loadWatchlist();
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -715,12 +804,17 @@ function calcMaxRisk(p) {
 }
 
 function renderPositions(positions) {
+  const targets = ['positions-body'];
+  const countTargets = ['pos-count'];
+  // Also render into watchlist tab if it exists
+  if ($('positions-body-wl')) { targets.push('positions-body-wl'); countTargets.push('pos-count-wl'); }
+
   if (!positions || !positions.length) {
-    $('positions-body').innerHTML = '<div class="empty">No open positions</div>';
-    $('pos-count').textContent = '';
+    targets.forEach(t => $(t).innerHTML = '<div class="empty">No open positions</div>');
+    countTargets.forEach(t => $(t).textContent = '');
     return;
   }
-  $('pos-count').textContent = `${positions.length} open`;
+  countTargets.forEach(t => $(t).textContent = `${positions.length} open`);
 
   let html = `<table class="data-table"><thead><tr>
     <th>Ticker</th><th>Strategy</th><th class="r">Price</th><th class="r">Chg%</th>
@@ -856,7 +950,7 @@ function renderPositions(positions) {
     </td></tr>`;
   }
   html += '</tbody></table>';
-  $('positions-body').innerHTML = html;
+  targets.forEach(t => $(t).innerHTML = html);
 }
 
 // ── Toggle Position Expand ──────────────────────────────────────────────────
@@ -952,7 +1046,9 @@ async function loadPositions() {
     loadPositionExtras();
   } catch (e) {
     console.error('Positions error:', e);
-    $('positions-body').innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
+    const errHtml = '<div class="error">Failed to load: ' + e.message + '</div>';
+    $('positions-body').innerHTML = errHtml;
+    if ($('positions-body-wl')) $('positions-body-wl').innerHTML = errHtml;
   }
 }
 
@@ -986,8 +1082,145 @@ async function loadPositionExtras() {
   renderPositions(_positions);
 }
 
+// ── Watchlist Loading ───────────────────────────────────────────────────────
+async function loadWatchlist() {
+  try {
+    const r = await fetch(API + '/watchlist');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _watchlist = {
+      tickers: data.tickers || [],
+      targets: data.targets || {},
+      notes: data.notes || {},
+      srLevels: data.srLevels || {},
+      sectors: data.sectors || {},
+    };
+
+    // Batch fetch quotes for all watchlist tickers
+    if (_watchlist.tickers.length) {
+      try {
+        const qr = await fetch(QUOTE_API + '?symbols=' + _watchlist.tickers.join(','));
+        if (qr.ok) {
+          const qd = await qr.json();
+          if (qd.s === 'ok' && qd.quotes) {
+            for (const [t, q] of Object.entries(qd.quotes)) {
+              _wlQuotes[t] = { price: q.price, change: q.change, changePct: q.changePct, prevClose: q.previousClose, volume: q.volume };
+            }
+          }
+        }
+      } catch(e) { console.warn('Watchlist quotes error:', e); }
+
+      // MDA fallback for missing tickers
+      for (const t of _watchlist.tickers) {
+        if (!_wlQuotes[t]) {
+          try {
+            const d = await mdaFetch('/stocks/quotes/' + t + '/');
+            if (d.s === 'ok') _wlQuotes[t] = { price: d.last[0], change: d.change?.[0]||0, changePct: (d.changepct?.[0]||0)*100, volume: d.volume?.[0]||0 };
+          } catch {}
+        }
+      }
+    }
+
+    renderWatchlist();
+  } catch(e) {
+    console.error('Watchlist error:', e);
+    $('watchlist-body').innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
+  }
+}
+
+// ── Watchlist Rendering ─────────────────────────────────────────────────────
+function renderWatchlist() {
+  const tickers = _watchlist.tickers;
+  if (!tickers.length) {
+    $('watchlist-body').innerHTML = '<div class="empty">No watchlist tickers</div>';
+    $('wl-count').textContent = '';
+    return;
+  }
+  $('wl-count').textContent = `${tickers.length} tickers`;
+
+  let html = '';
+  for (const ticker of tickers) {
+    const q = _wlQuotes[ticker];
+    const price = q?.price;
+    const chgPct = q?.changePct;
+    const chgColor = cls(chgPct);
+    const sector = _watchlist.sectors?.[ticker] || '';
+    const target = _watchlist.targets?.[ticker];
+    const sr = _watchlist.srLevels?.[ticker];
+    const notes = _watchlist.notes?.[ticker];
+
+    html += `<div class="wl-card">`;
+
+    // Header row: Ticker, Sector badge, Price + Change
+    html += `<div class="wl-card-header">
+      <span class="wl-ticker">${ticker}</span>
+      ${sector ? `<span class="wl-sector">${sector}</span>` : ''}
+      <span class="wl-price ${chgColor}">${price ? '$'+fmt(price) : '—'}</span>
+      <span class="change-pill ${pillCls(chgPct)}" style="font-size:11px">${fmtPct(chgPct)}</span>
+    </div>`;
+
+    // Meta row: Volume, Prev Close
+    if (q) {
+      html += `<div class="wl-meta">
+        <div class="wl-meta-item"><div class="ml">VOLUME</div><div class="mv">${q.volume ? (q.volume >= 1e6 ? (q.volume/1e6).toFixed(1)+'M' : q.volume >= 1e3 ? (q.volume/1e3).toFixed(0)+'K' : q.volume) : '—'}</div></div>
+        <div class="wl-meta-item"><div class="ml">PREV CLOSE</div><div class="mv">${q.prevClose ? '$'+fmt(q.prevClose) : '—'}</div></div>
+        <div class="wl-meta-item"><div class="ml">CHANGE</div><div class="mv ${chgColor}">${fmtChg(q.change)}</div></div>
+        <div class="wl-meta-item"><div class="ml">DAY RANGE</div><div class="mv">—</div></div>
+      </div>`;
+    }
+
+    // Target
+    if (target) {
+      const tgtPrice = target.price || target;
+      const direction = target.direction || (price && Number(tgtPrice) > price ? 'above' : 'below');
+      const tgtCls = direction === 'above' ? 'above' : 'below';
+      const arrow = direction === 'above' ? '↑' : '↓';
+      const dist = price && tgtPrice ? ((Number(tgtPrice) - price) / price * 100).toFixed(1) : null;
+      html += `<div class="wl-target ${tgtCls}">${arrow} Target $${typeof tgtPrice === 'object' ? '' : fmt(Number(tgtPrice))}${dist ? ` (${dist > 0 ? '+' : ''}${dist}%)` : ''}</div>`;
+    }
+
+    // S/R Levels
+    if (sr) {
+      const levels = [];
+      if (sr.r3) levels.push({ label: 'R3', val: sr.r3, cls: 'res' });
+      if (sr.r2) levels.push({ label: 'R2', val: sr.r2, cls: 'res' });
+      if (sr.r1) levels.push({ label: 'R1', val: sr.r1, cls: 'res' });
+      if (sr.s1) levels.push({ label: 'S1', val: sr.s1, cls: 'sup' });
+      if (sr.s2) levels.push({ label: 'S2', val: sr.s2, cls: 'sup' });
+      if (sr.s3) levels.push({ label: 'S3', val: sr.s3, cls: 'sup' });
+      if (levels.length) {
+        html += `<div class="wl-sr">`;
+        for (const lv of levels) html += `<span class="wl-sr-pill ${lv.cls}">${lv.label} $${fmt(Number(lv.val))}</span>`;
+        html += `</div>`;
+      }
+    }
+
+    // Notes
+    if (notes && Array.isArray(notes) && notes.length) {
+      html += `<div class="wl-notes">`;
+      for (const n of notes.slice(0, 3)) {
+        const bias = (n.bias || 'neutral').toLowerCase();
+        const dateStr = n.date ? formatDate(n.date) : '';
+        html += `<div class="wl-note"><span class="wl-note-bias ${bias}"></span>${n.text || n}<span class="wl-note-date">${dateStr}</span></div>`;
+      }
+      html += `</div>`;
+    } else if (notes && typeof notes === 'string') {
+      html += `<div class="wl-notes"><div class="wl-note">${notes}</div></div>`;
+    }
+
+    html += `</div>`;
+  }
+
+  $('watchlist-body').innerHTML = html;
+}
+
 async function loadAll() {
-  await Promise.all([loadMarketData(), loadCalendar(), loadPositions()]);
+  const tasks = [loadMarketData(), loadCalendar(), loadPositions()];
+  // Pre-load watchlist in background if on watchlist tab
+  if (_activeTab === 'watchlist') tasks.push(loadWatchlist());
+  await Promise.all(tasks);
+  // Always pre-fetch watchlist data so it's ready when user switches
+  if (_activeTab !== 'watchlist') loadWatchlist();
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
