@@ -1579,14 +1579,34 @@ function insightText(text) {
 function emptyState(label, msg) {
   return `${sectionHdr(label)}<div class="card" style="padding:12px;opacity:.5;font-size:11px;color:${C.textSec}">${msg}</div>`;
 }
+function statsTradeRows(trades) {
+  if (!trades.length) return `<div style="font-size:10px;color:${C.textSec};padding:6px 0">No trades</div>`;
+  const sorted = [...trades].sort((a,b)=>(b.exitDate||b.entryDate).localeCompare(a.exitDate||a.entryDate));
+  return sorted.map(t => {
+    const pnl = t.realizedPnl||0;
+    const isStock = t.assetClass==='Stock';
+    const desc = isStock
+      ? `${t.contracts||1} shares @ $${t.shortStrike}`
+      : `${t.shortStrike}/${t.longStrike} x${t.contracts} · ${t.expiry||''}`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid ${C.border}22;cursor:pointer" onclick="switchTab('trades');setTimeout(()=>{const el=document.getElementById('trade-${t.id}');if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.style.outline='2px solid ${C.warn}';setTimeout(()=>el.style.outline='',2000)}},100)">
+      <div>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${C.text}">${t.ticker}</span>
+        <span style="font-size:10px;color:${C.textSec};margin-left:6px">${desc}</span>
+      </div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${pnl>=0?C.pos:C.neg}">${fmt$(pnl)}</div>
+    </div>`;
+  }).join('');
+}
 function buildBreakdown(closed, keyFn, label) {
   const map = {};
+  const tradeMap = {};
   closed.forEach(t => {
     const k = keyFn(t) || "Unknown";
-    if (!map[k]) map[k] = {wins:0,losses:0,pnl:0,count:0};
+    if (!map[k]) { map[k] = {wins:0,losses:0,pnl:0,count:0}; tradeMap[k] = []; }
     map[k].count++;
     map[k].pnl += (t.realizedPnl||0);
     if ((t.realizedPnl||0)>0) map[k].wins++; else map[k].losses++;
+    tradeMap[k].push(t);
   });
   const rows = Object.entries(map).sort((a,b)=>b[1].pnl-a[1].pnl);
   if (!rows.length) return "";
@@ -1596,7 +1616,7 @@ function buildBreakdown(closed, keyFn, label) {
       ${rows.map(([k,v])=>{
         const bwr = v.count ? Math.round(v.wins/v.count*100) : 0;
         const bc = bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
-        return `<div class="card" style="padding:10px 14px">
+        return `<div class="card" style="padding:10px 14px;cursor:pointer" onclick="const d=this.querySelector('.stat-expand');d.style.display=d.style.display==='none'?'block':'none'">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${k}</span>
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${v.pnl>=0?C.pos:C.neg}">${fmt$(v.pnl)}</span>
@@ -1606,6 +1626,9 @@ function buildBreakdown(closed, keyFn, label) {
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
           </div>
           <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
+          <div class="stat-expand" style="display:none;margin-top:10px;border-top:1px solid ${C.border};padding-top:8px" onclick="event.stopPropagation()">
+            ${statsTradeRows(tradeMap[k])}
+          </div>
         </div>`;
       }).join("")}
     </div>`;
@@ -3611,7 +3634,8 @@ function renderStatsOverview(closed) {
       ${monthRows.map(([m,v])=>{
         const mwr = v.count ? Math.round(v.wins/v.count*100) : 0;
         const mc = mwr>=70?C.pos:mwr>=50?C.warn:C.neg;
-        return `<div class="card" style="padding:10px 14px">
+        const mTrades = closed.filter(t=>t.exitDate&&t.exitDate.startsWith(m));
+        return `<div class="card" style="padding:10px 14px;cursor:pointer" onclick="const d=this.querySelector('.stat-expand');d.style.display=d.style.display==='none'?'block':'none'">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${m}</span>
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${v.pnl>=0?C.pos:C.neg}">${fmt$(v.pnl)}</span>
@@ -3621,6 +3645,9 @@ function renderStatsOverview(closed) {
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${mc}">${mwr}%</span>
           </div>
           <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${mwr}%;background:${mc};border-radius:1px"></div></div>
+          <div class="stat-expand" style="display:none;margin-top:10px;border-top:1px solid ${C.border};padding-top:8px" onclick="event.stopPropagation()">
+            ${statsTradeRows(mTrades)}
+          </div>
         </div>`;
       }).join("")}
     </div>` : ""}
@@ -3631,7 +3658,8 @@ function renderStatsOverview(closed) {
         const bk=buckets[b];
         if(!bk.count) return `<div class="card" style="padding:10px 14px;opacity:.3"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${C.textSec}">${b} — no data</span></div>`;
         const bwr=Math.round(bk.wins/bk.count*100); const bc=bwr>=70?C.pos:bwr>=50?C.warn:C.neg;
-        return `<div class="card" style="padding:10px 14px">
+        const bTrades=closed.filter(t=>dteBucket(t.dteAtEntry||0)===b);
+        return `<div class="card" style="padding:10px 14px;cursor:pointer" onclick="const d=this.querySelector('.stat-expand');d.style.display=d.style.display==='none'?'block':'none'">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${C.text}">${b}</span>
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bk.pnl>=0?C.pos:C.neg}">${fmt$(bk.pnl)}</span>
@@ -3641,6 +3669,9 @@ function renderStatsOverview(closed) {
             <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${bc}">${bwr}%</span>
           </div>
           <div style="height:2px;background:${C.borderVis};border-radius:1px"><div style="height:100%;width:${bwr}%;background:${bc};border-radius:1px"></div></div>
+          <div class="stat-expand" style="display:none;margin-top:10px;border-top:1px solid ${C.border};padding-top:8px" onclick="event.stopPropagation()">
+            ${statsTradeRows(bTrades)}
+          </div>
         </div>`;
       }).join("")}
     </div>
