@@ -12,6 +12,8 @@ from backtesting.scanner.conditions import CONDITION_REGISTRY
 from backtesting.db import get_client, fetch_ohlcv, fetch_economic_calendar, fetch_economic_indicators, get_equity_universe
 from backtesting.ai_query import ask_scanner, explain_results
 from backtesting.event_detector import detect_events, CENTRAL_BANK_CALENDAR
+from backtesting.market_data import get_market_overview
+from backtesting.wrappers.financeflow import get_financial_calendar
 
 app = FastAPI(title="Edge Scanner API", version="1.0.0")
 
@@ -457,6 +459,97 @@ def macro_compare(indicator: str, countries: str, start_year: int = 1960, end_ye
         by_country[cc]["data"].append({"year": r["year"], "value": r["value"]})
 
     return list(by_country.values())
+
+
+# ── Market Overview (for Koyfin dashboard) ─────────────────────────────────
+
+@app.get("/api/market-overview")
+async def market_overview():
+    """Fetch real-time market overview: indices, sectors, FX, commodities, yields.
+
+    Uses MarketData.app for US equities/ETFs + EODHD for indices/FX/crypto/bonds.
+    Cached server-side for 60 seconds.
+    """
+    return await get_market_overview()
+
+
+# ── Live Economic Calendar (FinanceFlowAPI) ────────────────────────────────
+
+import time as _time
+_cal_cache: dict = {"data": None, "ts": 0}
+_CAL_TTL = 1800  # 30 minutes
+
+
+@app.get("/api/calendar/live")
+async def live_calendar(country: str = None):
+    """Fetch live economic calendar from FinanceFlowAPI.
+
+    Cached for 30 minutes to stay well within the 200 req/day limit.
+    """
+    now = _time.time()
+    cache_key = f"cal_{country or 'all'}"
+
+    if _cal_cache.get(cache_key) and (now - _cal_cache.get(f"{cache_key}_ts", 0)) < _CAL_TTL:
+        return _cal_cache[cache_key]
+
+    try:
+        events = await get_financial_calendar(country=country)
+        _cal_cache[cache_key] = events
+        _cal_cache[f"{cache_key}_ts"] = now
+        return events
+    except Exception as e:
+        if _cal_cache.get(cache_key):
+            return _cal_cache[cache_key]  # stale cache fallback
+        return {"error": str(e), "events": []}
+
+
+# ── Positions (from Supabase state table for market dashboard) ─────────────
+
+@app.get("/api/positions/open")
+def get_open_positions():
+    """Fetch open positions from the Supabase state table.
+
+    Trades are stored as JSON in state.data.trades[]. We filter for status='Open'.
+    """
+    client = get_client()
+    try:
+        result = (
+            client.table("state")
+            .select("data")
+            .eq("id", "main")
+            .execute()
+        )
+        if not result.data or not result.data[0].get("data"):
+            return []
+        state_data = result.data[0]["data"]
+        trades = state_data.get("trades", [])
+        open_trades = [t for t in trades if t.get("status") == "Open"]
+        # Return only the fields needed for the dashboard
+        return [
+            {
+                "id": t.get("id"),
+                "ticker": t.get("ticker", ""),
+                "tradeType": t.get("tradeType", ""),
+                "assetClass": t.get("assetClass", ""),
+                "entryDate": t.get("entryDate", ""),
+                "contracts": t.get("contracts"),
+                "shortStrike": t.get("shortStrike"),
+                "longStrike": t.get("longStrike"),
+                "expiry": t.get("expiry"),
+                "premiumCollected": t.get("premiumCollected"),
+                "tpPrice": t.get("tpPrice"),
+                "slPrice": t.get("slPrice"),
+                "spreadTPPct": t.get("spreadTPPct"),
+                "spreadSLPct": t.get("spreadSLPct"),
+                "sector": t.get("sector", ""),
+                "thesis": t.get("thesis", ""),
+                "dteAtEntry": t.get("dteAtEntry"),
+                "pop": t.get("pop"),
+            }
+            for t in open_trades
+        ]
+    except Exception as e:
+        return []
 
 
 @app.post("/api/ask")

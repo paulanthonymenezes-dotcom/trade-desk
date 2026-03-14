@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="koyfin">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Markets — Trade Desk</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Theme ─────────────────────────────────────────────────────────────────── */
+:root {
+  --bg-primary: #0d1117;
+  --bg-card: #161b22;
+  --bg-hover: #1c2128;
+  --bg-surface: #1c2128;
+  --border-subtle: #21262d;
+  --border-visible: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-tertiary: #484f58;
+  --positive: #3fb950;
+  --negative: #f85149;
+  --warning: #d29922;
+  --positive-dim: rgba(63,185,80,.10);
+  --negative-dim: rgba(248,81,73,.10);
+  --accent: #2f81f7;
+  --accent-dim: rgba(47,129,247,.12);
+  --overlay-bg: rgba(13,17,23,.95);
+}
+
+/* ── Reset ──────────────────────────────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;letter-spacing:-0.01em;overflow-x:hidden}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:var(--border-visible);border-radius:2px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ── Layout ─────────────────────────────────────────────────────────────────── */
+#topbar{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;height:44px;
+  padding:0 20px;
+  background:var(--bg-primary);
+  border-bottom:1px solid var(--border-subtle);
+}
+#topbar .logo{font-size:13px;font-weight:700;letter-spacing:0.02em;color:var(--text-primary)}
+#topbar .logo a{color:inherit;text-decoration:none}
+#topbar .logo a:hover{color:var(--accent)}
+#topbar .nav-links{display:flex;gap:16px;margin-left:24px}
+#topbar .nav-link{font-size:11px;color:var(--text-secondary);text-decoration:none;font-weight:500;letter-spacing:0}
+#topbar .nav-link:hover{color:var(--text-primary)}
+#topbar .nav-link.active{color:var(--accent)}
+#topbar .right{margin-left:auto;display:flex;align-items:center;gap:12px}
+#topbar .timestamp{font-size:10px;color:var(--text-tertiary)}
+#topbar .refresh-btn{background:none;border:1px solid var(--border-subtle);color:var(--text-secondary);font-size:10px;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:'Inter',sans-serif}
+#topbar .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+#dashboard{
+  max-width:1600px;margin:0 auto;
+  padding:12px 16px 40px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+/* ── Section boxes ─────────────────────────────────────────────────────────── */
+.section-box{
+  background:var(--bg-card);
+  border:1px solid var(--border-subtle);
+  border-radius:6px;
+  overflow:hidden;
+}
+.section-box.full-width{grid-column:1/-1}
+.section-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px 8px;
+  border-bottom:1px solid var(--border-subtle);
+}
+.section-title{
+  font-size:11px;font-weight:600;color:var(--text-secondary);
+  letter-spacing:0.04em;text-transform:uppercase;
+}
+.section-subtitle{font-size:10px;color:var(--text-tertiary);font-weight:400}
+
+/* ── Data tables ───────────────────────────────────────────────────────────── */
+.data-table{width:100%;border-collapse:collapse}
+.data-table th{
+  padding:6px 12px;text-align:left;
+  font-size:10px;color:var(--text-tertiary);font-weight:500;
+  letter-spacing:0.02em;text-transform:uppercase;
+  border-bottom:1px solid var(--border-subtle);
+  white-space:nowrap;
+}
+.data-table th.r{text-align:right}
+.data-table td{
+  padding:7px 12px;font-size:12px;color:var(--text-primary);
+  border-bottom:1px solid rgba(33,38,45,.5);
+  white-space:nowrap;font-weight:500;
+}
+.data-table td.r{text-align:right}
+.data-table tr:last-child td{border-bottom:none}
+.data-table tr:hover{background:var(--bg-hover)}
+.data-table .ticker{color:var(--text-secondary);font-size:11px;font-weight:400}
+.data-table .name{font-weight:500}
+.data-table .price{font-weight:600}
+.data-table .pos{color:var(--positive)}
+.data-table .neg{color:var(--negative)}
+.data-table .change-pill{
+  display:inline-block;padding:1px 6px;border-radius:3px;
+  font-size:11px;font-weight:600;
+}
+.data-table .change-pill.up{background:var(--positive-dim);color:var(--positive)}
+.data-table .change-pill.dn{background:var(--negative-dim);color:var(--negative)}
+
+/* ── Yield grid ────────────────────────────────────────────────────────────── */
+.yield-table th,.yield-table td{text-align:center;padding:6px 10px}
+.yield-table td:first-child,.yield-table th:first-child{text-align:left}
+.yield-table .country-cell{display:flex;align-items:center;gap:6px}
+.yield-table .flag{font-size:14px}
+
+/* ── Positions ─────────────────────────────────────────────────────────────── */
+.pos-row{cursor:pointer;transition:background .15s}
+.pos-row:hover{background:var(--bg-hover)}
+.pos-row td{border-bottom:1px solid rgba(33,38,45,.5)}
+.pos-expand{display:none;background:var(--bg-surface);border-bottom:1px solid var(--border-subtle)}
+.pos-expand.open{display:table-row}
+.pos-expand-inner{
+  padding:12px 14px;
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;
+}
+.pos-chart{
+  grid-column:1/-1;
+  height:360px;
+  border:1px solid var(--border-subtle);
+  border-radius:4px;
+  overflow:hidden;
+  background:#000;
+}
+.pos-ivhv{
+  grid-column:1/-1;
+  height:160px;
+  background:var(--bg-card);
+  border:1px solid var(--border-subtle);
+  border-radius:4px;
+  overflow:hidden;
+  padding:6px 8px;
+}
+.pos-ivhv-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.pos-ivhv-title{font-size:10px;color:var(--text-secondary)}
+.pos-ivhv-legend{display:flex;gap:12px;font-size:10px}
+.pos-ivhv-legend .iv-l{color:#f59e0b}
+.pos-ivhv-legend .hv-l{color:#06b6d4}
+.pos-detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.pos-detail-item .dl{font-size:10px;color:var(--text-tertiary);margin-bottom:2px}
+.pos-detail-item .dv{font-size:12px;font-weight:600;color:var(--text-primary)}
+.pos-badge{
+  display:inline-block;padding:2px 6px;border-radius:3px;
+  font-size:10px;font-weight:600;
+  background:var(--accent-dim);color:var(--accent);
+}
+.pnl-bar{
+  height:6px;border-radius:3px;margin-top:4px;
+  background:var(--border-subtle);position:relative;overflow:hidden;
+}
+.pnl-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.pnl-src{font-size:9px;padding:1px 5px;border-radius:2px;display:inline-block;margin-left:4px}
+.pnl-src.live{background:rgba(63,185,80,.15);color:var(--positive)}
+.pnl-src.approx{background:rgba(210,153,34,.15);color:var(--warning)}
+.strike-prox{height:4px;border-radius:2px;background:var(--border-subtle);position:relative;margin-top:3px}
+.strike-prox-marker{position:absolute;top:-2px;width:8px;height:8px;border-radius:50%;background:var(--accent);transform:translateX(-50%)}
+.em-val{font-size:11px;color:var(--text-secondary);font-weight:500}
+
+/* ── Calendar ──────────────────────────────────────────────────────────────── */
+.cal-impact{
+  display:inline-block;width:8px;height:8px;border-radius:50%;
+  margin-right:4px;vertical-align:middle;
+}
+.cal-impact.high{background:var(--negative)}
+.cal-impact.medium{background:var(--warning)}
+.cal-impact.low{background:var(--text-tertiary)}
+.cal-country{
+  font-size:10px;font-weight:600;color:var(--text-secondary);
+  letter-spacing:0.02em;padding:2px 6px;border-radius:3px;
+  background:var(--bg-hover);display:inline-block;
+}
+
+/* ── Status ─────────────────────────────────────────────────────────────────── */
+.loading{padding:20px;text-align:center;color:var(--text-tertiary);font-size:11px}
+.error{padding:12px;text-align:center;color:var(--negative);font-size:11px}
+.empty{padding:16px;text-align:center;color:var(--text-tertiary);font-size:11px}
+.fade-in{animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+@media(max-width:900px){
+  #dashboard{grid-template-columns:1fr;padding:8px 8px 40px}
+  .section-box.full-width{grid-column:1}
+  .pos-expand-inner{grid-template-columns:1fr}
+  .pos-detail-grid{grid-template-columns:repeat(2,1fr)}
+  .pos-chart{height:280px}
+  #topbar .nav-links{gap:10px}
+  #topbar .nav-link{font-size:10px}
+}
+@media(max-width:600px){
+  .data-table td,.data-table th{padding:5px 8px;font-size:11px}
+  .pos-detail-grid{grid-template-columns:1fr 1fr}
+  #topbar{padding:0 10px}
+}
+</style>
+<script src="https://s3.tradingview.com/tv.js" async></script>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo"><a href="/">◈ TRADE DESK</a></div>
+  <div class="nav-links">
+    <a href="/" class="nav-link">Positions</a>
+    <a href="/markets.html" class="nav-link active">Markets</a>
+  </div>
+  <div class="right">
+    <span class="timestamp" id="last-updated"></span>
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+  </div>
+</div>
+
+<div id="dashboard">
+  <!-- US Equity Markets -->
+  <div class="section-box" id="sec-indices">
+    <div class="section-header">
+      <span class="section-title">US Equity Markets</span>
+    </div>
+    <div id="indices-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- VIX + Volatility -->
+  <div class="section-box" id="sec-vix">
+    <div class="section-header">
+      <span class="section-title">Volatility</span>
+    </div>
+    <div id="vix-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- US Equity Sectors -->
+  <div class="section-box full-width" id="sec-sectors">
+    <div class="section-header">
+      <span class="section-title">US Equity Sectors</span>
+    </div>
+    <div id="sectors-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Global Yields -->
+  <div class="section-box full-width" id="sec-yields">
+    <div class="section-header">
+      <span class="section-title">Global Government Bond Yields</span>
+    </div>
+    <div id="yields-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Global Markets — Broad -->
+  <div class="section-box" id="sec-global-broad">
+    <div class="section-header">
+      <span class="section-title">Global Markets</span>
+    </div>
+    <div id="global-broad-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Global Developed -->
+  <div class="section-box" id="sec-global-dev">
+    <div class="section-header">
+      <span class="section-title">Developed Markets</span>
+    </div>
+    <div id="global-dev-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Global Emerging -->
+  <div class="section-box" id="sec-global-em">
+    <div class="section-header">
+      <span class="section-title">Emerging Markets</span>
+    </div>
+    <div id="global-em-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Currencies -->
+  <div class="section-box" id="sec-currencies">
+    <div class="section-header">
+      <span class="section-title">Currencies & Crypto</span>
+    </div>
+    <div id="currencies-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Commodities -->
+  <div class="section-box" id="sec-commodities">
+    <div class="section-header">
+      <span class="section-title">Commodities</span>
+    </div>
+    <div id="commodities-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Economic Calendar -->
+  <div class="section-box" id="sec-calendar">
+    <div class="section-header">
+      <span class="section-title">Economic Calendar</span>
+      <span class="section-subtitle" id="cal-range"></span>
+    </div>
+    <div id="calendar-body"><div class="loading">Loading...</div></div>
+  </div>
+
+  <!-- Current Positions -->
+  <div class="section-box full-width" id="sec-positions">
+    <div class="section-header">
+      <span class="section-title">Open Positions</span>
+      <span class="section-subtitle" id="pos-count"></span>
+    </div>
+    <div id="positions-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const API = '/mkt/api';
+const QUOTE_API = '/api/quote';
+const MDA_TOKEN = "d2E2NDEybGtwZTBabnhSV2pkeEZBb3JfWW9uOHpKNnNIRTJ2bzNYZVlMcz0";
+const MDA_BASE = "https://api.marketdata.app/v1";
+const REFRESH_INTERVAL = 60_000;
+
+let _marketData = null;
+let _positions = [];
+let _calendar = [];
+let _expandedPos = null;
+let _posQuotes = {};       // ticker -> {price, change, changePct, prevClose}
+let _posCandles = {};      // ticker -> {t:[], c:[], o:[], h:[], l:[]}
+let _posIV = {};           // ticker -> {currentIV, ivr, history:[{date,iv}]}
+let _posSpreads = {};      // tradeId -> {mid, high, low, shortDelta, ts}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt = (n, d=2) => n != null ? Number(n).toFixed(d) : '—';
+const fmtPct = n => n != null ? (n >= 0 ? '+' : '') + Number(n).toFixed(2) + '%' : '—';
+const fmtChg = n => n != null ? (n >= 0 ? '+' : '') + Number(n).toFixed(2) : '—';
+const fmt$ = n => n != null ? (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(0) : '—';
+const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
+const pillCls = n => n > 0 ? 'up' : n < 0 ? 'dn' : '';
+
+function fmtMoney(n) {
+  if (n == null) return '—';
+  const v = Number(n);
+  if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1e3) return '$' + (v/1e3).toFixed(1) + 'K';
+  return '$' + v.toFixed(0);
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true});
+}
+
+// ── MDA API helper ──────────────────────────────────────────────────────────
+async function mdaFetch(path, retries=2) {
+  const url = MDA_BASE + path + (path.includes("?") ? "&" : "?") + "token=" + MDA_TOKEN + "&format=json";
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url);
+      if (r.status === 429) {
+        await new Promise(resolve => setTimeout(resolve, Math.min(2000 * Math.pow(2, attempt), 8000)));
+        continue;
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    } catch(e) {
+      if (attempt < retries) { await new Promise(r => setTimeout(r, 1000*(attempt+1))); continue; }
+      throw e;
+    }
+  }
+}
+
+// ── Market Data Table ───────────────────────────────────────────────────────
+function renderQuoteTable(items, containerId) {
+  if (!items || !items.length) { $(containerId).innerHTML = '<div class="empty">No data</div>'; return; }
+  let html = `<table class="data-table"><thead><tr>
+    <th>Name</th><th>Ticker</th><th class="r">Price</th><th class="r">Change</th><th class="r">% Change</th>
+  </tr></thead><tbody>`;
+  for (const q of items) {
+    const c = cls(q.changePct);
+    html += `<tr>
+      <td class="name">${q.name}</td><td class="ticker">${q.ticker}</td>
+      <td class="r price">${fmt(q.price, q.price > 100 ? 2 : 4)}</td>
+      <td class="r ${c}">${fmtChg(q.change)}</td>
+      <td class="r"><span class="change-pill ${pillCls(q.changePct)}">${fmtPct(q.changePct)}</span></td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  $(containerId).innerHTML = html;
+}
+
+// ── Yields ──────────────────────────────────────────────────────────────────
+function renderYields(yields) {
+  if (!yields || !yields.length) { $('yields-body').innerHTML = '<div class="empty">No yield data</div>'; return; }
+  const mats = ['1Y','2Y','5Y','10Y','30Y'];
+  let html = `<table class="data-table yield-table"><thead><tr><th>Country</th>`;
+  for (const m of mats) html += `<th class="r">${m}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const y of yields) {
+    html += `<tr><td><div class="country-cell"><span class="flag">${y.flag||''}</span><span>${y.country}</span></div></td>`;
+    for (const m of mats) html += `<td class="r">${y[m] || '—'}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  $('yields-body').innerHTML = html;
+}
+
+// ── Sectors ─────────────────────────────────────────────────────────────────
+function renderSectors(sectors) {
+  if (!sectors || !sectors.length) { $('sectors-body').innerHTML = '<div class="empty">No sector data</div>'; return; }
+  const sorted = [...sectors].sort((a,b) => b.changePct - a.changePct);
+  let html = `<table class="data-table"><thead><tr>
+    <th>Sector</th><th>ETF</th><th class="r">Price</th><th class="r">Change</th><th class="r">% Change</th>
+  </tr></thead><tbody>`;
+  for (const s of sorted) {
+    const c = cls(s.changePct);
+    html += `<tr><td class="name">${s.name}</td><td class="ticker">${s.ticker}</td>
+      <td class="r price">${fmt(s.price)}</td><td class="r ${c}">${fmtChg(s.change)}</td>
+      <td class="r"><span class="change-pill ${pillCls(s.changePct)}">${fmtPct(s.changePct)}</span></td></tr>`;
+  }
+  html += '</tbody></table>';
+  $('sectors-body').innerHTML = html;
+}
+
+// ── Economic Calendar ───────────────────────────────────────────────────────
+function renderCalendar(events) {
+  if (!events || !events.length) {
+    $('calendar-body').innerHTML = '<div class="empty">No upcoming events</div>';
+    $('cal-range').textContent = '';
+    return;
+  }
+  const sorted = [...events].sort((a,b) => (a.report_date||a.datetime||'').localeCompare(b.report_date||b.datetime||''));
+  const groups = {};
+  for (const ev of sorted) {
+    const d = (ev.report_date || ev.datetime || '').slice(0,10);
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(ev);
+  }
+  let html = '<table class="data-table"><thead><tr><th>Date</th><th>Country</th><th>Event</th><th class="r">Previous</th><th class="r">Consensus</th><th class="r">Actual</th></tr></thead><tbody>';
+  for (const [dateStr, evts] of Object.entries(groups)) {
+    for (let i = 0; i < evts.length; i++) {
+      const ev = evts[i];
+      const impact = (ev.economic_impact || '').toLowerCase();
+      html += `<tr><td>${i===0?formatDate(dateStr):''}</td>
+        <td><span class="cal-country">${ev.country||''}</span></td>
+        <td><span class="cal-impact ${impact}"></span>${ev.report_name||''}</td>
+        <td class="r">${ev.previous!=null?ev.previous:'—'}</td>
+        <td class="r">${ev.consensus!=null?ev.consensus:'—'}</td>
+        <td class="r" style="font-weight:600">${ev.actual!=null?ev.actual:'—'}</td></tr>`;
+    }
+  }
+  html += '</tbody></table>';
+  $('calendar-body').innerHTML = html;
+}
+
+function formatDate(d) {
+  if (!d) return '';
+  try { return new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }
+  catch { return d; }
+}
+
+// ── Quote Fetching ──────────────────────────────────────────────────────────
+async function fetchPositionQuotes(positions) {
+  const tickers = [...new Set(positions.map(p => p.ticker))];
+  if (!tickers.length) return;
+  // Yahoo batch
+  try {
+    const r = await fetch(QUOTE_API + '?symbols=' + tickers.join(','));
+    if (r.ok) {
+      const d = await r.json();
+      if (d.s === 'ok' && d.quotes) {
+        for (const [t, q] of Object.entries(d.quotes)) {
+          _posQuotes[t] = { price: q.price, change: q.change, changePct: q.changePct, prevClose: q.previousClose, volume: q.volume, source: 'yahoo' };
+        }
+      }
+    }
+  } catch(e) { console.warn('Yahoo batch error:', e); }
+  // Fallback: MDA for any missing
+  for (const t of tickers) {
+    if (!_posQuotes[t]) {
+      try {
+        const d = await mdaFetch('/stocks/quotes/' + t + '/');
+        if (d.s === 'ok') _posQuotes[t] = { price: d.last[0], change: d.change?.[0]||0, changePct: (d.changepct?.[0]||0)*100, volume: d.volume?.[0]||0, source: 'mda' };
+      } catch {}
+    }
+  }
+}
+
+// ── Spread Quotes ───────────────────────────────────────────────────────────
+async function fetchSpreadQuote(trade) {
+  try {
+    const type = (trade.tradeType||'').toLowerCase();
+    const side = type.includes('put') ? 'put' : 'call';
+    const [shortData, longData] = await Promise.all([
+      mdaFetch('/options/chain/' + trade.ticker + '/?expiration=' + trade.expiry + '&side=' + side + '&strike=' + trade.shortStrike, 1),
+      mdaFetch('/options/chain/' + trade.ticker + '/?expiration=' + trade.expiry + '&side=' + side + '&strike=' + trade.longStrike, 1),
+    ]);
+    if (shortData.s !== 'ok' || longData.s !== 'ok') return null;
+    const shortMid = shortData.mid[0], longMid = longData.mid[0];
+    const spreadVal = Math.abs(shortMid - longMid);
+    return {
+      mid: spreadVal,
+      high: Math.abs((shortData.ask?.[0]||shortMid) - (longData.bid?.[0]||longMid)),
+      low: Math.abs((shortData.bid?.[0]||shortMid) - (longData.ask?.[0]||longMid)),
+      shortMid, longMid,
+      shortDelta: shortData.delta?.[0] || null,
+      ts: new Date().toLocaleTimeString(),
+      _fetchedAt: Date.now(),
+    };
+  } catch { return null; }
+}
+
+async function fetchAllSpreads(positions) {
+  for (const p of positions) {
+    if (p.shortStrike && p.longStrike && p.expiry) {
+      const s = await fetchSpreadQuote(p);
+      if (s) _posSpreads[p.id] = s;
+      await new Promise(r => setTimeout(r, 400)); // rate limit
+    }
+  }
+}
+
+// ── IV / Candles ────────────────────────────────────────────────────────────
+async function fetchCandles(ticker) {
+  try {
+    const from = new Date(Date.now() - 365*86400000).toISOString().slice(0,10);
+    const to = new Date().toISOString().slice(0,10);
+    const d = await mdaFetch('/stocks/candles/D/' + ticker + '/?from=' + from + '&to=' + to);
+    if (d.s === 'ok') { _posCandles[ticker] = d; return d; }
+  } catch {}
+  return null;
+}
+
+async function fetchATMiv(ticker) {
+  try {
+    const d = await mdaFetch('/options/chain/' + ticker + '/?delta=0.50&side=put&mindte=20&maxdte=50&limit=1');
+    if (d.s === 'ok' && d.iv && d.iv[0]) return d.iv[0];
+  } catch {}
+  return null;
+}
+
+// ── HV Calculation ──────────────────────────────────────────────────────────
+function calcHVSeries(candles) {
+  if (!candles?.c?.length || candles.c.length < 32) return [];
+  const closes = candles.c, timestamps = candles.t, result = [];
+  for (let i = 30; i < closes.length; i++) {
+    const win = [];
+    for (let j = i - 29; j <= i; j++) win.push(Math.log(closes[j] / closes[j - 1]));
+    const mean = win.reduce((s,v) => s+v, 0) / win.length;
+    const variance = win.reduce((s,v) => s + (v-mean)**2, 0) / (win.length-1);
+    result.push({ date: new Date(timestamps[i]*1000).toISOString().slice(0,10), hv: Math.sqrt(variance)*Math.sqrt(252)*100 });
+  }
+  return result;
+}
+
+// ── P&L Calculation ─────────────────────────────────────────────────────────
+function intrinsicSpreadValue(trade, stockPrice) {
+  if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
+  const width = Math.abs(trade.shortStrike - trade.longStrike);
+  const type = (trade.tradeType||'').toLowerCase();
+  if (type.includes('bear call') || type.includes('short call') || type.includes('covered call'))
+    return Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
+  return Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
+}
+
+function liveUnrealizedPnl(trade, stockPrice) {
+  if ((trade.tradeType||'').startsWith('Stock')) {
+    if (!stockPrice || !trade.shortStrike) return null;
+    const shares = trade.contracts || 0;
+    if (trade.tradeType === 'Stock Long') return (stockPrice - trade.shortStrike) * shares;
+    if (trade.tradeType === 'Stock Short') return (trade.shortStrike - stockPrice) * shares;
+    return null;
+  }
+  const premium = trade.premiumCollected || 0;
+  const contracts = trade.contracts || 1;
+  const spread = _posSpreads[trade.id];
+  if (spread?.mid != null && spread._fetchedAt && (Date.now() - spread._fetchedAt) < 30*60*1000) {
+    return premium - (spread.mid * 100 * contracts);
+  }
+  const itm = intrinsicSpreadValue(trade, stockPrice);
+  if (itm === null) return null;
+  return premium - (itm * 100 * contracts);
+}
+
+function pnlSource(trade) {
+  const spread = _posSpreads[trade.id];
+  if (spread?.mid != null && spread._fetchedAt && (Date.now() - spread._fetchedAt) < 30*60*1000) return 'live';
+  return 'approx';
+}
+
+// ── IV/HV Chart Rendering ───────────────────────────────────────────────────
+function renderIVHVChart(ticker, svgId, ivValId, hvValId) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  const candles = _posCandles[ticker];
+  const hvSeries = calcHVSeries(candles);
+  const ivData = _posIV[ticker];
+  const ivEntries = ivData?.history || [];
+
+  if (ivEntries.length < 2 && hvSeries.length < 2) {
+    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#6b7280" font-size="10">No IV/HV data yet</text>';
+    return;
+  }
+
+  const hvMap = {};
+  hvSeries.forEach(h => { hvMap[h.date] = h.hv; });
+  const ivMap = {};
+  ivEntries.forEach(e => { ivMap[e.date] = e.iv * 100; });
+
+  const allDates = [...new Set([...Object.keys(ivMap), ...Object.keys(hvMap)])].sort();
+  if (allDates.length < 2) return;
+
+  // Interpolate IV
+  const ivDates = Object.keys(ivMap).sort();
+  function interpIV(date) {
+    if (ivMap[date] != null) return ivMap[date];
+    let before = null, after = null;
+    for (const d of ivDates) { if (d <= date) before = d; if (d >= date && !after) after = d; }
+    if (before && after && before !== after) {
+      const t = (new Date(date) - new Date(before)) / (new Date(after) - new Date(before));
+      return ivMap[before] + t * (ivMap[after] - ivMap[before]);
+    }
+    return before ? ivMap[before] : after ? ivMap[after] : null;
+  }
+
+  const points = [];
+  allDates.forEach(date => {
+    const iv = interpIV(date), hv = hvMap[date] ?? null;
+    if (iv != null || hv != null) points.push({ date, iv, hv });
+  });
+  if (points.length < 2) return;
+
+  // Update current values
+  const lastIV = [...points].reverse().find(p => p.iv != null);
+  const lastHV = [...points].reverse().find(p => p.hv != null);
+  const ivValEl = document.getElementById(ivValId);
+  const hvValEl = document.getElementById(hvValId);
+  if (ivValEl) ivValEl.textContent = lastIV ? lastIV.iv.toFixed(0) + '%' : '—';
+  if (hvValEl) hvValEl.textContent = lastHV ? lastHV.hv.toFixed(0) + '%' : '—';
+
+  const rect = svg.getBoundingClientRect();
+  const W = rect.width || 400, H = rect.height || 120;
+  const pad = { top: 8, right: 6, bottom: 20, left: 32 };
+  const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
+
+  const allVals = points.flatMap(p => [p.iv, p.hv]).filter(v => v != null);
+  const yMin = Math.max(0, Math.min(...allVals) * 0.85);
+  const yMax = Math.max(...allVals) * 1.1;
+  const yRange = yMax - yMin || 1;
+  const xScale = i => pad.left + (i / (points.length - 1)) * cW;
+  const yScale = v => pad.top + cH - ((v - yMin) / yRange) * cH;
+
+  let ivPts = '', hvPts = '';
+  points.forEach((p, i) => {
+    const x = xScale(i);
+    if (p.iv != null) ivPts += (ivPts ? ' ' : '') + x.toFixed(1) + ',' + yScale(p.iv).toFixed(1);
+    if (p.hv != null) hvPts += (hvPts ? ' ' : '') + x.toFixed(1) + ',' + yScale(p.hv).toFixed(1);
+  });
+
+  // Shaded fills
+  let fills = '';
+  const both = points.map((p, i) => (p.iv != null && p.hv != null) ? { i, x: xScale(i), ivY: yScale(p.iv), hvY: yScale(p.hv), ivGt: p.iv > p.hv } : null).filter(Boolean);
+  if (both.length > 1) {
+    let seg = [both[0]];
+    for (let i = 1; i < both.length; i++) {
+      if (both[i].ivGt === seg[0].ivGt) seg.push(both[i]);
+      else { fills += fillPath(seg); seg = [both[i]]; }
+    }
+    fills += fillPath(seg);
+  }
+
+  // Ticks
+  const ticks = [yMin, (yMin+yMax)/2, yMax];
+  const ticksHtml = ticks.map(v => `<text x="${pad.left-4}" y="${yScale(v).toFixed(1)}" text-anchor="end" fill="#6b7280" font-size="8" dominant-baseline="middle">${v.toFixed(0)}%</text>`).join('');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let xLabels = ''; let lastMonth = -1;
+  points.forEach((p, i) => {
+    const m = new Date(p.date).getMonth();
+    if (m !== lastMonth) { lastMonth = m; xLabels += `<text x="${xScale(i).toFixed(1)}" y="${H-2}" text-anchor="middle" fill="#8b949e" font-size="8">${months[m]}</text>`; }
+  });
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = `${fills}
+    ${ivPts ? `<polyline points="${ivPts}" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
+    ${hvPts ? `<polyline points="${hvPts}" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
+    ${ticksHtml}${xLabels}`;
+}
+
+function fillPath(seg) {
+  if (seg.length < 2) return '';
+  const color = seg[0].ivGt ? '#f85149' : '#3fb950';
+  const top = seg.map(s => s.x.toFixed(1)+','+s.ivY.toFixed(1)).join(' ');
+  const bot = [...seg].reverse().map(s => s.x.toFixed(1)+','+s.hvY.toFixed(1)).join(' ');
+  return `<polygon points="${top} ${bot}" fill="${color}" opacity="0.12"/>`;
+}
+
+// ── Positions Rendering ─────────────────────────────────────────────────────
+function calcDTE(expiry) {
+  if (!expiry) return null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  return Math.ceil((new Date(expiry+'T00:00:00') - now) / 86400000);
+}
+
+function calcMaxRisk(p) {
+  if (p.shortStrike && p.longStrike && p.contracts && p.premiumCollected) {
+    const width = Math.abs(Number(p.shortStrike) - Number(p.longStrike));
+    return (width * 100 * Number(p.contracts)) - Number(p.premiumCollected);
+  }
+  return null;
+}
+
+function renderPositions(positions) {
+  if (!positions || !positions.length) {
+    $('positions-body').innerHTML = '<div class="empty">No open positions</div>';
+    $('pos-count').textContent = '';
+    return;
+  }
+  $('pos-count').textContent = `${positions.length} open`;
+
+  let html = `<table class="data-table"><thead><tr>
+    <th>Ticker</th><th>Strategy</th><th class="r">Price</th><th class="r">Chg%</th>
+    <th class="r">Strikes</th><th class="r">Premium</th><th class="r">DTE</th>
+    <th class="r">P&L</th><th class="r">TP Dist</th><th class="r">SL Dist</th>
+  </tr></thead><tbody>`;
+
+  for (const p of positions) {
+    const dte = calcDTE(p.expiry);
+    const dteColor = dte != null ? (dte <= 7 ? 'neg' : dte <= 21 ? '' : 'pos') : '';
+    const quote = _posQuotes[p.ticker];
+    const price = quote?.price;
+    const chgPct = quote?.changePct;
+
+    // P&L
+    const pnl = liveUnrealizedPnl(p, price);
+    const pnlStr = pnl != null ? fmt$(pnl) : '—';
+    const pnlCls = pnl != null ? cls(pnl) : '';
+    const src = pnlSource(p);
+
+    // TP/SL distance
+    let tpDist = '—', slDist = '—';
+    if (price && p.tpPrice) { const d = ((price - Number(p.tpPrice)) / price * 100); tpDist = fmt(Math.abs(d),1) + '%'; }
+    if (price && p.slPrice) { const d = ((price - Number(p.slPrice)) / price * 100); slDist = fmt(Math.abs(d),1) + '%'; }
+
+    // Short strike proximity
+    let proxPct = null;
+    if (price && p.shortStrike && p.longStrike) {
+      const range = Math.abs(p.tpPrice ? Number(p.tpPrice) : price*1.1) - (p.slPrice ? Number(p.slPrice) : price*0.9);
+      proxPct = range > 0 ? Math.max(0, Math.min(100, ((price - (p.slPrice ? Number(p.slPrice) : price*0.9)) / range) * 100)) : 50;
+    }
+
+    const tradeLabel = (p.tradeType||'').replace(/[^\w\s]/g,'').trim();
+
+    html += `<tr class="pos-row" data-id="${p.id}" onclick="togglePos(${p.id})">
+      <td class="name" style="font-weight:700">${p.ticker}</td>
+      <td><span class="pos-badge">${tradeLabel}</span></td>
+      <td class="r price">${price ? fmt(price) : '—'}</td>
+      <td class="r"><span class="change-pill ${pillCls(chgPct)}">${fmtPct(chgPct)}</span></td>
+      <td class="r">${p.shortStrike||'—'}/${p.longStrike||'—'}</td>
+      <td class="r pos">${p.premiumCollected ? '$'+Number(p.premiumCollected).toLocaleString() : '—'}</td>
+      <td class="r ${dteColor}">${dte != null ? dte+'d' : '—'}</td>
+      <td class="r ${pnlCls}">${pnlStr}<span class="pnl-src ${src}">${src==='live'?'LIVE':'EST'}</span></td>
+      <td class="r">${tpDist}</td>
+      <td class="r">${slDist}</td>
+    </tr>`;
+
+    // Expected move
+    const iv = _posIV[p.ticker]?.currentIV;
+    const dailyEM = iv && price ? (price * iv * Math.sqrt(1/252)).toFixed(2) : null;
+    const weeklyEM = iv && price ? (price * iv * Math.sqrt(5/252)).toFixed(2) : null;
+    const hvSeries = calcHVSeries(_posCandles[p.ticker]);
+    const lastHV = hvSeries.length > 0 ? hvSeries[hvSeries.length-1].hv : null;
+    const maxRisk = calcMaxRisk(p);
+
+    // Spread info
+    const spread = _posSpreads[p.id];
+    const spreadMid = spread ? '$' + spread.mid.toFixed(2) : '—';
+    const spreadDelta = spread?.shortDelta ? 'Δ ' + spread.shortDelta.toFixed(2) : '';
+
+    // Spread TP/SL in dollars
+    let spreadTPPrice = '—', spreadSLPrice = '—';
+    if (p.spreadTPPct && p.premiumCollected) {
+      const tpPct = Number(p.spreadTPPct) / 100;
+      const perContract = p.premiumCollected / (p.contracts||1) / 100;
+      spreadTPPrice = '$' + (perContract * (1-tpPct)).toFixed(2);
+    }
+    if (p.spreadSLPct && p.premiumCollected && maxRisk) {
+      const slPct = Number(p.spreadSLPct) / 100;
+      const perContract = p.premiumCollected / (p.contracts||1) / 100;
+      const slVal = perContract + (slPct * maxRisk / (p.contracts||1) / 100);
+      spreadSLPrice = '$' + slVal.toFixed(2);
+    }
+
+    html += `<tr class="pos-expand" id="pos-detail-${p.id}"><td colspan="10">
+      <div class="pos-expand-inner">
+        <div class="pos-detail-grid">
+          <div class="pos-detail-item"><div class="dl">Expiry</div><div class="dv">${p.expiry||'—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">DTE at Entry</div><div class="dv">${p.dteAtEntry||'—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">POP</div><div class="dv">${p.pop ? p.pop+'%' : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">Sector</div><div class="dv">${p.sector||'—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">Max Profit</div><div class="dv pos">${p.premiumCollected ? '$'+Number(p.premiumCollected).toLocaleString() : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">Max Risk</div><div class="dv neg">${maxRisk ? '$'+maxRisk.toLocaleString() : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">Unrealized P&L</div><div class="dv ${pnlCls}">${pnlStr}</div></div>
+          <div class="pos-detail-item"><div class="dl">P&L Source</div><div class="dv">${src==='live'?'Live Spread':'Intrinsic Est.'}</div></div>
+        </div>
+
+        <!-- Row 2: Price Levels -->
+        <div class="pos-detail-grid" style="margin-top:8px">
+          <div class="pos-detail-item"><div class="dl">Stock Price</div><div class="dv">${price ? '$'+fmt(price) : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">Short Strike</div><div class="dv">${p.shortStrike ? '$'+p.shortStrike : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">TP (Resistance)</div><div class="dv">${p.tpPrice ? '$'+p.tpPrice : '—'} <span class="ticker">${tpDist}</span></div></div>
+          <div class="pos-detail-item"><div class="dl">SL (Support)</div><div class="dv">${p.slPrice ? '$'+p.slPrice : '—'} <span class="ticker">${slDist}</span></div></div>
+        </div>
+
+        <!-- Row 3: Spread Pricing -->
+        <div class="pos-detail-grid" style="margin-top:8px">
+          <div class="pos-detail-item"><div class="dl">Spread Mid</div><div class="dv">${spreadMid} ${spreadDelta}</div></div>
+          <div class="pos-detail-item"><div class="dl">Spread TP</div><div class="dv">${spreadTPPrice} <span class="ticker">${p.spreadTPPct ? '('+p.spreadTPPct+'% profit)' : ''}</span></div></div>
+          <div class="pos-detail-item"><div class="dl">Spread SL</div><div class="dv">${spreadSLPrice} <span class="ticker">${p.spreadSLPct ? '('+p.spreadSLPct+'% max risk)' : ''}</span></div></div>
+          <div class="pos-detail-item"><div class="dl">Contracts</div><div class="dv">${p.contracts||'—'}</div></div>
+        </div>
+
+        <!-- Row 4: Volatility & Expected Move -->
+        <div class="pos-detail-grid" style="margin-top:8px">
+          <div class="pos-detail-item"><div class="dl">IV (30d ATM)</div><div class="dv">${iv ? (iv*100).toFixed(1)+'%' : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">HV (30d)</div><div class="dv">${lastHV ? lastHV.toFixed(1)+'%' : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">Daily EM</div><div class="dv em-val">${dailyEM ? '±$'+dailyEM : '—'}</div></div>
+          <div class="pos-detail-item"><div class="dl">Weekly EM</div><div class="dv em-val">${weeklyEM ? '±$'+weeklyEM : '—'}</div></div>
+        </div>
+
+        <!-- Thesis -->
+        ${p.thesis ? `<div style="grid-column:1/-1;margin-top:8px">
+          <div class="dl" style="font-size:10px;color:var(--text-tertiary);margin-bottom:3px">THESIS</div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">${(p.thesis||'').slice(0,400)}${(p.thesis||'').length>400?'...':''}</div>
+        </div>` : ''}
+
+        <!-- IV vs HV Chart -->
+        <div class="pos-ivhv" id="pos-ivhv-wrap-${p.id}">
+          <div class="pos-ivhv-header">
+            <span class="pos-ivhv-title">IV vs HV — ${p.ticker}</span>
+            <div class="pos-ivhv-legend">
+              <span class="iv-l">IV <span id="pos-iv-val-${p.id}">—</span></span>
+              <span class="hv-l">HV <span id="pos-hv-val-${p.id}">—</span></span>
+            </div>
+          </div>
+          <svg id="pos-ivhv-svg-${p.id}" style="width:100%;height:calc(100% - 24px)"></svg>
+        </div>
+
+        <!-- TradingView Chart -->
+        <div class="pos-chart" id="pos-chart-${p.id}"></div>
+      </div>
+    </td></tr>`;
+  }
+  html += '</tbody></table>';
+  $('positions-body').innerHTML = html;
+}
+
+// ── Toggle Position Expand ──────────────────────────────────────────────────
+function togglePos(id) {
+  const row = document.getElementById('pos-detail-' + id);
+  if (!row) return;
+  const wasOpen = row.classList.contains('open');
+  document.querySelectorAll('.pos-expand.open').forEach(el => el.classList.remove('open'));
+  if (!wasOpen) {
+    row.classList.add('open');
+    _expandedPos = id;
+    const p = _positions.find(x => x.id === id);
+    if (p) {
+      loadTVChart(p.ticker, 'pos-chart-' + id);
+      // Render IV/HV chart after a tick (needs DOM dimensions)
+      requestAnimationFrame(() => {
+        renderIVHVChart(p.ticker, 'pos-ivhv-svg-'+id, 'pos-iv-val-'+id, 'pos-hv-val-'+id);
+      });
+    }
+  } else {
+    _expandedPos = null;
+  }
+}
+
+function loadTVChart(symbol, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container || container.dataset.loaded) return;
+  container.dataset.loaded = '1';
+  if (typeof TradingView === 'undefined') {
+    container.innerHTML = '<div style="padding:20px;color:var(--text-tertiary);font-size:11px">TradingView loading...</div>';
+    setTimeout(() => { container.dataset.loaded = ''; loadTVChart(symbol, containerId); }, 500);
+    return;
+  }
+  new TradingView.widget({
+    symbol, interval: 'D', timezone: 'America/New_York', theme: 'dark',
+    style: '1', locale: 'en', toolbar_bg: '#161b22',
+    enable_publishing: false, hide_top_toolbar: false, hide_legend: false,
+    save_image: false, container_id: containerId, autosize: true, hide_side_toolbar: true,
+    studies: ['MASimple@tv-basicstudies'],
+    overrides: {
+      'paneProperties.background': '#0d1117', 'paneProperties.backgroundType': 'solid',
+      'mainSeriesProperties.candleStyle.upColor': '#3fb950', 'mainSeriesProperties.candleStyle.downColor': '#f85149',
+      'mainSeriesProperties.candleStyle.wickUpColor': '#3fb950', 'mainSeriesProperties.candleStyle.wickDownColor': '#f85149',
+    },
+  });
+}
+
+// ── Data Loading ────────────────────────────────────────────────────────────
+async function loadMarketData() {
+  try {
+    const r = await fetch(API + '/market-overview');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _marketData = await r.json();
+    renderQuoteTable(_marketData.indices, 'indices-body');
+    renderQuoteTable(_marketData.vix, 'vix-body');
+    renderSectors(_marketData.sectors);
+    renderYields(_marketData.yields);
+    renderQuoteTable(_marketData.globalBroad, 'global-broad-body');
+    renderQuoteTable(_marketData.globalDeveloped, 'global-dev-body');
+    renderQuoteTable(_marketData.globalEmerging, 'global-em-body');
+    renderQuoteTable(_marketData.currencies, 'currencies-body');
+    renderQuoteTable(_marketData.commodities, 'commodities-body');
+    $('last-updated').textContent = 'Updated ' + timeAgo(_marketData.ts);
+  } catch (e) {
+    console.error('Market data error:', e);
+    $('indices-body').innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
+  }
+}
+
+async function loadCalendar() {
+  try {
+    const r = await fetch(API + '/calendar/live');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _calendar = await r.json();
+    renderCalendar(_calendar);
+  } catch (e) {
+    console.error('Calendar error:', e);
+    $('calendar-body').innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
+  }
+}
+
+async function loadPositions() {
+  try {
+    const r = await fetch(API + '/positions/open');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _positions = await r.json();
+
+    // Phase 1: Fetch stock quotes (fast)
+    await fetchPositionQuotes(_positions);
+    renderPositions(_positions);
+
+    // Phase 2: Fetch candles + IV + spread quotes (slower, non-blocking)
+    loadPositionExtras();
+  } catch (e) {
+    console.error('Positions error:', e);
+    $('positions-body').innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
+  }
+}
+
+async function loadPositionExtras() {
+  const tickers = [...new Set(_positions.map(p => p.ticker))];
+
+  // Fetch candles and IV in parallel per ticker
+  for (const ticker of tickers) {
+    try {
+      const [candles, iv] = await Promise.all([fetchCandles(ticker), fetchATMiv(ticker)]);
+      if (iv) {
+        const hvSeries = calcHVSeries(candles);
+        const hvArr = hvSeries.map(h => h.hv);
+        const mn = hvArr.length ? Math.min(...hvArr) : 0;
+        const mx = hvArr.length ? Math.max(...hvArr) : 0;
+        const ivPct = iv * 100;
+        const ivr = mx > mn ? Math.round(((ivPct - mn) / (mx - mn)) * 100) : 50;
+        _posIV[ticker] = {
+          currentIV: iv, ivr,
+          history: [{ date: new Date().toISOString().slice(0,10), iv }],
+        };
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // Fetch spread quotes
+  await fetchAllSpreads(_positions);
+
+  // Re-render with all data
+  renderPositions(_positions);
+}
+
+async function loadAll() {
+  await Promise.all([loadMarketData(), loadCalendar(), loadPositions()]);
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+loadAll();
+setInterval(loadMarketData, REFRESH_INTERVAL);
+</script>
+</body>
+</html>
