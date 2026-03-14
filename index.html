@@ -3207,10 +3207,10 @@ function renderMorningChecklist() {
   const perPos = cl.perPosition || [];
   const isLocked = !!cl.savedAt; // once saved, show read-only with edit option
 
-  const inputStyle = `width:100%;background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:4px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;box-sizing:border-box;`;
-  const labelStyle = `font-family:'IBM Plex Mono',monospace;font-size:9px;color:${C.textSec};letter-spacing:.08em;margin-bottom:5px;`;
+  const inputStyle = `width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;box-sizing:border-box;`;
+  const labelStyle = `font-family:'IBM Plex Mono',monospace;font-size:9px;color:rgba(255,255,255,0.5);letter-spacing:.08em;margin-bottom:5px;`;
   const sectionStyle = `padding:14px;margin-bottom:10px;border:1px solid ${C.border};`;
-  const hdrStyle = `font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.warn};letter-spacing:.1em;margin-bottom:12px;`;
+  const hdrStyle = `font-family:'IBM Plex Mono',monospace;font-size:10px;color:#fff;letter-spacing:.1em;margin-bottom:12px;`;
 
   let html = diarySubTabs();
 
@@ -3220,7 +3220,7 @@ function renderMorningChecklist() {
   const etNow = new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
   const dayName = dayNames[etNow.getDay()];
   const dateLabel = etNow.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}).toUpperCase();
-  html += `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${C.text};letter-spacing:.12em;margin-bottom:14px;text-align:center">
+  html += `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#fff;letter-spacing:.12em;margin-bottom:14px;text-align:center">
     ☀ PRE-MARKET CHECKLIST — ${dayName} ${dateLabel}
   </div>`;
 
@@ -3236,7 +3236,7 @@ function renderMorningChecklist() {
         <div>
           <div style="${labelStyle}">ENERGY (1-5)</div>
           <div style="display:flex;gap:4px">${[1,2,3,4,5].map(n=>
-            `<button onclick="document.getElementById('cl-energy').value='${n}';this.parentElement.querySelectorAll('button').forEach(b=>b.style.background='transparent');this.style.background='${C.warn}';this.style.color='#000'" style="flex:1;padding:6px 0;border:1px solid ${C.border};border-radius:3px;background:${cl.energy==n?C.warn:'transparent'};color:${cl.energy==n?'#000':C.textSec};font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer">${n}</button>`
+            `<button onclick="document.getElementById('cl-energy').value='${n}';this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.warn}';this.style.color='#000'" style="flex:1;padding:6px 0;border:1px solid ${C.border};border-radius:3px;background:${cl.energy==n?C.warn:'transparent'};color:${cl.energy==n?'#000':'rgba(255,255,255,0.5)'};font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer">${n}</button>`
           ).join('')}</div>
           <input type="hidden" id="cl-energy" value="${cl.energy||''}">
         </div>
@@ -3294,17 +3294,25 @@ function renderMorningChecklist() {
         html += `<div style="padding:10px;margin-bottom:8px;border:1px solid ${C.border};border-radius:4px;background:${C.bg}">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div>
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:${C.text}">${t.ticker}</span>
-              <span style="font-size:10px;color:${C.textSec};margin-left:6px">${t.shortStrike}/${t.longStrike} x${t.contracts} · ${dte}d</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:#fff">${t.ticker}</span>
+              <span style="font-size:10px;color:rgba(255,255,255,0.5);margin-left:6px">${t.shortStrike}/${t.longStrike} x${t.contracts} · ${dte}d</span>
             </div>
             <div style="font-size:10px;color:${C.neg}">Max loss: $${maxLoss.toFixed(0)}</div>
+          </div>
+          <div style="padding:8px;margin-bottom:8px;border:1px solid ${C.border};border-radius:3px;background:${C.bgCard}">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${t.thesis?'4':'0'}px">
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:.08em">ENTRY THESIS</div>
+              <button onclick="const ta=this.parentElement.nextElementSibling;const isVis=ta.style.display!=='none';ta.style.display=isVis?'none':'block';this.textContent=isVis?'EDIT':'DONE'" style="background:transparent;border:1px solid ${C.border};border-radius:3px;color:rgba(255,255,255,0.4);font-family:'IBM Plex Mono',monospace;font-size:8px;padding:2px 6px;cursor:pointer">EDIT</button>
+            </div>
+            ${t.thesis ? `<div style="font-size:10px;color:#fff;white-space:pre-wrap">${escHtml(t.thesis)}</div>` : `<div style="font-size:10px;color:${C.neg}">⚠ No thesis recorded — add one</div>`}
+            <textarea onblur="updateTradeField(${t.id},'thesis',this.value);this.previousElementSibling.textContent=this.value||'⚠ No thesis recorded — add one';this.previousElementSibling.style.color=this.value?'#fff':'${C.neg}'" style="display:none;${inputStyle}font-size:10px;margin-top:6px;min-height:50px;resize:vertical">${escHtml(t.thesis||'')}</textarea>
           </div>
           <div style="margin-bottom:6px">
             <div style="${labelStyle}">IS THE THESIS STILL VALID?</div>
             <div style="display:flex;gap:4px">
-              <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='${C.textSec}'});this.style.background='${C.pos}';this.style.color='#000';this.parentElement.nextElementSibling.querySelector('input').value='yes'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='yes'?C.pos:'transparent'};color:${existing.thesisValid==='yes'?'#000':C.textSec};font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">YES</button>
-              <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='${C.textSec}'});this.style.background='${C.neg}';this.style.color='#fff';this.parentElement.nextElementSibling.querySelector('input').value='no'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='no'?C.neg:'transparent'};color:${existing.thesisValid==='no'?'#fff':C.textSec};font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">NO — CLOSE IT</button>
-              <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='${C.textSec}'});this.style.background='${C.warn}';this.style.color='#000';this.parentElement.nextElementSibling.querySelector('input').value='shaky'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='shaky'?C.warn:'transparent'};color:${existing.thesisValid==='shaky'?'#000':C.textSec};font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">SHAKY</button>
+              <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.pos}';this.style.color='#000';this.parentElement.nextElementSibling.querySelector('input').value='yes'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='yes'?C.pos:'transparent'};color:${existing.thesisValid==='yes'?'#000':'rgba(255,255,255,0.5)'};font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">YES</button>
+              <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.neg}';this.style.color='#fff';this.parentElement.nextElementSibling.querySelector('input').value='no'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='no'?C.neg:'transparent'};color:${existing.thesisValid==='no'?'#fff':'rgba(255,255,255,0.5)'};font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">NO — CLOSE IT</button>
+              <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.warn}';this.style.color='#000';this.parentElement.nextElementSibling.querySelector('input').value='shaky'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='shaky'?C.warn:'transparent'};color:${existing.thesisValid==='shaky'?'#000':'rgba(255,255,255,0.5)'};font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">SHAKY</button>
             </div>
             <div><input type="hidden" class="cl-thesis-valid" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" value="${existing.thesisValid||''}"></div>
           </div>
@@ -3312,7 +3320,6 @@ function renderMorningChecklist() {
             <div style="${labelStyle}">WHAT INVALIDATES THIS? (price level, event, time)</div>
             <input type="text" class="cl-invalidation" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="e.g. NVDA below 170, earnings miss, breaks trend" value="${escHtml(existing.invalidation||'')}" style="${inputStyle}font-size:10px;">
           </div>
-          ${t.thesis ? `<div style="font-size:10px;color:${C.textSec};margin-top:6px;font-style:italic">Thesis: ${escHtml(t.thesis.slice(0,80))}</div>` : `<div style="font-size:10px;color:${C.neg};margin-top:6px">⚠ No thesis recorded for this trade</div>`}
         </div>`;
       }
       html += `</div>`;
@@ -3340,7 +3347,7 @@ function renderMorningChecklist() {
 
     // 6. HARD RULES
     html += `<div class="card" style="${sectionStyle}border-color:${C.neg}44;">
-      <div style="${hdrStyle}color:${C.neg}">🚫 INVALIDATION & HARD RULES</div>
+      <div style="${hdrStyle}color:${C.neg};">🚫 INVALIDATION & HARD RULES</div>
       <div style="margin-bottom:10px">
         <div style="${labelStyle}">I WILL CLOSE _____ IF _____</div>
         <input type="text" id="cl-willClose" placeholder="e.g. Close NVDA if breaks 170, Close IBIT if BTC < 75k" value="${escHtml(cl.willClose||'')}" style="${inputStyle}">
@@ -3355,7 +3362,7 @@ function renderMorningChecklist() {
     html += `<div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-p" onclick="saveMorningChecklist('${today}')" style="flex:1;font-size:11px;padding:12px">LOCK IN PRE-MARKET PLAN</button>
     </div>
-    <div style="font-size:9px;color:${C.textSec};text-align:center;margin-top:8px;font-style:italic">Once saved, this becomes your contract with yourself for the session.</div>`;
+    <div style="font-size:9px;color:rgba(255,255,255,0.4);text-align:center;margin-top:8px;font-style:italic">Once saved, this becomes your contract with yourself for the session.</div>`;
   }
 
   // Past checklists
@@ -3364,12 +3371,12 @@ function renderMorningChecklist() {
     .sort((a,b)=>b[0].localeCompare(a[0]))
     .slice(0,10);
   if (pastDays.length) {
-    html += `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};letter-spacing:.1em;margin:20px 0 10px">PAST CHECKLISTS</div>`;
+    html += `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:.1em;margin:20px 0 10px">PAST CHECKLISTS</div>`;
     for (const [date, entry] of pastDays) {
       const d = new Date(date+'T12:00:00');
       const dayLabel = ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()] + ' ' + ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][d.getMonth()] + ' ' + d.getDate();
       html += `<details class="card" style="padding:12px;margin-bottom:6px;border:1px solid ${C.border}">
-        <summary style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.textSec};cursor:pointer">${dayLabel} — Energy: ${entry.checklist.energy||'?'}/5 · ${entry.checklist.mood||'?'}</summary>
+        <summary style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.5);cursor:pointer">${dayLabel} — Energy: ${entry.checklist.energy||'?'}/5 · ${entry.checklist.mood||'?'}</summary>
         <div style="margin-top:8px">${renderChecklistReadOnly(entry.checklist, [], date, true)}</div>
       </details>`;
     }
@@ -3380,13 +3387,13 @@ function renderMorningChecklist() {
 
 function renderChecklistReadOnly(cl, open, date, compact) {
   const s = compact ? 'font-size:10px;' : 'font-size:11px;';
-  const lbl = `font-family:'IBM Plex Mono',monospace;font-size:9px;color:${C.textSec};letter-spacing:.06em;`;
+  const lbl = `font-family:'IBM Plex Mono',monospace;font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:.06em;`;
   let h = '';
 
   if (!compact) {
     h += `<div class="card" style="padding:14px;margin-bottom:10px;border:1px solid ${C.pos}44;background:${C.posDim}">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${C.pos};letter-spacing:.1em;margin-bottom:4px">✅ PRE-MARKET PLAN LOCKED</div>
-      <div style="font-size:10px;color:${C.textSec}">Saved at ${cl.savedAt ? new Date(cl.savedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : ''} — this is your contract for the session</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.5)">Saved at ${cl.savedAt ? new Date(cl.savedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : ''} — this is your contract for the session</div>
       <button class="btn btn-g" onclick="unlockChecklist('${date}')" style="font-size:9px;margin-top:8px;opacity:.6">EDIT</button>
     </div>`;
   }
@@ -3395,8 +3402,8 @@ function renderChecklistReadOnly(cl, open, date, compact) {
   const energyBar = cl.energy ? '🟢'.repeat(cl.energy) + '⚫'.repeat(5-cl.energy) : '—';
   h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;${s}">
     <div><span style="${lbl}">ENERGY</span><br>${energyBar}</div>
-    <div><span style="${lbl}">MOOD</span><br><span style="color:${C.text}">${cl.mood||'—'}</span></div>
-    <div><span style="${lbl}">BIASES</span><br><span style="color:${C.text}">${escHtml(cl.biases||'None')}</span></div>
+    <div><span style="${lbl}">MOOD</span><br><span style="color:#fff">${cl.mood||'—'}</span></div>
+    <div><span style="${lbl}">BIASES</span><br><span style="color:#fff">${escHtml(cl.biases||'None')}</span></div>
   </div>`;
 
   // Portfolio brackets
@@ -3410,20 +3417,24 @@ function renderChecklistReadOnly(cl, open, date, compact) {
   if (cl.perPosition?.length) {
     h += `<div style="${lbl};margin-bottom:4px">POSITIONS</div>`;
     for (const p of cl.perPosition) {
-      const color = p.thesisValid==='yes'?C.pos:p.thesisValid==='no'?C.neg:p.thesisValid==='shaky'?C.warn:C.textSec;
-      h += `<div style="display:flex;gap:8px;margin-bottom:3px;${s}">
-        <span style="color:${color};min-width:70px">${p.ticker}</span>
-        <span style="color:${color}">${(p.thesisValid||'?').toUpperCase()}</span>
-        <span style="color:${C.textSec}">${escHtml(p.invalidation||'')}</span>
+      const color = p.thesisValid==='yes'?C.pos:p.thesisValid==='no'?C.neg:p.thesisValid==='shaky'?C.warn:'rgba(255,255,255,0.5)';
+      const t = open.find(tr=>tr.ticker===p.ticker && String(tr.shortStrike)===String(p.shortStrike));
+      h += `<div style="padding:6px 8px;margin-bottom:4px;border:1px solid ${C.border};border-radius:3px;${s}">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="color:#fff;font-weight:600;min-width:50px">${p.ticker}</span>
+          <span style="color:${color};font-size:10px">${(p.thesisValid||'?').toUpperCase()}</span>
+          ${p.invalidation ? `<span style="color:rgba(255,255,255,0.4);font-size:10px">· ${escHtml(p.invalidation)}</span>` : ''}
+        </div>
+        ${t?.thesis ? `<div style="color:rgba(255,255,255,0.5);font-size:9px;margin-top:3px">${escHtml(t.thesis)}</div>` : ''}
       </div>`;
     }
     h += `<div style="margin-bottom:10px"></div>`;
   }
 
   // Macro, catalysts & plan
-  if (cl.macro) h += `<div style="${lbl}">MACRO EVENTS</div><div style="color:${C.text};${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.macro)}</div>`;
-  if (cl.catalysts) h += `<div style="${lbl}">CATALYSTS</div><div style="color:${C.text};${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.catalysts)}</div>`;
-  if (cl.plan) h += `<div style="${lbl}">SESSION PLAN</div><div style="color:${C.text};${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.plan)}</div>`;
+  if (cl.macro) h += `<div style="${lbl}">MACRO EVENTS</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.macro)}</div>`;
+  if (cl.catalysts) h += `<div style="${lbl}">CATALYSTS</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.catalysts)}</div>`;
+  if (cl.plan) h += `<div style="${lbl}">SESSION PLAN</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.plan)}</div>`;
 
   // Hard rules
   if (cl.willClose) h += `<div style="color:${C.neg};${s}margin-bottom:4px">CLOSE IF: ${escHtml(cl.willClose)}</div>`;
