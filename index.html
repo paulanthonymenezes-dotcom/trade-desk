@@ -518,20 +518,17 @@ table{width:100%;border-collapse:collapse}
         </div>
       </div>
       <div class="frow" style="margin-bottom:0">
-        <label>🚨 Spread SL — % of premium collected to stop out</label>
+        <label>🚨 Spread SL — % of max risk (spread widens this far past entry)</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="tf-spreadSLPct" type="number" placeholder="e.g. 200" style="flex:1" oninput="calcSpreadSL()">
-          <span style="color:var(--text-secondary);font-size:11px">%</span>
+          <input id="tf-spreadSLPct" type="number" placeholder="e.g. 75" style="flex:1" oninput="calcSpreadSL()">
+          <span style="color:var(--text-secondary);font-size:11px">% max risk</span>
           <span id="tf-spreadSLCalc" style="color:var(--negative);font-size:12px;font-variant-numeric:tabular-nums;min-width:80px"></span>
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=25;calcSpreadSL()">25%</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=50;calcSpreadSL()">50%</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=75;calcSpreadSL()">75%</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=100;calcSpreadSL()">100%</button>
-          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=125;calcSpreadSL()">125%</button>
-          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=150;calcSpreadSL()">150%</button>
-          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=175;calcSpreadSL()">175%</button>
-          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=200;calcSpreadSL()">200%</button>
         </div>
       </div>
     </div>
@@ -2765,12 +2762,12 @@ function renderPositions() {
         ${t.spreadTP ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.posDim};border-radius:3px;padding:8px 10px">
           <div style="font-size:9px;color:${C.pos};letter-spacing:0;margin-bottom:3px">🎯 SPREAD TP</div>
           <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.pos};font-weight:600">$${parseFloat(t.spreadTP).toFixed(2)}</div>
-          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadTPPct}% profit${spreadTPDist != null ? ` · ${spreadTPDist}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadTPPct}% profit${spreadTPDist != null ? ` · ~${Math.abs(spreadTPDist)}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
         </div>` : ""}
         ${t.spreadSL ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
           <div style="font-size:9px;color:${C.neg};letter-spacing:0;margin-bottom:3px">🚨 SPREAD SL</div>
           <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.neg};font-weight:600">$${parseFloat(t.spreadSL).toFixed(2)}</div>
-          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadSLPct}% loss${spreadSLDist != null ? ` · ${spreadSLDist}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadSLPct}% max risk${spreadSLDist != null ? ` · ~${Math.abs(spreadSLDist)}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
         </div>` : ""}
       </div>`;
       })() : ""}
@@ -6869,6 +6866,30 @@ function confirmIBKRImport() {
   await load();
   // One-time migration: switch to koyfin theme
   if (STATE.theme === 'original') { STATE.theme = 'koyfin'; save(); }
+  // One-time migration: recalculate all spreadSL/TP from % of max risk
+  if (!STATE._spreadSLFixed2) {
+    let changed = false;
+    (STATE.trades||[]).forEach(t => {
+      if (t.status !== 'Open' || !t.premiumCollected || !t.shortStrike || !t.longStrike || !t.contracts) return;
+      const width = Math.abs(t.shortStrike - t.longStrike);
+      const perSpread = t.premiumCollected / (100 * t.contracts);
+      const maxLossPerSpread = width - perSpread;
+      if (maxLossPerSpread <= 0) return;
+      // Recalc SL: 75% of max risk
+      const slPct = 75;
+      const sl = Math.min(perSpread + (maxLossPerSpread * slPct / 100), width);
+      t.spreadSLPct = String(slPct);
+      t.spreadSL = sl.toFixed(2);
+      // Recalc TP: 50% profit (half the premium)
+      const tpPct = 50;
+      t.spreadTPPct = String(tpPct);
+      t.spreadTP = (perSpread * tpPct / 100).toFixed(2);
+      changed = true;
+      console.log(`[migration] ${t.ticker} ${t.shortStrike}/${t.longStrike}: SL=$${t.spreadSL} (75% max risk), TP=$${t.spreadTP} (50% profit)`);
+    });
+    STATE._spreadSLFixed2 = true;
+    if (changed) save();
+  }
   // Apply saved theme
   if (STATE.theme && THEMES[STATE.theme]) {
     C = {...THEMES[STATE.theme]};
