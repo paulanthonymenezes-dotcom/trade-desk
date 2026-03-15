@@ -89,6 +89,7 @@ html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);fon
   border:1px solid var(--border-subtle);
   border-radius:6px;
   overflow:hidden;
+  align-self:start;
 }
 .section-box.full-width{grid-column:1/-1}
 .section-header{
@@ -9268,25 +9269,24 @@ function mktRenderCalendar(events) {
   }
   html += '</tbody></table>';
   calBody.innerHTML = html;
-  // Start collapsed — match indices card height
-  if (!window._calExpanded) { calBody.style.maxHeight = '320px'; calBody.style.overflow = 'hidden'; }
+  // Start collapsed — constrain the whole sec-calendar box, not just the body
+  const secCal = document.getElementById('sec-calendar');
+  if (!window._calExpanded && secCal) { secCal.style.maxHeight = '360px'; }
   const totalCount = sorted.length;
   const cr = mkt$('cal-range'); if(cr) cr.textContent = totalCount + ' events';
 }
 
 let _calExpanded = false;
 function toggleCalendarExpand() {
-  const calBody = mkt$('calendar-body');
+  const secCal = document.getElementById('sec-calendar');
   const btn = document.getElementById('cal-expand-btn');
-  if (!calBody || !btn) return;
+  if (!secCal || !btn) return;
   _calExpanded = !_calExpanded;
   if (_calExpanded) {
-    calBody.style.maxHeight = 'none';
-    calBody.style.overflow = 'visible';
+    secCal.style.maxHeight = 'none';
     btn.textContent = 'COLLAPSE ▲';
   } else {
-    calBody.style.maxHeight = '320px';
-    calBody.style.overflow = 'hidden';
+    secCal.style.maxHeight = '360px';
     btn.textContent = 'SHOW ALL ▼';
   }
 }
