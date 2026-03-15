@@ -7275,9 +7275,7 @@ function confirmIBKRImport() {
   pollTimer = setInterval(refreshAll, POLL_INTERVAL);
 })();
 
-// Markets tab is default — kick off initial market data load
-mktLoadAll();
-setInterval(mktLoadMarketData, MKT_REFRESH_INTERVAL);
+// Markets tab load is deferred to after mkt* functions are declared (see bottom of file)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // EDGE SCANNER
@@ -9591,6 +9589,10 @@ async function mktLoadAll() {
   await Promise.all(tasks);
   mktLoadWatchlist();
 }
+
+// ── Markets init (must be after mkt* function declarations) ──
+mktLoadAll();
+setInterval(mktLoadMarketData, MKT_REFRESH_INTERVAL);
 
 
 // ══════════════════════════════════════════════════════════════════════════════
