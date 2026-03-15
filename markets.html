@@ -350,6 +350,10 @@ table{width:100%;border-collapse:collapse}
   gap:10px;
 }
 #main.dashboard-mode .section.active{display:contents}
+#main.dashboard-mode #tab-diary.active,
+#main.dashboard-mode #tab-stats.active,
+#main.dashboard-mode #tab-forecast.active,
+#main.dashboard-mode #tab-scanner.active{display:block;grid-column:1/-1}
 @media(max-width:900px){
   #main.dashboard-mode{grid-template-columns:1fr;padding:8px 8px 80px}
 }
@@ -3390,6 +3394,7 @@ function setDiarySubTab(tab, btn) {
   currentDiaryId = null;
   document.querySelectorAll("#diary-list-panel .stats-pill").forEach(b=>b.classList.remove("active"));
   if (btn) btn.classList.add("active");
+  document.getElementById('diary-detail-panel').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);font-size:12px">Select a trade to view details</div>';
   if (tab === "journal") renderDiaryJournalView();
   else if (tab === "checklist") renderMorningChecklist();
   else renderDiaryList();
@@ -5038,31 +5043,31 @@ function renderForecast() {
     <!-- Two-column: Projection table + Benchmark chart -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
       <!-- Projection table -->
-      <div class="card" style="padding:12px">
-        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">PROJECTIONS</div>
-        <div style="font-size:9px;color:${C.textSec};margin-bottom:8px">Starting: <span style="color:${C.text}">$${base.toLocaleString()}</span></div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:11px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">PROJECTIONS</div>
+        <div style="font-size:10px;color:${C.textSec};margin-bottom:8px">Starting: <span style="color:${C.text}">$${base.toLocaleString()}</span></div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
           <table style="width:100%;border-collapse:collapse">
             <thead>
               <tr style="border-bottom:1px solid ${C.border}">
-                <th style="text-align:left;padding:5px 6px;font-size:9px;color:${C.textSec};letter-spacing:0">YR</th>
-                ${scenarios.map(s=>`<th style="text-align:right;padding:5px 6px;font-size:9px;color:${s.color};letter-spacing:0">${s.label}</th>`).join("")}
+                <th style="text-align:left;padding:6px 8px;font-size:10px;color:${C.textSec};letter-spacing:0">YR</th>
+                ${scenarios.map(s=>`<th style="text-align:right;padding:6px 8px;font-size:10px;color:${s.color};letter-spacing:0">${s.label}</th>`).join("")}
               </tr>
             </thead>
             <tbody>
               ${years.map(y=>`<tr style="border-bottom:1px solid ${C.border}">
-                <td style="padding:6px;font-variant-numeric:tabular-nums;font-size:11px;color:${C.textSec}">${y}</td>
+                <td style="padding:7px 8px;font-variant-numeric:tabular-nums;font-size:12px;color:${C.textSec}">${y}</td>
                 ${scenarios.map(s=>{
                   const val = compound(base, s.rate, y);
-                  return `<td style="padding:6px;text-align:right">
-                    <div style="font-variant-numeric:tabular-nums;font-size:11px;color:${s.color};font-weight:500">$${fmt(val)}</div>
+                  return `<td style="padding:7px 8px;text-align:right">
+                    <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${s.color};font-weight:500">$${fmt(val)}</div>
                   </td>`;
                 }).join("")}
               </tr>`).join("")}
             </tbody>
           </table>
         </div>
-        <div style="margin-top:8px;font-size:9px;color:${C.textMut};font-style:italic">Monthly compounding, no withdrawals</div>
+        <div style="margin-top:8px;font-size:10px;color:${C.textMut};font-style:italic">Monthly compounding, no withdrawals</div>
       </div>
 
       <!-- Benchmark chart -->
@@ -5081,12 +5086,12 @@ function renderForecast() {
         const double = annRate2 > 0 ? (72 / annRate2).toFixed(1) : "∞";
         const yr5val = compound(base, s.rate, 5);
         const yr10val = compound(base, s.rate, 10);
-        return `<div class="card" style="padding:10px;border-left:3px solid ${s.color}">
-          <div style="font-size:10px;color:${C.textSec};margin-bottom:6px">${s.label} MILESTONES</div>
-          <div style="display:flex;flex-direction:column;gap:4px">
-            <div style="display:flex;justify-content:space-between"><span style="font-size:10px;color:${C.textSec}">Double in</span><span style="font-variant-numeric:tabular-nums;font-size:11px;color:${s.color};font-weight:600">${double} yr</span></div>
-            <div style="display:flex;justify-content:space-between"><span style="font-size:10px;color:${C.textSec}">5-Year</span><span style="font-variant-numeric:tabular-nums;font-size:11px;color:${s.color}">$${fmt(yr5val)}</span></div>
-            <div style="display:flex;justify-content:space-between"><span style="font-size:10px;color:${C.textSec}">10-Year</span><span style="font-variant-numeric:tabular-nums;font-size:11px;color:${s.color}">$${fmt(yr10val)}</span></div>
+        return `<div class="card" style="padding:14px;border-left:3px solid ${s.color}">
+          <div style="font-size:11px;color:${C.textSec};margin-bottom:6px">${s.label} MILESTONES</div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${C.textSec}">Double in</span><span style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.color};font-weight:600">${double} yr</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${C.textSec}">5-Year</span><span style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.color}">$${fmt(yr5val)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${C.textSec}">10-Year</span><span style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.color}">$${fmt(yr10val)}</span></div>
           </div>
         </div>`;
       }).join("")}
@@ -9639,7 +9644,9 @@ function switchTab(tab, btn) {
   if (section) {
     section.classList.add('active');
     // Dashboard tabs use display:contents to flow into the 2-col grid
-    section.style.display = isDashboardTab ? 'contents' : 'block';
+    // Markets uses display:contents to flow tiles into 2-col grid
+    // Diary/stats/forecast use display:block (they have their own internal layout)
+    section.style.display = (tab === 'mkts') ? 'contents' : 'block';
   }
 
   // Layout mode: dashboard (2-col grid, no chart) vs chart (narrow + chart panel)
