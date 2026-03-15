@@ -630,7 +630,7 @@ table{width:100%;border-collapse:collapse}
     </div>
     <div id="positions-snapshot"></div>
     <div id="incomplete-banner"></div>
-    <div id="positions-cards" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div id="positions-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>
   </div>
 
   <!-- WATCHLIST TAB -->
@@ -651,7 +651,7 @@ table{width:100%;border-collapse:collapse}
       <input id="watch-input" placeholder="Search ticker or company..." style="width:100%;font-size:13px" oninput="onWatchInput()" onkeydown="onWatchKeydown(event)">
       <div id="watch-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border-visible);border-top:none;border-radius:0 0 4px 4px;z-index:60;max-height:320px;overflow-y:auto"></div>
     </div>
-    <div id="watchlist-cards" style="display:flex;flex-direction:column;gap:32px"></div>
+    <div id="watchlist-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
   </div>
 
   <!-- TRADES TAB (hidden - merged into diary) -->
@@ -676,17 +676,20 @@ table{width:100%;border-collapse:collapse}
 
   <!-- DIARY TAB -->
   <div id="tab-diary" class="section">
-    <div id="diary-content"></div>
+    <div id="diary-split" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:70vh">
+      <div id="diary-list-panel" style="overflow-y:auto;max-height:85vh"></div>
+      <div id="diary-detail-panel" style="overflow-y:auto;max-height:85vh"></div>
+    </div>
   </div>
 
   <!-- STATS TAB -->
   <div id="tab-stats" class="section">
-    <div id="stats-content"></div>
+    <div id="stats-content" style="max-width:1200px;margin:0 auto"></div>
   </div>
 
   <!-- FORECAST TAB -->
   <div id="tab-forecast" class="section">
-    <div id="forecast-content"></div>
+    <div id="forecast-content" style="max-width:1200px;margin:0 auto"></div>
   </div>
 
   <!-- EDGE SCANNER TAB -->
@@ -2938,7 +2941,7 @@ function renderSnapshot() {
 
   el.innerHTML = `<div style="margin-bottom:14px">
     <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:8px">SNAPSHOT</div>
-    <div style="display:flex;flex-direction:column;gap:4px">${rows}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">${rows}</div>
   </div>`;
 }
 
@@ -3035,15 +3038,15 @@ function renderPositions() {
           const tpLbl = getSRLabel(t.ticker, t.tpPrice);
           const slLbl = getSRLabel(t.ticker, t.slPrice);
           return `
-          <div style="flex:1;background:${C.bg};border:1px solid ${t.tpPrice?C.posDim:C.warnDim};border-radius:3px;padding:8px 10px">
-            <div style="font-size:9px;color:${t.tpPrice?C.pos:C.warn};letter-spacing:0;margin-bottom:3px">🎯 RESISTANCE${tpLbl?" · "+tpLbl:""}</div>
-            <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${t.tpPrice?C.pos:C.warn};font-weight:600">${t.tpPrice?"$"+parseFloat(t.tpPrice).toFixed(2):"NOT SET"}</div>
-            ${t.tpPrice&&q?`<div style="font-size:10px;color:${C.textSec};margin-top:2px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
+          <div style="flex:1;background:${C.bg};border:1px solid ${t.tpPrice?C.posDim:C.warnDim};border-radius:3px;padding:6px 8px">
+            <div style="font-size:8px;color:${t.tpPrice?C.pos:C.warn};letter-spacing:0;margin-bottom:2px">🎯 RESISTANCE${tpLbl?" · "+tpLbl:""}</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${t.tpPrice?C.pos:C.warn};font-weight:600">${t.tpPrice?"$"+parseFloat(t.tpPrice).toFixed(2):"NOT SET"}</div>
+            ${t.tpPrice&&q?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
           </div>
-          <div style="flex:1;background:${C.bg};border:1px solid ${t.slPrice?C.negDim:C.warnDim};border-radius:3px;padding:8px 10px">
-            <div style="font-size:9px;color:${t.slPrice?C.neg:C.warn};letter-spacing:0;margin-bottom:3px">🛑 SUPPORT${slLbl?" · "+slLbl:""}</div>
-            <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${t.slPrice?C.neg:C.warn};font-weight:600">${t.slPrice?"$"+parseFloat(t.slPrice).toFixed(2):"NOT SET"}</div>
-            ${t.slPrice&&q?`<div style="font-size:10px;color:${C.textSec};margin-top:2px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
+          <div style="flex:1;background:${C.bg};border:1px solid ${t.slPrice?C.negDim:C.warnDim};border-radius:3px;padding:6px 8px">
+            <div style="font-size:8px;color:${t.slPrice?C.neg:C.warn};letter-spacing:0;margin-bottom:2px">🛑 SUPPORT${slLbl?" · "+slLbl:""}</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${t.slPrice?C.neg:C.warn};font-weight:600">${t.slPrice?"$"+parseFloat(t.slPrice).toFixed(2):"NOT SET"}</div>
+            ${t.slPrice&&q?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
           </div>`;
         })()}
       </div>
@@ -3176,15 +3179,15 @@ function renderPositions() {
       })()}
 
       <!-- Actions -->
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-warn" style="flex:1;padding:7px" onclick="openExitModal(${t.id})">EXIT</button>
-        <button class="btn btn-g" style="flex:1;padding:7px;color:${C.textSec};border-color:${C.borderVis}" onclick="openRollModal(${t.id})">ROLL</button>
-        <button class="btn btn-g" style="flex:1;padding:7px;color:${C.textSec};border-color:${C.borderVis}" onclick="openDiary(${t.id})">DIARY</button>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="btn btn-warn" style="flex:1;padding:5px 8px;font-size:10px" onclick="openExitModal(${t.id})">EXIT</button>
+        <button class="btn btn-g" style="flex:1;padding:5px 8px;font-size:10px;color:${C.textSec};border-color:${C.borderVis}" onclick="openRollModal(${t.id})">ROLL</button>
+        <button class="btn btn-g" style="flex:1;padding:5px 8px;font-size:10px;color:${C.textSec};border-color:${C.borderVis}" onclick="openDiary(${t.id})">DIARY</button>
         <input type="file" id="quick-chart-${t.id}" accept="image/*" style="display:none" onchange="handleQuickChart(this,${t.id})">
-        <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="quickChartUpload(${t.id})">📷</button>
-        <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="openTradeModal(${t.id})">✎</button>
-        <button class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis}" onclick="selectChartTicker('${t.ticker}')" title="View chart">📊</button>
-        <button id="copy-ctx-${t.ticker}" class="btn btn-g" style="padding:7px 10px;color:${C.textSec};border-color:${C.borderVis};font-size:9px" onclick="copyTickerContext('${t.ticker}',event)" title="Copy context for AI">COPY</button>
+        <button class="btn btn-g" style="padding:5px 8px;color:${C.textSec};border-color:${C.borderVis}" onclick="quickChartUpload(${t.id})">📷</button>
+        <button class="btn btn-g" style="padding:5px 8px;color:${C.textSec};border-color:${C.borderVis}" onclick="openTradeModal(${t.id})">✎</button>
+        <button class="btn btn-g" style="padding:5px 8px;color:${C.textSec};border-color:${C.borderVis}" onclick="selectChartTicker('${t.ticker}')" title="View chart">📊</button>
+        <button id="copy-ctx-${t.ticker}" class="btn btn-g" style="padding:5px 8px;color:${C.textSec};border-color:${C.borderVis};font-size:9px" onclick="copyTickerContext('${t.ticker}',event)" title="Copy context for AI">COPY</button>
       </div>
 
       <!-- Quick Notes -->
@@ -3245,7 +3248,7 @@ function renderDiary() {
 
   let html = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-      <button onclick="currentDiaryId=null;renderDiaryList()" style="background:none;border:none;color:${C.textSec};font-size:16px">←</button>
+      <button onclick="currentDiaryId=null;document.getElementById('diary-detail-panel').innerHTML='<div style=\\'padding:40px;text-align:center;color:var(--text-secondary);font-size:12px\\'>Select a trade to view details</div>';document.querySelectorAll('#diary-list-panel .card').forEach(c=>c.style.outline='');" style="background:none;border:none;color:${C.textSec};font-size:16px;cursor:pointer">← BACK</button>
       <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.text};font-weight:600">${t.ticker} · ${t.longStrike}/${t.shortStrike}</div>
       <span class="badge" style="background:${statusColors[t.status]||"#374151"}22;color:${statusColors[t.status]||C.text}">${t.status}</span>
     </div>
@@ -3372,7 +3375,7 @@ function renderDiary() {
       ${t.status==="Open"?`<button class="btn btn-warn" onclick="openExitModal(${t.id})" style="flex:1">EXIT</button>`:""}
     </div>
   `;
-  document.getElementById("diary-content").innerHTML = html;
+  document.getElementById("diary-detail-panel").innerHTML = html;
 }
 
 function diarySubTabs() {
@@ -3385,7 +3388,7 @@ function diarySubTabs() {
 function setDiarySubTab(tab, btn) {
   diarySubTab = tab;
   currentDiaryId = null;
-  document.querySelectorAll("#diary-content .stats-pill").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll("#diary-list-panel .stats-pill").forEach(b=>b.classList.remove("active"));
   if (btn) btn.classList.add("active");
   if (tab === "journal") renderDiaryJournalView();
   else if (tab === "checklist") renderMorningChecklist();
@@ -3394,7 +3397,7 @@ function setDiarySubTab(tab, btn) {
 let diaryFilter = "All";
 function setDiaryFilter(f, btn) {
   diaryFilter = f;
-  document.querySelectorAll("#diary-content .diary-filter-btn").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll("#diary-list-panel .diary-filter-btn").forEach(b=>b.classList.remove("active"));
   if (btn) btn.classList.add("active");
   renderDiaryList();
 }
@@ -3407,7 +3410,7 @@ function renderDiaryList() {
   const wins = closed.filter(t=>(t.realizedPnl||0)>0);
   const wr = closed.length ? Math.round(wins.length/closed.length*100) : 0;
 
-  document.getElementById("diary-content").innerHTML = diarySubTabs() + `
+  document.getElementById("diary-list-panel").innerHTML = diarySubTabs() + `
     <!-- KPI Row -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px">
       ${kpiCard("Total Trades", String(allTrades.length), C.text)}
@@ -3463,6 +3466,7 @@ function renderDiaryList() {
       }).join("")}
     </div>
   `;
+  document.getElementById("diary-detail-panel").innerHTML = '';
 }
 function renderDiaryJournalView() {
   if (!STATE.dailyJournal) STATE.dailyJournal = {};
@@ -3528,7 +3532,8 @@ function renderDiaryJournalView() {
     html += `<div style="font-size:11px;color:${C.textSec};opacity:.5;padding:12px 0;text-align:center">No journal entries yet. Write your first reflection above, or reply to the post-session prompt on Telegram.</div>`;
   }
 
-  document.getElementById("diary-content").innerHTML = html;
+  document.getElementById("diary-list-panel").innerHTML = html;
+  document.getElementById("diary-detail-panel").innerHTML = '';
 }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function saveJournalEntry(date) {
@@ -3559,7 +3564,7 @@ function editJournalEntry(date) {
   const entry = STATE.dailyJournal?.[date];
   if (!entry) return;
   // Replace the today card with an editable textarea
-  const todayCard = document.querySelector("#diary-content .card");
+  const todayCard = document.querySelector("#diary-list-panel .card");
   if (!todayCard) return;
   todayCard.innerHTML = `
     <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">TODAY — ${date}</div>
@@ -3756,7 +3761,8 @@ function renderMorningChecklist() {
     }
   }
 
-  document.getElementById("diary-content").innerHTML = html;
+  document.getElementById("diary-list-panel").innerHTML = html;
+  document.getElementById("diary-detail-panel").innerHTML = '';
 }
 
 function renderChecklistReadOnly(cl, open, date, compact) {
@@ -5016,15 +5022,15 @@ function renderForecast() {
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
       ${scenarios.map((s,i)=>{
         const annRate = [ann30,ann90,annAll][i];
-        return `<div class="card" style="padding:12px;border-top:3px solid ${s.color}">
-          <div style="font-size:10px;color:${C.textSec};margin-bottom:6px">${s.label}</div>
-          <div style="font-variant-numeric:tabular-nums;font-size:20px;font-weight:700;color:${s.color};margin-bottom:4px">${s.rate.toFixed(2)}%</div>
-          <div style="font-size:9px;color:${C.textSec};margin-bottom:8px">per month</div>
+        return `<div class="card" style="padding:20px 24px;border-top:3px solid ${s.color}">
+          <div style="font-size:11px;color:${C.textSec};margin-bottom:6px">${s.label}</div>
+          <div style="font-variant-numeric:tabular-nums;font-size:28px;font-weight:700;color:${s.color};margin-bottom:4px">${s.rate.toFixed(2)}%</div>
+          <div style="font-size:12px;color:${C.textSec};margin-bottom:8px">per month</div>
           <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid ${C.border}">
-            <div><div style="font-size:9px;color:${C.textSec}">Annualized</div><div style="font-variant-numeric:tabular-nums;font-size:11px;color:${s.color};font-weight:600">${annRate.toFixed(1)}%</div></div>
-            <div style="text-align:right"><div style="font-size:9px;color:${C.textSec}">P&L</div><div style="font-variant-numeric:tabular-nums;font-size:11px;color:${s.pnl>=0?C.pos:C.neg};font-weight:600">${s.pnl>=0?"+$":"-$"}${Math.abs(s.pnl).toFixed(0)}</div></div>
+            <div><div style="font-size:10px;color:${C.textSec}">Annualized</div><div style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.color};font-weight:600">${annRate.toFixed(1)}%</div></div>
+            <div style="text-align:right"><div style="font-size:10px;color:${C.textSec}">P&L</div><div style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.pnl>=0?C.pos:C.neg};font-weight:600">${s.pnl>=0?"+$":"-$"}${Math.abs(s.pnl).toFixed(0)}</div></div>
           </div>
-          <div style="font-size:9px;color:${C.textMut};margin-top:4px">${s.count} trades · ${s.period}</div>
+          <div style="font-size:10px;color:${C.textMut};margin-top:4px">${s.count} trades · ${s.period}</div>
         </div>`;
       }).join("")}
     </div>
@@ -6398,11 +6404,17 @@ function confirmRoll() {
 // ── Diary ─────────────────────────────────────────────────────────────────────
 function openDiary(id) {
   currentDiaryId = id;
-  // Switch to diary tab
+  // If we're already on diary tab, just show detail in right panel
+  if (document.getElementById("tab-diary").classList.contains("active")) {
+    renderDiary();
+    return;
+  }
+  // Otherwise switch to diary tab first
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById("tab-diary").classList.add("active");
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll(".nav-btn")[3].classList.add("active");
+  renderDiaryList();
   renderDiary();
 }
 // ── Inline diary field update ─────────────────────────────────────────────────
@@ -9666,8 +9678,11 @@ function switchTab(tab, btn) {
   } else if (tab === 'market') {
     renderWatchlist();
   } else if (tab === 'diary') {
-    if (!currentDiaryId) {
-      if (typeof renderDiaryList === 'function') renderDiaryList();
+    if (typeof renderDiaryList === 'function') renderDiaryList();
+    if (currentDiaryId) {
+      renderDiary();
+    } else {
+      document.getElementById('diary-detail-panel').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);font-size:12px">Select a trade to view details</div>';
     }
   } else if (tab === 'stats') {
     if (typeof renderStats === 'function') renderStats();
