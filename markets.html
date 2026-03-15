@@ -559,14 +559,17 @@ table{width:100%;border-collapse:collapse}
 
     <!-- US Equity Markets -->
     <div class="section-box" id="sec-indices">
-      <div class="section-header"><span class="section-title">US Equity Markets</span></div>
+      <div class="section-header"><span class="section-title">US Equity Markets & VIX</span></div>
       <div id="indices-body"><div class="loading">Loading...</div></div>
     </div>
 
-    <!-- Volatility -->
-    <div class="section-box" id="sec-vix">
-      <div class="section-header"><span class="section-title">Volatility</span></div>
-      <div id="vix-body"><div class="loading">Loading...</div></div>
+    <!-- Economic Calendar & Earnings -->
+    <div class="section-box" id="sec-calendar">
+      <div class="section-header">
+        <span class="section-title">Economic Calendar & Earnings</span>
+        <span class="section-subtitle" id="cal-range"></span>
+      </div>
+      <div id="calendar-body"><div class="loading">Loading...</div></div>
     </div>
 
     <!-- US Equity Sectors -->
@@ -611,14 +614,6 @@ table{width:100%;border-collapse:collapse}
       <div id="commodities-body"><div class="loading">Loading...</div></div>
     </div>
 
-    <!-- Economic Calendar -->
-    <div class="section-box" id="sec-calendar">
-      <div class="section-header">
-        <span class="section-title">Economic Calendar</span>
-        <span class="section-subtitle" id="cal-range"></span>
-      </div>
-      <div id="calendar-body"><div class="loading">Loading...</div></div>
-    </div>
 
 
   </div>
@@ -9229,8 +9224,27 @@ function mktRenderSectors(sectors) {
 function mktRenderCalendar(events) {
   const calBody = mkt$('calendar-body');
   if (!calBody) return;
-  if (!events || !events.length) { calBody.innerHTML = '<div class="empty">No upcoming events</div>'; const cr = mkt$('cal-range'); if(cr) cr.textContent = ''; return; }
-  const sorted = [...events].sort((a,b) => (a.report_date||a.datetime||'').localeCompare(b.report_date||b.datetime||''));
+
+  // Merge earnings dates from watchlist/trades into calendar events
+  const allEvents = [...(events || [])];
+
+  // Add earnings from STATE.earnings (watchlist tickers)
+  if (typeof STATE !== 'undefined' && STATE.earnings) {
+    Object.entries(STATE.earnings).forEach(([ticker, earnDate]) => {
+      if (!earnDate) return;
+      allEvents.push({
+        report_date: earnDate,
+        report_name: ticker + ' Earnings',
+        country: '🏢',
+        economic_impact: 'high',
+        _isEarnings: true,
+        _ticker: ticker
+      });
+    });
+  }
+
+  if (!allEvents.length) { calBody.innerHTML = '<div class="empty">No upcoming events</div>'; const cr = mkt$('cal-range'); if(cr) cr.textContent = ''; return; }
+  const sorted = [...allEvents].sort((a,b) => (a.report_date||a.datetime||'').localeCompare(b.report_date||b.datetime||''));
   const groups = {};
   for (const ev of sorted) { const d = (ev.report_date || ev.datetime || '').slice(0,10); if (!groups[d]) groups[d] = []; groups[d].push(ev); }
   let html = '<table class="data-table"><thead><tr><th>Date</th><th>Country</th><th>Event</th><th class="r">Previous</th><th class="r">Consensus</th><th class="r">Actual</th></tr></thead><tbody>';
@@ -9238,9 +9252,11 @@ function mktRenderCalendar(events) {
     for (let i = 0; i < evts.length; i++) {
       const ev = evts[i];
       const impact = (ev.economic_impact || '').toLowerCase();
+      const isEarn = ev._isEarnings;
+      const nameStyle = isEarn ? 'color:#d29922;font-weight:600' : '';
       html += `<tr><td>${i===0?mktFormatDate(dateStr):''}</td>
         <td><span class="cal-country">${ev.country||''}</span></td>
-        <td><span class="cal-impact ${impact}"></span>${ev.report_name||''}</td>
+        <td><span class="cal-impact ${impact}"></span><span style="${nameStyle}">${ev.report_name||''}</span></td>
         <td class="r">${ev.previous!=null?ev.previous:'—'}</td>
         <td class="r">${ev.consensus!=null?ev.consensus:'—'}</td>
         <td class="r" style="font-weight:600">${ev.actual!=null?ev.actual:'—'}</td></tr>`;
@@ -9513,8 +9529,9 @@ async function mktLoadMarketData() {
     const r = await fetch(MKT_API + '/market-overview');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     _marketData = await r.json();
-    mktRenderQuoteTable(_marketData.indices, 'indices-body');
-    mktRenderQuoteTable(_marketData.vix, 'vix-body');
+    // Merge VIX into indices table
+    const indicesWithVix = [...(_marketData.indices || []), ...(_marketData.vix || [])];
+    mktRenderQuoteTable(indicesWithVix, 'indices-body');
     mktRenderSectors(_marketData.sectors);
     mktRenderYields(_marketData.yields);
     mktRenderQuoteTable(_marketData.globalBroad, 'global-broad-body');
