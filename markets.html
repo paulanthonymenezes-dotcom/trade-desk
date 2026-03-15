@@ -9244,9 +9244,9 @@ function mktRenderCalendar(events) {
   }
 
   if (!allEvents.length) { calBody.innerHTML = '<div class="empty">No upcoming events</div>'; const cr = mkt$('cal-range'); if(cr) cr.textContent = ''; return; }
-  const sorted = [...allEvents].sort((a,b) => String(a.report_date||a.datetime||'').localeCompare(String(b.report_date||b.datetime||'')));
+  const sorted = [...allEvents].sort((a,b) => String(a.datetime||a.report_date||'').localeCompare(String(b.datetime||b.report_date||'')));
   const groups = {};
-  for (const ev of sorted) { const d = String(ev.report_date || ev.datetime || '').slice(0,10); if (!groups[d]) groups[d] = []; groups[d].push(ev); }
+  for (const ev of sorted) { const d = String(ev.datetime || ev.report_date || '').slice(0,10); if (!groups[d]) groups[d] = []; groups[d].push(ev); }
   let html = '<table class="data-table"><thead><tr><th>Date</th><th>Country</th><th>Event</th><th class="r">Previous</th><th class="r">Consensus</th><th class="r">Actual</th></tr></thead><tbody>';
   for (const [dateStr, evts] of Object.entries(groups)) {
     for (let i = 0; i < evts.length; i++) {
