@@ -9544,8 +9544,21 @@ async function mktLoadMarketData() {
 }
 
 async function mktLoadCalendar() {
-  try { const r = await fetch(MKT_API + '/calendar/live'); if (!r.ok) throw new Error('HTTP ' + r.status); _mktCalendar = await r.json(); mktRenderCalendar(_mktCalendar); }
-  catch (e) { console.error('Calendar error:', e); const el = mkt$('calendar-body'); if(el) el.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>'; }
+  try {
+    const r = await fetch(MKT_API + '/calendar/live');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _mktCalendar = await r.json();
+    if (Array.isArray(_mktCalendar)) {
+      mktRenderCalendar(_mktCalendar);
+    } else {
+      // Fallback: might be error object
+      mktRenderCalendar([]);
+    }
+  } catch (e) {
+    console.error('Calendar error:', e);
+    const el = mkt$('calendar-body');
+    if (el) el.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
+  }
 }
 
 async function mktLoadPositions() {

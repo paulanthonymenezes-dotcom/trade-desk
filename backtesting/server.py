@@ -481,26 +481,71 @@ _CAL_TTL = 1800  # 30 minutes
 
 
 @app.get("/api/calendar/live")
-async def live_calendar(country: str = "United States"):
+async def live_calendar(country: str = None):
     """Fetch live economic calendar from FinanceFlowAPI.
 
-    Defaults to United States. Cached for 30 min to stay within 200 req/day limit.
+    If no country specified, fetches top 25 countries.
+    Cached for 30 min to stay within 200 req/day limit.
     """
+    TOP_COUNTRIES = [
+        "United States", "United Kingdom", "Germany", "France", "Japan", "China",
+        "Canada", "Australia", "Italy", "Spain", "Switzerland", "South Korea",
+        "India", "Brazil", "Mexico", "Netherlands", "Sweden", "Norway",
+        "Singapore", "Hong Kong", "New Zealand", "Belgium", "Austria",
+        "Denmark", "Finland",
+    ]
     now = _time.time()
-    cache_key = f"cal_{country or 'all'}"
 
-    if _cal_cache.get(cache_key) and (now - _cal_cache.get(f"{cache_key}_ts", 0)) < _CAL_TTL:
-        return _cal_cache[cache_key]
-
-    try:
-        events = await get_financial_calendar(country=country)
-        _cal_cache[cache_key] = events
-        _cal_cache[f"{cache_key}_ts"] = now
-        return events
-    except Exception as e:
-        if _cal_cache.get(cache_key):
-            return _cal_cache[cache_key]  # stale cache fallback
-        return {"error": str(e), "events": []}
+    if country:
+        # Single country fetch
+        cache_key = f"cal_{country}"
+        if _cal_cache.get(cache_key) and (now - _cal_cache.get(f"{cache_key}_ts", 0)) < _CAL_TTL:
+            return _cal_cache[cache_key]
+        try:
+            events = await get_financial_calendar(country=country)
+            _cal_cache[cache_key] = events
+            _cal_cache[f"{cache_key}_ts"] = now
+            return events
+        except Exception as e:
+            if _cal_cache.get(cache_key):
+                return _cal_cache[cache_key]
+            return {"error": str(e), "events": []}
+    else:
+        # Global: fetch top countries, cached as a bundle
+        cache_key = "cal_global"
+        if _cal_cache.get(cache_key) and (now - _cal_cache.get(f"{cache_key}_ts", 0)) < _CAL_TTL:
+            return _cal_cache[cache_key]
+        try:
+            import asyncio as _aio
+            all_events = []
+            # Fetch in batches of 5 to avoid overwhelming the API
+            for i in range(0, len(TOP_COUNTRIES), 5):
+                batch = TOP_COUNTRIES[i:i+5]
+                results = await _aio.gather(
+                    *[get_financial_calendar(country=c) for c in batch],
+                    return_exceptions=True,
+                )
+                for r in results:
+                    if isinstance(r, list):
+                        all_events.extend(r)
+                if i + 5 < len(TOP_COUNTRIES):
+                    await _aio.sleep(0.5)
+            # Sort by datetime
+            all_events.sort(key=lambda e: e.get("datetime") or e.get("report_date") or "")
+            # Filter to only high/moderate impact + next 14 days to keep response manageable
+            from datetime import datetime as _dt, timedelta as _td
+            cutoff = (_dt.now() + _td(days=14)).isoformat()
+            filtered = [e for e in all_events if (e.get("datetime") or e.get("report_date") or "") <= cutoff]
+            # Limit to high/moderate impact events to keep it digestible
+            priority = [e for e in filtered if (e.get("economic_impact") or "").lower() in ("high", "moderate")]
+            result = priority if len(priority) > 10 else filtered[:200]
+            _cal_cache[cache_key] = result
+            _cal_cache[f"{cache_key}_ts"] = now
+            return result
+        except Exception as e:
+            if _cal_cache.get(cache_key):
+                return _cal_cache[cache_key]
+            return {"error": str(e), "events": []}
 
 
 # ── Positions (from Supabase state table for market dashboard) ─────────────
