@@ -337,30 +337,40 @@ table{width:100%;border-collapse:collapse}
 #macro-compare-checks label:hover{border-color:var(--accent);color:var(--accent)}
 #macro-compare-checks input[type="checkbox"]{width:12px;height:12px;accent-color:var(--accent)}
 
-/* ── Dashboard grid for Markets tab (display:contents) ── */
-#main.dashboard-grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
-}
-@media(max-width:900px){
-  #main.dashboard-grid{grid-template-columns:1fr;padding:8px 8px 80px}
-}
-
-/* ── Sections for Positions/Diary/Stats/Forecast/Scanner ── */
+/* ── Section visibility ── */
 #positions-cards .card+.card{border-top:1px solid var(--border-subtle);margin-top:6px;padding-top:8px}
 .section{display:none}
 .section.active{display:block}
-#main{padding:8px 10px 100px;max-width:900px;margin:0 auto}
+#main{padding:12px 16px 100px;max-width:1600px;margin:0 auto}
 
-/* ── Responsive: desktop layout with chart panel ── */
-@media(min-width:1200px){
-  #app-layout{display:grid;grid-template-columns:1fr 480px;gap:16px;max-width:1700px;margin:0 auto;padding:0 16px;margin-left:200px}
-  #main{max-width:none;margin:0;padding-bottom:20px}
-  #chart-panel{display:block;padding-top:8px;padding-bottom:20px}
+/* ── Dashboard mode: 2-column grid for Koyfin-style tabs ── */
+#main.dashboard-mode{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
 }
-@media(min-width:1400px){#app-layout{grid-template-columns:1fr 560px}}
-@media(min-width:1700px){#app-layout{grid-template-columns:1fr 680px}}
+#main.dashboard-mode .section.active{display:contents}
+@media(max-width:900px){
+  #main.dashboard-mode{grid-template-columns:1fr;padding:8px 8px 80px}
+}
+
+/* ── Chart mode: narrower main + chart panel for Positions/Watchlist ── */
+#main.chart-mode{
+  display:block;
+  max-width:none;
+}
+
+/* ── Responsive: desktop layout ── */
+@media(min-width:1200px){
+  #app-layout{display:block;max-width:1700px;margin:0 auto;padding:0 16px;margin-left:200px}
+  #main{padding-bottom:20px}
+  /* When chart panel is visible, use grid layout */
+  #app-layout.with-chart{display:grid;grid-template-columns:1fr 480px;gap:16px}
+  #chart-panel{display:none;padding-top:8px;padding-bottom:20px}
+  #app-layout.with-chart #chart-panel{display:block}
+}
+@media(min-width:1400px){#app-layout.with-chart{grid-template-columns:1fr 560px}}
+@media(min-width:1700px){#app-layout.with-chart{grid-template-columns:1fr 680px}}
 
 </style>
 <script src="https://s3.tradingview.com/tv.js" async></script>
@@ -528,7 +538,7 @@ table{width:100%;border-collapse:collapse}
 </nav>
 
 <div id="app-layout">
-<div id="main" class="dashboard-grid">
+<div id="main" class="dashboard-mode">
 
   <!-- MARKETS TAB (from markets.html) -->
   <div id="tab-mkts" class="section active" style="display:contents">
@@ -9601,18 +9611,38 @@ setInterval(mktLoadMarketData, MKT_REFRESH_INTERVAL);
 // CHART_TABS and _macroChartLock already declared above
 
 function switchTab(tab, btn) {
+  const main = document.getElementById('main');
+  const appLayout = document.getElementById('app-layout');
+  const isDashboardTab = ['mkts', 'diary', 'stats', 'forecast', 'scanner'].includes(tab);
+  const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
+
   // Hide all sections
   document.querySelectorAll('#main .section').forEach(s => {
     s.classList.remove('active');
-    // Markets tab uses display:contents, others use display:block
-    if (s.id === 'tab-mkts') s.style.display = 'none';
+    s.style.display = 'none';
   });
 
   // Show the selected section
   const section = document.getElementById('tab-' + tab);
   if (section) {
     section.classList.add('active');
-    if (tab === 'mkts') section.style.display = 'contents';
+    // Dashboard tabs use display:contents to flow into the 2-col grid
+    section.style.display = isDashboardTab ? 'contents' : 'block';
+  }
+
+  // Layout mode: dashboard (2-col grid, no chart) vs chart (narrow + chart panel)
+  if (isDashboardTab) {
+    main.classList.add('dashboard-mode');
+    main.classList.remove('chart-mode');
+    if (appLayout) appLayout.classList.remove('with-chart');
+    _showChartPanel(false);
+  } else {
+    main.classList.remove('dashboard-mode');
+    main.classList.add('chart-mode');
+    if (isChartTab && appLayout) appLayout.classList.add('with-chart');
+    else if (appLayout) appLayout.classList.remove('with-chart');
+    if (isChartTab) _showChartPanel(true);
+    else _showChartPanel(false);
   }
 
   // Update sidebar active states
@@ -9623,18 +9653,10 @@ function switchTab(tab, btn) {
   document.querySelectorAll('#bottom-nav .nav-btn').forEach(b => b.classList.remove('active'));
   if (btn && btn.closest('#bottom-nav')) btn.classList.add('active');
   else {
-    // Find matching bottom nav button
     document.querySelectorAll('#bottom-nav .nav-btn').forEach(b => {
       const onclick = b.getAttribute('onclick') || '';
       if (onclick.includes("'" + tab + "'")) b.classList.add('active');
     });
-  }
-
-  // Chart panel visibility — show for positions/watchlist, hide for others
-  if (CHART_TABS.includes(tab)) {
-    _showChartPanel(true);
-  } else {
-    _showChartPanel(false);
   }
 
   // Tab-specific render calls
@@ -9654,7 +9676,6 @@ function switchTab(tab, btn) {
   } else if (tab === 'scanner') {
     if (typeof renderScanner === 'function') renderScanner();
   } else if (tab === 'mkts') {
-    // Markets tab — trigger load if not loaded
     if (!_marketData) mktLoadAll();
   }
 }
