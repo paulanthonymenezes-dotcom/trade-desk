@@ -563,15 +563,6 @@ table{width:100%;border-collapse:collapse}
       <div id="indices-body"><div class="loading">Loading...</div></div>
     </div>
 
-    <!-- Economic Calendar & Earnings -->
-    <div class="section-box" id="sec-calendar">
-      <div class="section-header">
-        <span class="section-title">Economic Calendar & Earnings</span>
-        <span class="section-subtitle" id="cal-range"></span>
-      </div>
-      <div id="calendar-body"><div class="loading">Loading...</div></div>
-    </div>
-
     <!-- US Equity Sectors -->
     <div class="section-box" id="sec-sectors">
       <div class="section-header"><span class="section-title">US Equity Sectors</span></div>
@@ -614,7 +605,14 @@ table{width:100%;border-collapse:collapse}
       <div id="commodities-body"><div class="loading">Loading...</div></div>
     </div>
 
-
+    <!-- Economic Calendar & Earnings (full-width, two-column) -->
+    <div class="section-box full-width" id="sec-calendar">
+      <div class="section-header">
+        <span class="section-title">Economic Calendar & Earnings</span>
+        <span class="section-subtitle" id="cal-range"></span>
+      </div>
+      <div id="calendar-body"><div class="loading">Loading...</div></div>
+    </div>
 
   </div>
 
@@ -9247,23 +9245,36 @@ function mktRenderCalendar(events) {
   const sorted = [...allEvents].sort((a,b) => String(a.datetime||a.report_date||'').localeCompare(String(b.datetime||b.report_date||'')));
   const groups = {};
   for (const ev of sorted) { const d = String(ev.datetime || ev.report_date || '').slice(0,10); if (!groups[d]) groups[d] = []; groups[d].push(ev); }
-  let html = '<table class="data-table"><thead><tr><th>Date</th><th>Country</th><th>Event</th><th class="r">Previous</th><th class="r">Consensus</th><th class="r">Actual</th></tr></thead><tbody>';
+  // Build flat row array with date headers
+  const rows = [];
   for (const [dateStr, evts] of Object.entries(groups)) {
     for (let i = 0; i < evts.length; i++) {
-      const ev = evts[i];
+      rows.push({ ev: evts[i], dateStr, showDate: i === 0 });
+    }
+  }
+  // Split into two halves
+  const mid = Math.ceil(rows.length / 2);
+  const leftRows = rows.slice(0, mid);
+  const rightRows = rows.slice(mid);
+  function calTableHtml(rowArr) {
+    let h = '<table class="data-table" style="width:100%"><thead><tr><th>Date</th><th>Country</th><th>Event</th><th class="r">Prev</th><th class="r">Cons</th><th class="r">Actual</th></tr></thead><tbody>';
+    for (const r of rowArr) {
+      const ev = r.ev;
       const impact = (ev.economic_impact || '').toLowerCase();
       const isEarn = ev._isEarnings;
       const nameStyle = isEarn ? 'color:#d29922;font-weight:600' : '';
-      html += `<tr><td>${i===0?mktFormatDate(dateStr):''}</td>
+      const actualStyle = ev.actual != null ? (Number(ev.actual) > Number(ev.consensus) ? 'color:#3fb950;font-weight:600' : Number(ev.actual) < Number(ev.consensus) ? 'color:#f85149;font-weight:600' : 'font-weight:600') : '';
+      h += `<tr><td>${r.showDate?mktFormatDate(r.dateStr):''}</td>
         <td><span class="cal-country">${ev.country||''}</span></td>
         <td><span class="cal-impact ${impact}"></span><span style="${nameStyle}">${ev.report_name||''}</span></td>
         <td class="r">${ev.previous!=null?ev.previous:'—'}</td>
         <td class="r">${ev.consensus!=null?ev.consensus:'—'}</td>
-        <td class="r" style="font-weight:600">${ev.actual!=null?ev.actual:'—'}</td></tr>`;
+        <td class="r" style="${actualStyle}">${ev.actual!=null?ev.actual:'—'}</td></tr>`;
     }
+    h += '</tbody></table>';
+    return h;
   }
-  html += '</tbody></table>';
-  calBody.innerHTML = html;
+  calBody.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">${calTableHtml(leftRows)}${calTableHtml(rightRows)}</div>`;
 }
 
 // ── Quote Fetching for Markets tab ──────────────────────────────────────────
