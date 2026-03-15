@@ -9230,8 +9230,13 @@ function mktRenderCalendar(events) {
   if (typeof STATE !== 'undefined' && STATE.earnings) {
     Object.entries(STATE.earnings).forEach(([ticker, earnDate]) => {
       if (!earnDate) return;
+      // Normalize earnings date to YYYY-MM-DD
+      const d = new Date(earnDate);
+      if (isNaN(d.getTime())) return;
+      const iso = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
       allEvents.push({
-        report_date: earnDate,
+        datetime: iso + ' 16:00:00',
+        report_date: iso,
         report_name: ticker + ' Earnings',
         country: '🏢',
         economic_impact: 'high',
@@ -9252,13 +9257,13 @@ function mktRenderCalendar(events) {
       const impact = (ev.economic_impact || '').toLowerCase();
       const isEarn = ev._isEarnings;
       const nameStyle = isEarn ? 'color:#d29922;font-weight:600' : '';
-      const actualStyle = ev.actual != null ? (Number(ev.actual) > Number(ev.consensus) ? 'color:#3fb950;font-weight:600' : Number(ev.actual) < Number(ev.consensus) ? 'color:#f85149;font-weight:600' : 'font-weight:600') : '';
+      const actualStyle = ev.actual != null && ev.actual !== '' && ev.consensus != null && ev.consensus !== '' ? (Number(ev.actual) > Number(ev.consensus) ? 'color:#3fb950;font-weight:600' : Number(ev.actual) < Number(ev.consensus) ? 'color:#f85149;font-weight:600' : 'font-weight:600') : '';
       html += `<tr><td>${i===0?mktFormatDate(dateStr):''}</td>
         <td><span class="cal-country">${ev.country||''}</span></td>
         <td><span class="cal-impact ${impact}"></span><span style="${nameStyle}">${ev.report_name||''}</span></td>
-        <td class="r">${ev.previous!=null?ev.previous:'—'}</td>
-        <td class="r">${ev.consensus!=null?ev.consensus:'—'}</td>
-        <td class="r" style="${actualStyle}">${ev.actual!=null?ev.actual:'—'}</td></tr>`;
+        <td class="r">${ev.previous!=null&&ev.previous!==''?ev.previous:'—'}</td>
+        <td class="r">${ev.consensus!=null&&ev.consensus!==''?ev.consensus:'—'}</td>
+        <td class="r" style="${actualStyle}">${ev.actual!=null&&ev.actual!==''?ev.actual:'—'}</td></tr>`;
     }
   }
   html += '</tbody></table>';
