@@ -481,10 +481,10 @@ _CAL_TTL = 1800  # 30 minutes
 
 
 @app.get("/api/calendar/live")
-async def live_calendar(country: str = None):
+async def live_calendar(country: str = "United States"):
     """Fetch live economic calendar from FinanceFlowAPI.
 
-    Cached for 30 minutes to stay well within the 200 req/day limit.
+    Defaults to United States. Cached for 30 min to stay within 200 req/day limit.
     """
     now = _time.time()
     cache_key = f"cal_{country or 'all'}"
@@ -550,6 +550,31 @@ def get_open_positions():
         ]
     except Exception as e:
         return []
+
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    """Fetch the watchlist + related data (targets, notes, S/R) from state table."""
+    client = get_client()
+    try:
+        result = (
+            client.table("state")
+            .select("data")
+            .eq("id", "main")
+            .execute()
+        )
+        if not result.data or not result.data[0].get("data"):
+            return {"tickers": [], "targets": {}, "notes": {}, "srLevels": {}}
+        state_data = result.data[0]["data"]
+        return {
+            "tickers": state_data.get("watchlist", []),
+            "targets": state_data.get("watchlistTargets", {}),
+            "notes": state_data.get("watchlistNotes", {}),
+            "srLevels": state_data.get("srLevels", {}),
+            "sectors": state_data.get("sectors", {}),
+        }
+    except Exception:
+        return {"tickers": [], "targets": {}, "notes": {}, "srLevels": {}}
 
 
 @app.post("/api/ask")
