@@ -3135,7 +3135,8 @@ function renderDiaryList() {
         const isStk = (t.tradeType||"").startsWith("Stock");
         const dl = isStk ? null : daysLeft(t.expiry);
         const statusColors = {Open:C.pos,Closed:"#6b7280",Rolled:C.warn,Expired:"#8b5cf6"};
-        const pnlColor = t.realizedPnl===null?C.textMut:t.realizedPnl>0?C.pos:C.neg;
+        const hasPnl = t.realizedPnl!=null && !isNaN(t.realizedPnl);
+        const pnlColor = !hasPnl?C.textMut:t.realizedPnl>0?C.pos:C.neg;
         return `<div onclick="openDiary(${t.id})" class="card" style="cursor:pointer;border:1px solid ${C.border};padding:10px 12px;-webkit-tap-highlight-color:transparent" onmouseenter="this.style.borderColor='${C.borderVis}'" onmouseleave="this.style.borderColor='${C.border}'">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="display:flex;align-items:center;gap:8px">
@@ -3146,7 +3147,7 @@ function renderDiaryList() {
           </div>
           <div style="display:flex;align-items:center;gap:12px">
             ${!isStk&&t.status==="Open"?`<span style="font-size:10px;color:${dteColor(dl)}">${dl}d</span>`:""}
-            ${t.realizedPnl!==null?`<span style="font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:${pnlColor}">${t.realizedPnl>=0?"+$":"-$"}${Math.abs(t.realizedPnl).toFixed(0)}</span>`:`<span style="font-size:10px;color:${C.textMut}">$${(t.premiumCollected||0).toFixed(0)} prem</span>`}
+            ${hasPnl?`<span style="font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:${pnlColor}">${t.realizedPnl>=0?"+$":"-$"}${Math.abs(t.realizedPnl).toFixed(0)}</span>`:`<span style="font-size:10px;color:${C.textMut}">$${(t.premiumCollected||0).toFixed(0)} prem</span>`}
           </div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center">
