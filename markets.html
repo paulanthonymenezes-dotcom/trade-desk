@@ -271,6 +271,7 @@ button{cursor:pointer;font-family:'Inter',sans-serif;-webkit-tap-highlight-color
 .pos{color:var(--positive)!important}
 .neg{color:var(--negative)!important}
 .card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px;padding:7px 8px}
+#tab-stats .card, #tab-forecast .card, #tab-stats .section-box, #tab-forecast .section-box{border:1.5px solid rgba(255,255,255,0.18)}
 .badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;letter-spacing:0}
 .btn{border-radius:4px;font-size:11px;letter-spacing:0;padding:5px 12px;border:none;cursor:pointer;font-weight:500}
 .btn-p{background:var(--accent);color:#fff;font-weight:600}
@@ -655,7 +656,10 @@ table{width:100%;border-collapse:collapse}
       <input id="watch-input" placeholder="Search ticker or company..." style="width:100%;font-size:13px" oninput="onWatchInput()" onkeydown="onWatchKeydown(event)">
       <div id="watch-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border-visible);border-top:none;border-radius:0 0 4px 4px;z-index:60;max-height:320px;overflow-y:auto"></div>
     </div>
-    <div id="watchlist-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
+    <div id="watchlist-sector-filter" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+      <button class="btn btn-g stats-pill active" onclick="filterWatchBySector('All',this)" style="font-size:9px;padding:3px 8px">ALL</button>
+    </div>
+    <div id="watchlist-cards" style="display:flex;flex-direction:column;gap:4px"></div>
   </div>
 
   <!-- TRADES TAB (hidden - merged into diary) -->
@@ -2400,6 +2404,14 @@ function renderKPIs() {
   ytdEl.innerHTML = "YTD: <span style='color:"+(pnl>=0?C.pos:C.neg)+"'>"+(pnl>=0?"+$":"-$")+Math.abs(pnl).toFixed(0)+"</span>";
 }
 
+let _watchSectorFilter = 'All';
+function filterWatchBySector(sector, btn) {
+  _watchSectorFilter = sector;
+  document.querySelectorAll('#watchlist-sector-filter .stats-pill').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderWatchlist();
+}
+
 function renderWatchlist() {
   // Skip re-render if user is actively typing in an input or textarea
   const activeEl = document.activeElement;
@@ -2407,25 +2419,20 @@ function renderWatchlist() {
 
   // Auto-select first watchlist ticker for chart if none selected
   if (!_tvCurrentTicker && STATE.watchlist.length) selectChartTicker(STATE.watchlist[0]);
-  // Preserve in-progress note text before re-render
-  const _drafts = {};
-  document.querySelectorAll('[id^="wn-text-"]').forEach(ta => {
-    if (ta.value.trim()) {
-      const tk = ta.id.replace('wn-text-','');
-      const sel = document.getElementById('wn-bias-'+tk);
-      _drafts[tk] = { text: ta.value, bias: sel ? sel.value : 'neutral' };
-    }
-  });
-  // Also preserve edit-in-progress
-  const _editDraft = {};
-  const editTa = document.getElementById('wn-edit-text');
-  if (editTa && editTa.value.trim() && _editingNote) {
-    _editDraft.text = editTa.value;
-    const editSel = document.getElementById('wn-edit-bias');
-    _editDraft.bias = editSel ? editSel.value : 'neutral';
-  }
   const el = document.getElementById("watchlist-cards");
-  el.innerHTML = STATE.watchlist.map(ticker => {
+  // Build sector filter buttons
+  const sectorSet = new Set();
+  STATE.watchlist.forEach(t => { const s = getSector(t); if (s) sectorSet.add(s); });
+  const sectors = [...sectorSet].sort();
+  const filterEl = document.getElementById('watchlist-sector-filter');
+  if (filterEl) {
+    filterEl.innerHTML = `<button class="btn btn-g stats-pill${_watchSectorFilter==='All'?' active':''}" onclick="filterWatchBySector('All',this)" style="font-size:9px;padding:3px 8px">ALL</button>` +
+      sectors.map(s => `<button class="btn btn-g stats-pill${_watchSectorFilter===s?' active':''}" onclick="filterWatchBySector('${s}',this)" style="font-size:9px;padding:3px 8px">${s.toUpperCase()}</button>`).join('');
+  }
+
+  // Filter by sector
+  const filteredWatchlist = _watchSectorFilter === 'All' ? STATE.watchlist : STATE.watchlist.filter(t => getSector(t) === _watchSectorFilter);
+  el.innerHTML = filteredWatchlist.map(ticker => {
     const q = STATE.quotes[ticker];
     const c = STATE.candles[ticker];
     const earn = STATE.earnings[ticker];
@@ -2453,142 +2460,52 @@ function renderWatchlist() {
     const lowColor  = (v) => v===null?C.textMut:v<5?C.neg:v<15?C.warn:C.pos;
     const highColor = (v) => v===null?C.textMut:v<3?C.neg:v<8?C.warn:C.pos;
 
+    // Compact card: 2-3 rows, full width
     const sr = STATE.srLevels[ticker] || {};
-    const supports = [sr.s1,sr.s2,sr.s3].filter(v=>v);
-    const resistances = [sr.r1,sr.r2,sr.r3].filter(v=>v);
+    const srSummary = [];
+    if (sr.r1) srSummary.push(`R1 $${parseFloat(sr.r1).toFixed(0)}`);
+    if (sr.s1) srSummary.push(`S1 $${parseFloat(sr.s1).toFixed(0)}`);
 
     const openPos = STATE.trades.filter(t=>t.status==="Open"&&t.ticker===ticker);
     const hasPos = openPos.length > 0;
+    const tgt = STATE.watchlistTargets?.[ticker];
+    const notes = STATE.watchNotes?.[ticker] || [];
 
-    return `<div class="card" data-chart-ticker="${ticker}" style="padding:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:${q?10:0}px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${hasPos?C.pos:C.text};cursor:pointer" onclick="selectChartTicker('${ticker}')" title="View chart">${ticker}</div>
-          ${hasPos?`<span style="font-size:9px;color:${C.pos};border:1px solid ${C.pos}33;padding:1px 5px;border-radius:2px">LIVE</span>`:""}
-          ${earnDays!==null&&earnDays>=0?`<span style="font-size:9px;color:${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec};border:1px solid ${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec}33;padding:1px 5px;border-radius:2px">EARN ${_shortDate(earn)} (${earnDays}d)</span>`:""}
-          ${sectorBadge(ticker)}
-        </div>
-        <div style="display:flex;align-items:center;gap:2px">
-          <button onclick="moveWatcherToTop('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:9px;cursor:pointer;padding:2px 5px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.03em" title="Move to top">TOP</button>
-          <button onclick="moveWatcher('${ticker}',-1)" style="background:none;border:none;color:${C.textSec};font-size:11px;cursor:pointer;padding:2px 5px;line-height:1" title="Move up">▲</button>
-          <button onclick="moveWatcher('${ticker}',1)" style="background:none;border:none;color:${C.textSec};font-size:11px;cursor:pointer;padding:2px 5px;line-height:1" title="Move down">▼</button>
-          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:16px;line-height:1;cursor:pointer">×</button>
-        </div>
+    return `<div class="card" data-chart-ticker="${ticker}" style="padding:8px 12px;cursor:pointer" onclick="selectChartTicker('${ticker}')">
+      <!-- Row 1: Ticker, price, change, IV, actions -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span style="font-size:14px;font-weight:600;color:${hasPos?C.pos:C.text};min-width:50px">${ticker}</span>
+        ${hasPos?`<span style="font-size:8px;color:${C.pos};border:1px solid ${C.pos}33;padding:0px 4px;border-radius:2px">LIVE</span>`:""}
+        ${earnDays!==null&&earnDays>=0?`<span style="font-size:8px;color:${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec};border:1px solid ${earnDays<=7?C.neg:earnDays<=21?C.warn:C.textSec}33;padding:0px 4px;border-radius:2px">EARN ${earnDays}d</span>`:""}
+        ${sectorBadge(ticker)}
+        <span style="flex:1"></span>
+        ${q?`<span style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${C.text}">$${q.price.toFixed(2)}</span>
+        <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</span>`:`<span style="font-size:11px;color:${C.textSec}">Loading...</span>`}
+        ${ivr!==null?`<span style="font-size:9px;color:${ivrColor};background:${ivrBg};padding:1px 6px;border-radius:3px">IV${Math.round(ivr)}</span>`:""}
+        <span style="display:flex;gap:0px;margin-left:4px" onclick="event.stopPropagation()">
+          <button onclick="moveWatcherToTop('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:8px;cursor:pointer;padding:2px 3px">TOP</button>
+          <button onclick="moveWatcher('${ticker}',-1)" style="background:none;border:none;color:${C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">▲</button>
+          <button onclick="moveWatcher('${ticker}',1)" style="background:none;border:none;color:${C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">▼</button>
+          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:14px;cursor:pointer;padding:2px 3px">×</button>
+        </span>
       </div>
-      ${q ? `
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
-          <div style="display:flex;align-items:baseline;gap:6px">
-            <div style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:${C.text}">$${q.price.toFixed(2)}</div>
-            ${q.source==="mda-delayed"?`<span style="font-size:8px;color:${C.warn};border:1px solid ${C.warn}44;padding:1px 4px;border-radius:2px">DELAYED</span>`:""}
-          </div>
-          <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>
-        </div>
-        ${currentIV ? `<div style="display:flex;gap:10px;margin-bottom:8px;font-variant-numeric:tabular-nums;font-size:10px">
-          <span style="color:${C.textSec}">EM</span>
-          <span style="color:${C.text}">±$${(q.price*currentIV*Math.sqrt(1/252)).toFixed(2)}<span style="color:${C.textMut}"> /d</span></span>
-          <span style="color:${C.text}">±$${(q.price*currentIV*Math.sqrt(5/252)).toFixed(2)}<span style="color:${C.textMut}"> /w</span></span>
-          <span style="color:${C.textMut}">IV ${(currentIV*100).toFixed(0)}%</span>
-        </div>` : ""}
-        ${(()=>{
-          const tgt = STATE.watchlistTargets?.[ticker];
-          if (tgt && tgt.price) {
-            const dist = ((q.price - tgt.price) / q.price * 100);
-            const isBelow = tgt.direction === 'below';
-            const color = isBelow ? C.neg : C.pos;
-            const arrow = isBelow ? '▼' : '▲';
-            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;background:${color}08;border:1px solid ${color}33;border-radius:3px;padding:6px 10px">
-              <span style="font-size:9px;color:${color};letter-spacing:0;flex-shrink:0">${arrow} ENTRY TARGET</span>
-              <span style="font-variant-numeric:tabular-nums;font-size:13px;color:${color};font-weight:600">$${parseFloat(tgt.price).toFixed(2)}</span>
-              <span style="font-size:10px;color:${C.textSec};flex:1">${Math.abs(dist).toFixed(1)}% ${dist>0?"above":"below"}</span>
-              <button onclick="setWatchlistTarget('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:9px;font-variant-numeric:tabular-nums;cursor:pointer">EDIT</button>
-              <button onclick="clearWatchlistTarget('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:12px;cursor:pointer">×</button>
-            </div>`;
-          }
-          return `<button onclick="setWatchlistTarget('${ticker}')" class="btn btn-g" style="width:100%;padding:6px;font-size:10px;margin-bottom:10px;border-style:dashed">+ SET ENTRY TARGET</button>`;
-        })()}
-        ${(supports.length || resistances.length) && q ? `
-          <div style="margin-bottom:10px">
-            ${resistances.length ? `
-              <div style="margin-bottom:6px">
-                <div style="font-size:9px;color:${C.pos};letter-spacing:0;margin-bottom:5px">▲ RESISTANCE</div>
-                <div style="display:flex;flex-direction:column;gap:3px">
-                  ${resistances.map((lvl,i)=>{
-                    const pct = ((parseFloat(lvl)-q.price)/q.price*100);
-                    const color = pct < 2 ? C.neg : pct < 5 ? C.warn : C.pos;
-                    return `<div style="display:flex;justify-content:space-between;align-items:center;background:${C.bg};border:1px solid ${C.border};border-radius:3px;padding:5px 10px">
-                      <span style="font-size:9px;color:${C.textSec};letter-spacing:0">R${i+1}</span>
-                      <span style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.text}">$${parseFloat(lvl).toFixed(2)}</span>
-                      <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${color}">+${pct.toFixed(1)}%</span>
-                    </div>`;
-                  }).join("")}
-                </div>
-              </div>` : ""}
-            ${supports.length ? `
-              <div>
-                <div style="font-size:9px;color:${C.neg};letter-spacing:0;margin-bottom:5px">▼ SUPPORT</div>
-                <div style="display:flex;flex-direction:column;gap:3px">
-                  ${supports.map((lvl,i)=>{
-                    const pct = ((q.price-parseFloat(lvl))/q.price*100);
-                    const color = pct < 2 ? C.neg : pct < 5 ? C.warn : C.pos;
-                    return `<div style="display:flex;justify-content:space-between;align-items:center;background:${C.bg};border:1px solid ${C.border};border-radius:3px;padding:5px 10px">
-                      <span style="font-size:9px;color:${C.textSec};letter-spacing:0">S${i+1}</span>
-                      <span style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.text}">$${parseFloat(lvl).toFixed(2)}</span>
-                      <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${color}">-${pct.toFixed(1)}%</span>
-                    </div>`;
-                  }).join("")}
-                </div>
-              </div>` : ""}
-          </div>` : `<button onclick="openSRModal('${ticker}')" class="btn btn-g" style="width:100%;padding:6px;font-size:10px;margin-bottom:8px">+ SET S/R LEVELS</button>`}
-
-        ${c ? `<div style="border-top:1px solid ${C.bgHover};padding-top:8px;margin-top:2px">
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:6px">
-            ${[[21,d21],[63,d63],[252,d252]].map(([days,dist])=>{
-              const price = actualLow(days);
-              return `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:3px;padding:5px 7px">
-                <div style="font-size:9px;color:${C.textSec};margin-bottom:2px">${days}D LOW</div>
-                <div style="font-variant-numeric:tabular-nums;font-size:11px;color:${C.textSec}">${price!==null?"$"+price.toFixed(2):"—"}</div>
-                <div style="font-size:10px;color:${lowColor(dist)};margin-top:1px">${dist!==null?"+"+dist.toFixed(1)+"%":"—"}</div>
-              </div>`;
-            }).join("")}
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">
-            ${[[21,h21],[63,h63],[252,h252]].map(([days,dist])=>{
-              const price = actualHigh(days);
-              return `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:3px;padding:5px 7px">
-                <div style="font-size:9px;color:${C.textSec};margin-bottom:2px">${days}D HIGH</div>
-                <div style="font-variant-numeric:tabular-nums;font-size:11px;color:${C.textSec}">${price!==null?"$"+price.toFixed(2):"—"}</div>
-                <div style="font-size:10px;color:${highColor(dist)};margin-top:1px">${dist!==null?"-"+dist.toFixed(1)+"%":"—"}</div>
-              </div>`;
-            }).join("")}
-          </div>
-        </div>` : `<div style="font-size:10px;color:${C.textSec};border-top:1px solid ${C.bgHover};padding-top:8px">Loading candles...</div>`}
-
-        ${renderWatchNotesSection(ticker)}
-
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-          <div style="font-size:9px;color:${C.textSec}">${q?q.ts:""}</div>
-          <div style="display:flex;gap:10px;align-items:center">
-            <button id="copy-ctx-${ticker}" onclick="copyTickerContext('${ticker}',event)" style="background:none;border:none;color:${C.textSec};font-size:10px;font-variant-numeric:tabular-nums;cursor:pointer">COPY</button>
-            <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textSec};font-size:10px;font-variant-numeric:tabular-nums;cursor:pointer">${(supports.length||resistances.length)?"EDIT S/R":"+ SET S/R"}</button>
-          </div>
-        </div>
-      ` : `<div style="font-size:11px;color:${C.textSec}">Loading...</div>`}
+      <!-- Row 2: EM, target, S/R, distances -->
+      ${q ? `<div style="display:flex;align-items:center;gap:12px;font-size:10px;color:${C.textSec};flex-wrap:wrap">
+        ${currentIV?`<span>EM ±$${(q.price*currentIV*Math.sqrt(1/252)).toFixed(2)}/d · ±$${(q.price*currentIV*Math.sqrt(5/252)).toFixed(2)}/w</span>`:""}
+        ${tgt&&tgt.price?`<span style="color:${tgt.direction==='below'?C.neg:C.pos}">⎯ Target $${parseFloat(tgt.price).toFixed(2)}</span>`:""}
+        ${srSummary.length?`<span>${srSummary.join(' · ')}</span>`:""}
+        ${c?`<span style="color:${lowColor(d21)}">21D +${d21!==null?d21.toFixed(1):'?'}%</span>
+        <span style="color:${lowColor(d63)}">63D +${d63!==null?d63.toFixed(1):'?'}%</span>`:""}
+        ${notes.length?`<span>${notes.length} note${notes.length>1?'s':''}</span>`:""}
+        <span style="flex:1"></span>
+        <span onclick="event.stopPropagation()">
+          <button onclick="copyTickerContext('${ticker}',event)" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">COPY</button>
+          <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">S/R</button>
+          <button onclick="setWatchlistTarget('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">TARGET</button>
+        </span>
+      </div>` : ""}
     </div>`;
   }).join("");
-  // Restore in-progress note drafts after re-render
-  Object.entries(_drafts).forEach(([tk, d]) => {
-    const ta = document.getElementById('wn-text-'+tk);
-    const sel = document.getElementById('wn-bias-'+tk);
-    if (ta) ta.value = d.text;
-    if (sel) sel.value = d.bias;
-  });
-  // Restore edit draft
-  if (_editDraft.text && _editingNote) {
-    const eta = document.getElementById('wn-edit-text');
-    const esel = document.getElementById('wn-edit-bias');
-    if (eta) eta.value = _editDraft.text;
-    if (esel) esel.value = _editDraft.bias;
-  }
   requestAnimationFrame(() => _initCardScrollSync());
 }
 
@@ -2943,7 +2860,7 @@ function renderSnapshot() {
     </div>`;
   }).join("");
 
-  el.innerHTML = `<div style="margin-bottom:14px">
+  el.innerHTML = `<div style="margin-bottom:14px;border:1.5px solid rgba(255,255,255,0.2);border-radius:6px;padding:12px">
     <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:8px">SNAPSHOT</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">${rows}</div>
   </div>`;
@@ -3374,12 +3291,54 @@ function renderDiary() {
       </div>
     </div>
 
+    <!-- TradingView Chart -->
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em">TRADINGVIEW CHART</div>
+        <button class="btn btn-g" style="font-size:10px;padding:4px 10px" onclick="openTVChartForTrade(${t.id})">OPEN IN TRADINGVIEW</button>
+      </div>
+      <div id="diary-tv-chart-${t.id}" style="height:350px;background:${C.bg};border:1px solid ${C.border};border-radius:4px;overflow:hidden"></div>
+    </div>
+
     <div style="display:flex;gap:8px">
       <button class="btn btn-g" onclick="openTradeModal(${t.id})" style="flex:1">EDIT TRADE</button>
       ${t.status==="Open"?`<button class="btn btn-warn" onclick="openExitModal(${t.id})" style="flex:1">EXIT</button>`:""}
     </div>
   `;
   document.getElementById("diary-detail-panel").innerHTML = html;
+  // Render embedded TradingView chart
+  setTimeout(() => renderDiaryTVChart(currentDiaryId), 100);
+}
+
+function openTVChartForTrade(tradeId) {
+  const t = STATE.trades.find(x => x.id === tradeId);
+  if (!t) return;
+  window.open(`https://www.tradingview.com/chart/?symbol=${t.ticker}`, '_blank');
+}
+
+function renderDiaryTVChart(tradeId) {
+  const t = STATE.trades.find(x => x.id === tradeId);
+  if (!t) return;
+  const container = document.getElementById('diary-tv-chart-' + tradeId);
+  if (!container) return;
+
+  const entryDate = new Date(t.entryDate);
+  const exitDate = t.exitDate ? new Date(t.exitDate) : null;
+  const expiryDate = t.expiry ? new Date(t.expiry) : null;
+  const endDate = exitDate || expiryDate || new Date();
+
+  const markers = [];
+  if (t.entryDate) markers.push({date: t.entryDate, label: 'ENTRY', color: C.pos});
+  if (t.exitDate) markers.push({date: t.exitDate, label: 'EXIT', color: t.realizedPnl >= 0 ? C.pos : C.neg});
+  if (t.expiry) markers.push({date: t.expiry, label: 'EXPIRY', color: C.warn});
+
+  container.innerHTML = `
+    <div style="position:relative;width:100%;height:100%">
+      <iframe src="https://s.tradingview.com/widgetembed/?frameElementId=diary-tv-chart-${tradeId}&symbol=${t.ticker}&interval=D&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=0d1117&studies=[]&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=0&hideideas=1&overrides=%7B%7D&enabled_features=[]&disabled_features=[]&locale=en" style="width:100%;height:100%;border:none"></iframe>
+      <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;z-index:10">
+        ${markers.map(m => `<span style="font-size:9px;color:${m.color};background:${C.bg};border:1px solid ${m.color}44;padding:2px 6px;border-radius:3px;font-weight:600">${m.label} ${m.date}</span>`).join('')}
+      </div>
+    </div>`;
 }
 
 function diarySubTabs() {
