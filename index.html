@@ -575,13 +575,11 @@ table{width:100%;border-collapse:collapse}
     </div>
 
     <!-- Economic Calendar & Earnings -->
-    <div class="section-box" id="sec-calendar" style="overflow:hidden;min-width:0">
-      <div class="section-header" style="display:flex;justify-content:space-between;align-items:center">
-        <span><span class="section-title">Economic Calendar & Earnings</span> <span class="section-subtitle" id="cal-range"></span></span>
-        <button class="btn btn-g" id="cal-expand-btn" onclick="toggleCalendarExpand()" style="font-size:9px;padding:3px 10px">SHOW ALL ▼</button>
+    <div class="section-box" id="sec-calendar" style="overflow:hidden;min-width:0;padding:0">
+      <div class="section-header" style="padding:10px 12px 4px"><span class="section-title">Economic Calendar</span></div>
+      <div style="height:400px">
+        <iframe src="https://s.tradingview.com/embed-widget/events/?locale=en&colorTheme=dark&isTransparent=true&width=100%25&height=100%25&importanceFilter=0,1&currencyFilter=USD,EUR,GBP,JPY,CAD,AUD,CNY,CHF" style="width:100%;height:100%;border:none"></iframe>
       </div>
-      <div id="cal-country-filter" style="display:flex;gap:4px;flex-wrap:wrap;padding:6px 10px 2px"></div>
-      <div id="calendar-body" style="max-height:320px;overflow-y:auto"><div class="loading">Loading...</div></div>
     </div>
 
     <!-- US Equity Sectors -->
@@ -9237,107 +9235,7 @@ function mktRenderSectors(sectors) {
   el.innerHTML = html;
 }
 
-function mktRenderCalendar(events) {
-  const calBody = mkt$('calendar-body');
-  if (!calBody) return;
-
-  // Merge earnings dates from watchlist/trades into calendar events
-  const allEvents = [...(events || [])];
-
-  // Add earnings from STATE.earnings (watchlist tickers)
-  if (typeof STATE !== 'undefined' && STATE.earnings) {
-    Object.entries(STATE.earnings).forEach(([ticker, earnDate]) => {
-      if (!earnDate) return;
-      // Normalize earnings date to YYYY-MM-DD
-      const d = new Date(earnDate);
-      if (isNaN(d.getTime())) return;
-      const iso = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-      allEvents.push({
-        datetime: iso + ' 16:00:00',
-        report_date: iso,
-        report_name: ticker + ' Earnings',
-        country: '🏢',
-        economic_impact: 'high',
-        _isEarnings: true,
-        _ticker: ticker
-      });
-    });
-  }
-
-  if (!allEvents.length) { calBody.innerHTML = '<div class="empty">No upcoming events</div>'; const cr = mkt$('cal-range'); if(cr) cr.textContent = ''; return; }
-  const sorted = [...allEvents].sort((a,b) => String(a.datetime||a.report_date||'').localeCompare(String(b.datetime||b.report_date||'')));
-
-  // Store sorted events globally for filtering
-  window._calAllEvents = sorted;
-
-  // Build country filter pills
-  const countries = [...new Set(sorted.map(e => e.country || 'Other'))].sort();
-  const filterEl = document.getElementById('cal-country-filter');
-  if (filterEl) {
-    let fhtml = '<button class="btn btn-g stats-pill active" onclick="filterCalByCountry(\'All\',this)" style="font-size:9px;padding:2px 8px">ALL</button>';
-    for (const c of countries) {
-      fhtml += `<button class="btn btn-g stats-pill" onclick="filterCalByCountry('${c.replace(/'/g,"\\'")}',this)" style="font-size:9px;padding:2px 8px">${c}</button>`;
-    }
-    filterEl.innerHTML = fhtml;
-  }
-
-  calRenderFiltered(sorted);
-}
-
-let _calCountryFilter = 'All';
-function filterCalByCountry(country, btn) {
-  _calCountryFilter = country;
-  // Update active pill
-  const filterEl = document.getElementById('cal-country-filter');
-  if (filterEl) filterEl.querySelectorAll('.stats-pill').forEach(b => b.classList.toggle('active', b === btn));
-  // Re-render with filter
-  const filtered = country === 'All' ? window._calAllEvents : window._calAllEvents.filter(e => (e.country || 'Other') === country);
-  calRenderFiltered(filtered);
-}
-
-function calRenderFiltered(sorted) {
-  const calBody = mkt$('calendar-body');
-  if (!calBody) return;
-  const groups = {};
-  for (const ev of sorted) { const d = String(ev.datetime || ev.report_date || '').slice(0,10); if (!groups[d]) groups[d] = []; groups[d].push(ev); }
-  let html = '<table class="data-table" style="width:100%;table-layout:fixed;font-size:11px"><colgroup><col style="width:72px"><col style="width:52px"><col><col style="width:52px"><col style="width:52px"><col style="width:52px"></colgroup><thead><tr><th>Date</th><th>Ctry</th><th>Event</th><th class="r">Prev</th><th class="r">Cons</th><th class="r">Act</th></tr></thead><tbody>';
-  for (const [dateStr, evts] of Object.entries(groups)) {
-    for (let i = 0; i < evts.length; i++) {
-      const ev = evts[i];
-      const impact = (ev.economic_impact || '').toLowerCase();
-      const isEarn = ev._isEarnings;
-      const nameStyle = isEarn ? 'color:#d29922;font-weight:600' : '';
-      const actualStyle = ev.actual != null && ev.actual !== '' && ev.consensus != null && ev.consensus !== '' ? (Number(ev.actual) > Number(ev.consensus) ? 'color:#3fb950;font-weight:600' : Number(ev.actual) < Number(ev.consensus) ? 'color:#f85149;font-weight:600' : 'font-weight:600') : '';
-      const ctryShort = (ev.country||'').replace('United States','US').replace('United Kingdom','UK').replace('South Korea','KR').replace('Switzerland','CH').replace('Netherlands','NL').replace('Singapore','SG').replace('Hong Kong','HK').replace('New Zealand','NZ').replace('Australia','AU').replace('Germany','DE').replace('France','FR').replace('Canada','CA').replace('Japan','JP').replace('China','CN').replace('India','IN').replace('Brazil','BR').replace('Mexico','MX').replace('Sweden','SE').replace('Norway','NO').replace('Belgium','BE').replace('Austria','AT').replace('Denmark','DK').replace('Finland','FI').replace('Italy','IT').replace('Spain','ES');
-      html += `<tr><td style="white-space:nowrap">${i===0?mktFormatDate(dateStr):''}</td>
-        <td>${ctryShort}</td>
-        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(ev.report_name||'').replace(/"/g,'&quot;')}"><span class="cal-impact ${impact}"></span><span style="${nameStyle}">${ev.report_name||''}</span></td>
-        <td class="r">${ev.previous!=null&&ev.previous!==''?ev.previous:'—'}</td>
-        <td class="r">${ev.consensus!=null&&ev.consensus!==''?ev.consensus:'—'}</td>
-        <td class="r" style="${actualStyle}">${ev.actual!=null&&ev.actual!==''?ev.actual:'—'}</td></tr>`;
-    }
-  }
-  html += '</tbody></table>';
-  calBody.innerHTML = html;
-  const totalCount = sorted.length;
-  const allCount = (window._calAllEvents || []).length;
-  const cr = mkt$('cal-range'); if(cr) cr.textContent = (_calCountryFilter === 'All' ? allCount : totalCount + '/' + allCount) + ' events';
-}
-
-let _calExpanded = false;
-function toggleCalendarExpand() {
-  const calBody = mkt$('calendar-body');
-  const btn = document.getElementById('cal-expand-btn');
-  if (!calBody || !btn) return;
-  _calExpanded = !_calExpanded;
-  if (_calExpanded) {
-    calBody.style.maxHeight = 'none';
-    btn.textContent = 'COLLAPSE ▲';
-  } else {
-    calBody.style.maxHeight = '320px';
-    btn.textContent = 'SHOW ALL ▼';
-  }
-}
+// Economic calendar now powered by TradingView embed widget (no API calls needed)
 
 // ── Quote Fetching for Markets tab ──────────────────────────────────────────
 async function mktFetchPositionQuotes(positions) {
@@ -9616,23 +9514,7 @@ async function mktLoadMarketData() {
   } catch (e) { console.error('Market data error:', e); const el = mkt$('indices-body'); if(el) el.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>'; }
 }
 
-async function mktLoadCalendar() {
-  try {
-    const r = await fetch(MKT_API + '/calendar/live');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    _mktCalendar = await r.json();
-    if (Array.isArray(_mktCalendar)) {
-      mktRenderCalendar(_mktCalendar);
-    } else {
-      // Fallback: might be error object
-      mktRenderCalendar([]);
-    }
-  } catch (e) {
-    console.error('Calendar error:', e);
-    const el = mkt$('calendar-body');
-    if (el) el.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
-  }
-}
+// mktLoadCalendar removed — now using TradingView embed widget
 
 async function mktLoadPositions() {
   try {
@@ -9674,7 +9556,7 @@ async function mktLoadWatchlist() {
 }
 
 async function mktLoadAll() {
-  const tasks = [mktLoadMarketData(), mktLoadCalendar(), mktLoadPositions()];
+  const tasks = [mktLoadMarketData(), mktLoadPositions()];
   await Promise.all(tasks);
   mktLoadWatchlist();
 }
