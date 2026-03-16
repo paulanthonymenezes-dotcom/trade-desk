@@ -631,8 +631,8 @@ table{width:100%;border-collapse:collapse}
   <!-- PRE-MARKET CHECKLIST TAB -->
   <div id="tab-premarket" class="section">
     <div id="premarket-split" style="display:grid;grid-template-columns:1fr 1fr;gap:0;min-height:70vh">
-      <div id="premarket-left" style="overflow-y:auto;max-height:85vh"></div>
-      <div id="premarket-right" style="overflow-y:auto;max-height:85vh;border-left:1.5px solid rgba(255,255,255,0.15);padding-left:14px"></div>
+      <div id="premarket-left" style="overflow-y:auto;max-height:85vh;max-width:600px;margin:0 auto"></div>
+      <div id="premarket-right" style="overflow-y:auto;max-height:85vh;max-width:600px;margin:0 auto;border-left:1.5px solid rgba(255,255,255,0.15);padding-left:14px"></div>
     </div>
   </div>
 
@@ -1891,7 +1891,7 @@ function calcHighDist(candles, days) {
 
 function daysLeft(expiry) { return Math.ceil((_toDate(expiry)-new Date())/86400000); }
 function _toDate(v) { return typeof v==='number'&&v<1e12 ? new Date(v*1000) : new Date(v); }
-function dteColor(d) { return d<=3?C.neg:d<=7?C.warn:C.pos; }
+function dteColor(d) { return d<=3?'rgba(239,83,80,0.6)':d<=7?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.4)'; }
 function dteBucket(d) { return d<=1?"0–1 DTE":d<=7?"2–7 DTE":d<=15?"8–15 DTE":d<=30?"16–30 DTE":d<=45?"31–45 DTE":"45+ DTE"; }
 function fmt$(n) { return (n>=0?"+$":"-$")+Math.abs(n).toFixed(0); }
 function pct(n) { return (n>=0?"+":"")+n.toFixed(1)+"%"; }
@@ -2779,19 +2779,19 @@ function renderSnapshot() {
     const dl = isStk ? null : daysLeft(t.expiry);
     const sector = getSector(t.ticker);
     const priceFmt = q ? `$${q.price.toFixed(2)}` : "—";
-    const priceColor = q ? (q.changePct >= 0 ? C.pos : C.neg) : C.textSec;
+    const priceColor = q ? 'rgba(255,255,255,0.7)' : C.textSec;
     const changeFmt = q ? `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(1)}%` : "";
+    const changeColor = q ? (q.changePct >= 0 ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)') : C.textSec;
 
     // Health bar: where is price between SL and TP?
-    // SL breached = FULL RED, TP hit = FULL GREEN, between = proportional
-    let healthPct = 50, healthColor = C.textMut, healthTitle = "no quote";
+    let healthPct = 50, healthColor = 'rgba(255,255,255,0.25)', healthTitle = "no quote";
     let breached = false, tpHit = false;
     if (isStk && q) {
       // Stock trade: simple P&L-based health
       const pnl = liveUnrealizedPnl(t, q.price);
       if (pnl !== null) {
         healthPct = pnl >= 0 ? Math.min(95, 50 + pnl / (t.shortStrike * t.contracts) * 5000) : Math.max(5, 50 + pnl / (t.shortStrike * t.contracts) * 5000);
-        healthColor = pnl >= 0 ? C.pos : C.neg;
+        healthColor = pnl >= 0 ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)';
         healthTitle = (pnl >= 0 ? "+$" : "-$") + Math.abs(pnl).toFixed(0);
       }
     } else if (q) {
@@ -2813,26 +2813,23 @@ function renderSnapshot() {
       } else if (sl && tp && tp !== sl) {
         // Both set: proportional between SL and TP
         healthPct = Math.max(5, Math.min(95, ((q.price - sl) / (tp - sl)) * 100));
-        healthColor = healthPct <= 20 ? C.neg : healthPct <= 40 ? C.warn : C.pos;
+        healthColor = healthPct <= 20 ? 'rgba(239,83,80,0.5)' : healthPct <= 40 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
         healthTitle = `${healthPct.toFixed(0)}% SL→TP`;
       } else if (sl) {
-        // Only SL: distance above SL
         const dist = ((q.price - sl) / sl) * 100;
         healthPct = Math.max(5, Math.min(95, dist * 10));
-        healthColor = dist < 2 ? C.neg : dist < 5 ? C.warn : C.pos;
+        healthColor = dist < 2 ? 'rgba(239,83,80,0.5)' : dist < 5 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
         healthTitle = `${dist.toFixed(1)}% above SL`;
       } else if (tp) {
-        // Only TP: progress toward TP
         const range = tp - t.shortStrike;
         const prox = range > 0 ? ((q.price - t.shortStrike) / range) * 100 : 50;
         healthPct = Math.max(5, Math.min(95, prox));
-        healthColor = prox <= 20 ? C.neg : prox <= 40 ? C.warn : C.pos;
+        healthColor = prox <= 20 ? 'rgba(239,83,80,0.5)' : prox <= 40 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
         healthTitle = `${(100 - prox).toFixed(0)}% to TP`;
       } else {
-        // Neither: proximity to short strike
         const prox = ((q.price - t.shortStrike) / q.price) * 100;
         healthPct = prox <= 0 ? 100 : Math.max(5, Math.min(95, prox / 10 * 100));
-        healthColor = prox <= 2 ? C.neg : prox <= 5 ? C.warn : C.pos;
+        healthColor = prox <= 2 ? 'rgba(239,83,80,0.5)' : prox <= 5 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
         if (prox <= 0) { breached = true; healthColor = C.neg; }
         healthTitle = prox <= 0 ? "BELOW SHORT STRIKE" : `${prox.toFixed(1)}% from strike`;
       }
@@ -2847,7 +2844,7 @@ function renderSnapshot() {
         <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
           <span style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${C.text}">${t.ticker}</span>
           <span style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${priceColor}">${priceFmt}</span>
-          ${changeFmt ? `<span style="font-variant-numeric:tabular-nums;font-size:10px;color:${priceColor}">${changeFmt}</span>` : ""}
+          ${changeFmt ? `<span style="font-variant-numeric:tabular-nums;font-size:10px;color:${changeColor}">${changeFmt}</span>` : ""}
           ${sector ? `<span style="font-size:9px;color:${C.textSec};background:${C.border};padding:1px 5px;border-radius:3px;cursor:pointer" onclick="openSectorModal('${t.ticker}')">${sector}</span>` : `<span style="font-size:9px;color:${C.textTri};cursor:pointer" onclick="openSectorModal('${t.ticker}')">+ sector</span>`}
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec}">
@@ -2859,9 +2856,9 @@ function renderSnapshot() {
           <span style="color:${C.textMut}">|</span>
           <span style="color:${dteColor(dl)}">${dl}d</span>
           <span style="color:${C.textMut}">|</span>
-          ${t.tpPrice ? `<span style="color:${C.pos}">TP $${parseFloat(t.tpPrice).toFixed(0)}</span>` : `<span style="color:${C.warn}">no TP</span>`}
+          ${t.tpPrice ? `<span style="color:rgba(255,255,255,0.5)">TP $${parseFloat(t.tpPrice).toFixed(0)}</span>` : `<span style="color:rgba(255,255,255,0.3)">no TP</span>`}
           <span style="color:${C.textMut}">|</span>
-          ${t.slPrice ? `<span style="color:${C.neg}">SL $${parseFloat(t.slPrice).toFixed(0)}</span>` : `<span style="color:${C.warn}">no SL</span>`}`}
+          ${t.slPrice ? `<span style="color:rgba(255,255,255,0.5)">SL $${parseFloat(t.slPrice).toFixed(0)}</span>` : `<span style="color:rgba(255,255,255,0.3)">no SL</span>`}`}
         </div>
       </div>
       <div style="display:flex;align-items:center;width:50px">
@@ -2895,7 +2892,7 @@ function renderPositions() {
     const dl = isStock ? null : daysLeft(t.expiry);
     const maxLoss = isStock ? null : (t.shortStrike - t.longStrike) * t.contracts * 100 - t.premiumCollected;
     const prox = (!isStock && q) ? ((q.price - t.shortStrike) / q.price * 100) : null;
-    const proxColor = prox===null?C.textMut:prox<2?C.neg:prox<5?C.warn:C.pos;
+    const proxColor = prox===null?C.textMut:prox<2?'rgba(239,83,80,0.5)':prox<5?'rgba(255,255,255,0.35)':'rgba(38,166,154,0.5)';
     const proxWidth = prox===null?50:Math.max(0,Math.min(prox/10*100,100));
 
     // Child trades (partial closes)
@@ -2916,15 +2913,15 @@ function renderPositions() {
       if (!hasSR) warnings.push("S/R");
     }
 
-    return `<div class="card" id="trade-${t.id}" data-chart-ticker="${t.ticker}" style="border:1px solid ${warnings.length?C.warnDim:'rgba(255,255,255,0.12)'}">
+    return `<div class="card" id="trade-${t.id}" data-chart-ticker="${t.ticker}" style="border:1px solid rgba(255,255,255,0.12)">
 
       <!-- Header: ticker + price + DTE -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
           <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
             <div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${C.text}">${t.ticker}</div>
-            ${q ? `<div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${q.changePct>=0?C.pos:C.neg}">$${q.price.toFixed(2)}</div>
-            <div style="font-size:10px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>${q.source==="mda-delayed"?`<span style="font-size:8px;color:${C.warn};border:1px solid ${C.warn}44;padding:1px 4px;border-radius:2px">DELAYED</span>`:""}` : `<div style="font-size:10px;color:${C.textSec}">loading...</div>`}
+            ${q ? `<div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:rgba(255,255,255,0.7)">$${q.price.toFixed(2)}</div>
+            <div style="font-size:10px;color:${q.changePct>=0?'rgba(38,166,154,0.6)':'rgba(239,83,80,0.6)'}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</div>${q.source==="mda-delayed"?`<span style="font-size:8px;color:rgba(255,255,255,0.4);border:1px solid rgba(255,255,255,0.15);padding:1px 4px;border-radius:2px">DELAYED</span>`:""}` : `<div style="font-size:10px;color:${C.textSec}">loading...</div>`}
           </div>
           <div style="font-size:10px;color:${C.text};margin-top:3px">${isStock
             ? t.tradeType + " · " + t.contracts + " shares · entry $" + t.shortStrike + (t.thesis ? " · " + t.thesis.slice(0,40) : "")
@@ -2932,7 +2929,7 @@ function renderPositions() {
           }</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          ${isStock ? "" : `<div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.pos};font-weight:600">+$${(t.premiumCollected||0).toFixed(0)}</div>`}
+          ${isStock ? "" : `<div style="font-variant-numeric:tabular-nums;font-size:13px;color:rgba(255,255,255,0.6);font-weight:600">+$${(t.premiumCollected||0).toFixed(0)}</div>`}
           ${isStock ? `<div style="font-size:9px;color:${C.textSec};margin-top:2px;font-family:'Inter',sans-serif;font-variant-numeric:tabular-nums">${t.entryDate}</div>`
             : `<div style="font-size:9px;color:${dteColor(dl)};margin-top:2px;font-family:'Inter',sans-serif;font-variant-numeric:tabular-nums">${dl}d DTE</div>`}
           ${t.pop?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">POP ${t.pop}%</div>`:""}
@@ -2950,10 +2947,10 @@ function renderPositions() {
       </div>`; })()}
 
       <!-- Warnings -->
-      ${warnings.length ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;background:${C.warn}08;border:1px solid ${C.warn}33;border-radius:3px;padding:5px 10px">
-        <span style="font-size:10px;color:${C.warn}">⚠</span>
-        <span style="font-size:9px;color:${C.warn};font-variant-numeric:tabular-nums;flex:1">missing: ${warnings.join(", ")}</span>
-        <button onclick="openTradeModal(${t.id})" class="btn btn-warn" style="padding:3px 8px;font-size:9px">SET</button>
+      ${warnings.length ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:5px 10px">
+        <span style="font-size:10px;color:rgba(255,255,255,0.4)">⚠</span>
+        <span style="font-size:9px;color:rgba(255,255,255,0.4);font-variant-numeric:tabular-nums;flex:1">missing: ${warnings.join(", ")}</span>
+        <button onclick="openTradeModal(${t.id})" class="btn btn-g" style="padding:3px 8px;font-size:9px">SET</button>
       </div>` : ""}
 
       <!-- Price vs Short Strike bar (options only) -->
@@ -2971,14 +2968,14 @@ function renderPositions() {
           const tpLbl = getSRLabel(t.ticker, t.tpPrice);
           const slLbl = getSRLabel(t.ticker, t.slPrice);
           return `
-          <div style="flex:1;background:${C.bg};border:1px solid ${t.tpPrice?C.posDim:C.warnDim};border-radius:3px;padding:6px 8px">
-            <div style="font-size:8px;color:${t.tpPrice?C.pos:C.warn};letter-spacing:0;margin-bottom:2px">🎯 RESISTANCE${tpLbl?" · "+tpLbl:""}</div>
-            <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${t.tpPrice?C.pos:C.warn};font-weight:600">${t.tpPrice?"$"+parseFloat(t.tpPrice).toFixed(2):"NOT SET"}</div>
+          <div style="flex:1;background:${C.bg};border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:6px 8px">
+            <div style="font-size:8px;color:rgba(255,255,255,0.45);letter-spacing:0;margin-bottom:2px">🎯 RESISTANCE${tpLbl?" · "+tpLbl:""}</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${t.tpPrice?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.3)'};font-weight:600">${t.tpPrice?"$"+parseFloat(t.tpPrice).toFixed(2):"NOT SET"}</div>
             ${t.tpPrice&&q?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">${((parseFloat(t.tpPrice)-q.price)/q.price*100).toFixed(1)}% away</div>`:""}
           </div>
-          <div style="flex:1;background:${C.bg};border:1px solid ${t.slPrice?C.negDim:C.warnDim};border-radius:3px;padding:6px 8px">
-            <div style="font-size:8px;color:${t.slPrice?C.neg:C.warn};letter-spacing:0;margin-bottom:2px">🛑 SUPPORT${slLbl?" · "+slLbl:""}</div>
-            <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${t.slPrice?C.neg:C.warn};font-weight:600">${t.slPrice?"$"+parseFloat(t.slPrice).toFixed(2):"NOT SET"}</div>
+          <div style="flex:1;background:${C.bg};border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:6px 8px">
+            <div style="font-size:8px;color:rgba(255,255,255,0.45);letter-spacing:0;margin-bottom:2px">🛑 SUPPORT${slLbl?" · "+slLbl:""}</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${t.slPrice?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.3)'};font-weight:600">${t.slPrice?"$"+parseFloat(t.slPrice).toFixed(2):"NOT SET"}</div>
             ${t.slPrice&&q?`<div style="font-size:9px;color:${C.textSec};margin-top:1px">${((q.price-parseFloat(t.slPrice))/q.price*100).toFixed(1)}% away</div>`:""}
           </div>`;
         })()}
@@ -3007,29 +3004,27 @@ function renderPositions() {
       <!-- S/R Levels -->
       ${hasSR ? `<div style="margin-bottom:10px">
         ${resistances.length ? `<div style="margin-bottom:5px">
-          <div style="font-size:9px;color:${C.pos};letter-spacing:0;margin-bottom:4px">▲ RESISTANCE</div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.45);letter-spacing:0;margin-bottom:4px">▲ RESISTANCE</div>
           <div style="display:flex;flex-direction:column;gap:3px">
             ${resistances.map((lvl,i)=>{
               const pct = q ? ((parseFloat(lvl)-q.price)/q.price*100) : null;
-              const c2 = pct===null?C.textMut:pct<2?C.neg:pct<5?C.warn:C.pos;
               return `<div style="display:flex;justify-content:space-between;background:${C.bg};border:1px solid ${C.border};border-radius:3px;padding:4px 10px">
                 <span style="font-size:9px;color:${C.textSec}">R${i+1}</span>
                 <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${C.text}">$${parseFloat(lvl).toFixed(2)}</span>
-                <span style="font-size:10px;color:${c2}">${pct!==null?"+"+pct.toFixed(1)+"%":"—"}</span>
+                <span style="font-size:10px;color:rgba(255,255,255,0.4)">${pct!==null?"+"+pct.toFixed(1)+"%":"—"}</span>
               </div>`;
             }).join("")}
           </div>
         </div>` : ""}
         ${supports.length ? `<div>
-          <div style="font-size:9px;color:${C.neg};letter-spacing:0;margin-bottom:4px">▼ SUPPORT</div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.45);letter-spacing:0;margin-bottom:4px">▼ SUPPORT</div>
           <div style="display:flex;flex-direction:column;gap:3px">
             ${supports.map((lvl,i)=>{
               const pct = q ? ((q.price-parseFloat(lvl))/q.price*100) : null;
-              const c2 = pct===null?C.textMut:pct<2?C.neg:pct<5?C.warn:C.pos;
               return `<div style="display:flex;justify-content:space-between;background:${C.bg};border:1px solid ${C.border};border-radius:3px;padding:4px 10px">
                 <span style="font-size:9px;color:${C.textSec}">S${i+1}</span>
                 <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${C.text}">$${parseFloat(lvl).toFixed(2)}</span>
-                <span style="font-size:10px;color:${c2}">${pct!==null?"-"+pct.toFixed(1)+"%":"—"}</span>
+                <span style="font-size:10px;color:rgba(255,255,255,0.4)">${pct!==null?"-"+pct.toFixed(1)+"%":"—"}</span>
               </div>`;
             }).join("")}
           </div>
@@ -3043,14 +3038,14 @@ function renderPositions() {
         <div><div class="lbl">SHARES</div><div class="val">${t.contracts}</div></div>
       </div>` : `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
         <div><div class="lbl">PREMIUM</div><div class="val">$${(t.premiumCollected||0).toFixed(0)}</div></div>
-        <div><div class="lbl">MAX LOSS</div><div class="val" style="color:${C.neg}">-$${maxLoss.toFixed(0)}</div></div>
+        <div><div class="lbl">MAX LOSS</div><div class="val" style="color:rgba(255,255,255,0.5)">-$${maxLoss.toFixed(0)}</div></div>
         <div></div>
       </div>`}
 
       <!-- P&L Tracker -->
       ${(()=>{
         const livePnl = q ? liveUnrealizedPnl(t, q.price) : null;
-        const livePnlColor = livePnl === null ? C.textSec : livePnl >= 0 ? C.pos : C.neg;
+        const livePnlColor = livePnl === null ? C.textSec : livePnl >= 0 ? 'rgba(38,166,154,0.7)' : 'rgba(239,83,80,0.7)';
         const src = isStock ? "stock" : pnlSource(t);
         const spreadMid = t._liveSpread?.mid;
         const spreadTs = t._liveSpread?.ts;
