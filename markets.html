@@ -272,6 +272,15 @@ button{cursor:pointer;font-family:'Inter',sans-serif;-webkit-tap-highlight-color
 .neg{color:var(--negative)!important}
 .card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px;padding:7px 8px}
 #tab-stats .card, #tab-forecast .card, #tab-stats .section-box, #tab-forecast .section-box{border:1.5px solid rgba(255,255,255,0.18)}
+#charts-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.mini-chart-cell{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px;overflow:hidden}
+.mini-chart-cell canvas{width:100%;display:block}
+.mini-chart-hdr{display:flex;justify-content:space-between;align-items:center;padding:6px 8px 2px;font-size:11px}
+.mini-chart-hdr .tk{font-weight:700;color:var(--text-primary);font-size:12px}
+.mini-chart-hdr .sma-lbl{color:var(--text-secondary);font-size:9px}
+.mini-chart-rsi{padding:0 8px 4px;font-size:9px;color:var(--text-secondary);display:flex;justify-content:space-between}
+@media(max-width:1100px){#charts-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){#charts-grid{grid-template-columns:1fr}}
 .badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;letter-spacing:0}
 .btn{border-radius:4px;font-size:11px;letter-spacing:0;padding:5px 12px;border:none;cursor:pointer;font-weight:500}
 .btn-p{background:var(--accent);color:#fff;font-weight:600}
@@ -354,7 +363,8 @@ table{width:100%;border-collapse:collapse}
 #main.dashboard-mode #tab-diary.active,
 #main.dashboard-mode #tab-stats.active,
 #main.dashboard-mode #tab-forecast.active,
-#main.dashboard-mode #tab-scanner.active{display:block;grid-column:1/-1}
+#main.dashboard-mode #tab-scanner.active,
+#main.dashboard-mode #tab-charts.active{display:block;grid-column:1/-1}
 @media(max-width:900px){
   #main.dashboard-mode{grid-template-columns:1fr;padding:8px 8px 80px}
 }
@@ -540,6 +550,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">Statistics</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
   <button class="side-btn" onclick="switchTab('scanner',this)"><span class="nav-icon">◇</span><span class="side-label">Scanner</span></button>
+  <button class="side-btn" onclick="switchTab('charts',this)"><span class="nav-icon">▦</span><span class="side-label">Charts</span></button>
 </nav>
 
 <div id="app-layout">
@@ -699,6 +710,11 @@ table{width:100%;border-collapse:collapse}
     <div id="scanner-content"></div>
   </div>
 
+  <!-- LOTS OF CHARTS TAB -->
+  <div id="tab-charts" class="section">
+    <div id="charts-content"></div>
+  </div>
+
 </div>
 
 <!-- TradingView Chart Panel (desktop only) -->
@@ -742,6 +758,7 @@ table{width:100%;border-collapse:collapse}
   <button class="nav-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
   <button class="nav-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span>CAST</button>
   <button class="nav-btn" onclick="switchTab('scanner',this)"><span class="nav-icon">◇</span>SCAN</button>
+  <button class="nav-btn" onclick="switchTab('charts',this)"><span class="nav-icon">▦</span>CHARTS</button>
 </nav>
 
 <!-- CHART LIGHTBOX -->
@@ -9675,7 +9692,7 @@ setInterval(mktLoadMarketData, MKT_REFRESH_INTERVAL);
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['mkts', 'diary', 'stats', 'forecast', 'scanner'].includes(tab);
+  const isDashboardTab = ['mkts', 'diary', 'stats', 'forecast', 'scanner', 'charts'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -9742,9 +9759,442 @@ function switchTab(tab, btn) {
     if (typeof renderForecast === 'function') renderForecast();
   } else if (tab === 'scanner') {
     if (typeof renderScanner === 'function') renderScanner();
+  } else if (tab === 'charts') {
+    if (typeof renderLotsOfCharts === 'function') renderLotsOfCharts();
   } else if (tab === 'mkts') {
     if (!_marketData) mktLoadAll();
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOTS OF CHARTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+const NDX_100 = [
+  {t:'AAPL',s:'Technology'},{t:'MSFT',s:'Technology'},{t:'NVDA',s:'Technology'},{t:'AMZN',s:'Consumer Cyclical'},{t:'META',s:'Technology'},
+  {t:'GOOGL',s:'Technology'},{t:'GOOG',s:'Technology'},{t:'AVGO',s:'Technology'},{t:'TSLA',s:'Consumer Cyclical'},{t:'COST',s:'Consumer Defensive'},
+  {t:'NFLX',s:'Communication'},{t:'AMD',s:'Technology'},{t:'ADBE',s:'Technology'},{t:'PEP',s:'Consumer Defensive'},{t:'LIN',s:'Basic Materials'},
+  {t:'CSCO',s:'Technology'},{t:'QCOM',s:'Technology'},{t:'TMUS',s:'Communication'},{t:'INTU',s:'Technology'},{t:'AMAT',s:'Technology'},
+  {t:'TXN',s:'Technology'},{t:'CMCSA',s:'Communication'},{t:'ISRG',s:'Healthcare'},{t:'AMGN',s:'Healthcare'},{t:'BKNG',s:'Consumer Cyclical'},
+  {t:'HON',s:'Industrials'},{t:'LRCX',s:'Technology'},{t:'VRTX',s:'Healthcare'},{t:'MU',s:'Technology'},{t:'PANW',s:'Technology'},
+  {t:'ADP',s:'Industrials'},{t:'KLAC',s:'Technology'},{t:'REGN',s:'Healthcare'},{t:'ADI',s:'Technology'},{t:'MDLZ',s:'Consumer Defensive'},
+  {t:'SNPS',s:'Technology'},{t:'CDNS',s:'Technology'},{t:'MELI',s:'Consumer Cyclical'},{t:'SBUX',s:'Consumer Cyclical'},{t:'CRWD',s:'Technology'},
+  {t:'GILD',s:'Healthcare'},{t:'CTAS',s:'Industrials'},{t:'MAR',s:'Consumer Cyclical'},{t:'PYPL',s:'Financial'},{t:'ABNB',s:'Consumer Cyclical'},
+  {t:'MRVL',s:'Technology'},{t:'CEG',s:'Utilities'},{t:'CSX',s:'Industrials'},{t:'ORLY',s:'Consumer Cyclical'},{t:'PCAR',s:'Industrials'},
+  {t:'WDAY',s:'Technology'},{t:'NXPI',s:'Technology'},{t:'CPRT',s:'Industrials'},{t:'DASH',s:'Technology'},{t:'ROP',s:'Technology'},
+  {t:'MNST',s:'Consumer Defensive'},{t:'FTNT',s:'Technology'},{t:'AEP',s:'Utilities'},{t:'PAYX',s:'Industrials'},{t:'TTD',s:'Technology'},
+  {t:'ROST',s:'Consumer Cyclical'},{t:'AZN',s:'Healthcare'},{t:'MCHP',s:'Technology'},{t:'ODFL',s:'Industrials'},{t:'KDP',s:'Consumer Defensive'},
+  {t:'FAST',s:'Industrials'},{t:'DDOG',s:'Technology'},{t:'KHC',s:'Consumer Defensive'},{t:'EA',s:'Communication'},{t:'VRSK',s:'Industrials'},
+  {t:'LULU',s:'Consumer Cyclical'},{t:'GEHC',s:'Healthcare'},{t:'CTSH',s:'Technology'},{t:'BKR',s:'Energy'},{t:'EXC',s:'Utilities'},
+  {t:'FANG',s:'Energy'},{t:'IDXX',s:'Healthcare'},{t:'XEL',s:'Utilities'},{t:'ON',s:'Technology'},{t:'TEAM',s:'Technology'},
+  {t:'CSGP',s:'Technology'},{t:'ZS',s:'Technology'},{t:'ANSS',s:'Technology'},{t:'DXCM',s:'Healthcare'},{t:'CDW',s:'Technology'},
+  {t:'ILMN',s:'Healthcare'},{t:'MDB',s:'Technology'},{t:'WBD',s:'Communication'},{t:'MRNA',s:'Healthcare'},{t:'BIIB',s:'Healthcare'},
+  {t:'DLTR',s:'Consumer Defensive'},{t:'SIRI',s:'Communication'},{t:'JD',s:'Consumer Cyclical'},{t:'LCID',s:'Consumer Cyclical'},
+  {t:'APP',s:'Technology'},{t:'HOOD',s:'Financial'},{t:'IBIT',s:'Financial'},{t:'ARM',s:'Technology'},{t:'SMCI',s:'Technology'},
+  {t:'COIN',s:'Financial'},{t:'PLTR',s:'Technology'},{t:'MSTR',s:'Technology'}
+];
+
+const SP_500_TOP = [
+  {t:'AAPL',s:'Technology'},{t:'MSFT',s:'Technology'},{t:'NVDA',s:'Technology'},{t:'AMZN',s:'Consumer Cyclical'},{t:'META',s:'Technology'},
+  {t:'GOOGL',s:'Technology'},{t:'BRK.B',s:'Financial'},{t:'LLY',s:'Healthcare'},{t:'AVGO',s:'Technology'},{t:'JPM',s:'Financial'},
+  {t:'TSLA',s:'Consumer Cyclical'},{t:'UNH',s:'Healthcare'},{t:'XOM',s:'Energy'},{t:'V',s:'Financial'},{t:'MA',s:'Financial'},
+  {t:'PG',s:'Consumer Defensive'},{t:'COST',s:'Consumer Defensive'},{t:'JNJ',s:'Healthcare'},{t:'HD',s:'Consumer Cyclical'},{t:'ABBV',s:'Healthcare'},
+  {t:'NFLX',s:'Communication'},{t:'BAC',s:'Financial'},{t:'WMT',s:'Consumer Defensive'},{t:'KO',s:'Consumer Defensive'},{t:'CRM',s:'Technology'},
+  {t:'CVX',s:'Energy'},{t:'MRK',s:'Healthcare'},{t:'AMD',s:'Technology'},{t:'PEP',s:'Consumer Defensive'},{t:'TMO',s:'Healthcare'},
+  {t:'ACN',s:'Technology'},{t:'LIN',s:'Basic Materials'},{t:'ADBE',s:'Technology'},{t:'CSCO',s:'Technology'},{t:'MCD',s:'Consumer Cyclical'},
+  {t:'ABT',s:'Healthcare'},{t:'WFC',s:'Financial'},{t:'QCOM',s:'Technology'},{t:'TMUS',s:'Communication'},{t:'GE',s:'Industrials'},
+  {t:'INTU',s:'Technology'},{t:'DHR',s:'Healthcare'},{t:'IBM',s:'Technology'},{t:'AMAT',s:'Technology'},{t:'TXN',s:'Technology'},
+  {t:'CAT',s:'Industrials'},{t:'CMCSA',s:'Communication'},{t:'VZ',s:'Communication'},{t:'ISRG',s:'Healthcare'},{t:'AMGN',s:'Healthcare'},
+  {t:'NOW',s:'Technology'},{t:'PFE',s:'Healthcare'},{t:'PM',s:'Consumer Defensive'},{t:'BKNG',s:'Consumer Cyclical'},{t:'GS',s:'Financial'},
+  {t:'AXP',s:'Financial'},{t:'UNP',s:'Industrials'},{t:'SPGI',s:'Financial'},{t:'HON',s:'Industrials'},{t:'RTX',s:'Industrials'},
+  {t:'NEE',s:'Utilities'},{t:'T',s:'Communication'},{t:'LOW',s:'Consumer Cyclical'},{t:'BLK',s:'Financial'},{t:'COP',s:'Energy'},
+  {t:'MS',s:'Financial'},{t:'DE',s:'Industrials'},{t:'UBER',s:'Technology'},{t:'LRCX',s:'Technology'},{t:'VRTX',s:'Healthcare'},
+  {t:'BA',s:'Industrials'},{t:'MU',s:'Technology'},{t:'PANW',s:'Technology'},{t:'ADP',s:'Industrials'},{t:'SCHW',s:'Financial'},
+  {t:'KLAC',s:'Technology'},{t:'REGN',s:'Healthcare'},{t:'ADI',s:'Technology'},{t:'MDLZ',s:'Consumer Defensive'},{t:'SBUX',s:'Consumer Cyclical'},
+  {t:'SNPS',s:'Technology'},{t:'CDNS',s:'Technology'},{t:'BMY',s:'Healthcare'},{t:'FI',s:'Financial'},{t:'GILD',s:'Healthcare'},
+  {t:'MMC',s:'Financial'},{t:'PLD',s:'Real Estate'},{t:'SO',s:'Utilities'},{t:'DUK',s:'Utilities'},{t:'CI',s:'Healthcare'},
+  {t:'PYPL',s:'Financial'},{t:'C',s:'Financial'},{t:'CB',s:'Financial'},{t:'ICE',s:'Financial'},{t:'SHW',s:'Basic Materials'},
+  {t:'CME',s:'Financial'},{t:'INTC',s:'Technology'},{t:'CRWD',s:'Technology'},{t:'ABNB',s:'Consumer Cyclical'},{t:'MRVL',s:'Technology'}
+];
+
+const _lc = {
+  universe: 'ndx100',
+  resolution: 'D',
+  lookback: '1Y',
+  sector: 'All',
+  page: 0,
+  perPage: 6,
+  sma: 200,
+  cache: {},
+  loading: false
+};
+
+const LC_RESOLUTIONS = [
+  {k:'5',l:'5M'},{k:'15',l:'15M'},{k:'30',l:'30M'},{k:'60',l:'1H'},{k:'4H',l:'4H'},
+  {k:'D',l:'1D'},{k:'W',l:'1W'},{k:'M',l:'1MO'}
+];
+const LC_LOOKBACKS = [
+  {k:'5D',l:'5D'},{k:'1M',l:'1M'},{k:'3M',l:'3M'},{k:'6M',l:'6M'},{k:'YTD',l:'YTD'},{k:'1Y',l:'1Y'},{k:'3Y',l:'3Y'},{k:'5Y',l:'5Y'}
+];
+
+function _lcGetUniverse() {
+  if (_lc.universe === 'ndx100') return NDX_100;
+  if (_lc.universe === 'sp500') return SP_500_TOP;
+  if (_lc.universe === 'watchlist') {
+    return (STATE.watchlist || []).map(w => ({t: w.ticker, s: w.sector || getSector(w.ticker) || 'Other'}));
+  }
+  if (_lc.universe === 'positions') {
+    return (STATE.trades || []).filter(t => !t.exit_date).map(t => ({t: t.ticker, s: getSector(t.ticker) || 'Other'}));
+  }
+  return NDX_100;
+}
+
+function _lcDateRange() {
+  const now = new Date();
+  const today = now.toISOString().slice(0,10);
+  const ms = (d) => { const r = new Date(now); r.setDate(r.getDate() - d); return r.toISOString().slice(0,10); };
+  const lb = _lc.lookback;
+  let from;
+  if (lb === '5D') from = ms(5);
+  else if (lb === '1M') from = ms(30);
+  else if (lb === '3M') from = ms(90);
+  else if (lb === '6M') from = ms(180);
+  else if (lb === 'YTD') from = now.getFullYear() + '-01-01';
+  else if (lb === '1Y') from = ms(365);
+  else if (lb === '3Y') from = ms(365*3);
+  else if (lb === '5Y') from = ms(365*5);
+  else from = ms(365);
+  // Extend back for SMA computation
+  const smaExtra = Math.ceil(_lc.sma * 1.5);
+  const extFrom = new Date(from);
+  extFrom.setDate(extFrom.getDate() - smaExtra);
+  return { from: extFrom.toISOString().slice(0,10), visibleFrom: from, to: today };
+}
+
+async function _lcFetchCandles(ticker) {
+  const key = ticker + '|' + _lc.resolution + '|' + _lc.lookback;
+  if (_lc.cache[key]) return _lc.cache[key];
+  const { from, to } = _lcDateRange();
+  try {
+    const d = await mdaFetch('/stocks/candles/' + _lc.resolution + '/' + ticker + '/?from=' + from + '&to=' + to);
+    if (d.s === 'ok') { _lc.cache[key] = d; return d; }
+  } catch {}
+  return null;
+}
+
+function _lcComputeSMA(closes, period) {
+  const sma = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period - 1) { sma.push(null); continue; }
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += closes[j];
+    sma.push(sum / period);
+  }
+  return sma;
+}
+
+function _lcComputeRSI(closes, period) {
+  const rsi = new Array(closes.length).fill(null);
+  if (closes.length < period + 1) return rsi;
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i-1];
+    if (d > 0) avgGain += d; else avgLoss -= d;
+  }
+  avgGain /= period; avgLoss /= period;
+  rsi[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i-1];
+    const g = d > 0 ? d : 0, l = d < 0 ? -d : 0;
+    avgGain = (avgGain * (period-1) + g) / period;
+    avgLoss = (avgLoss * (period-1) + l) / period;
+    rsi[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return rsi;
+}
+
+function _lcDrawChart(canvas, candles, ticker) {
+  if (!candles?.c?.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const dispW = canvas.clientWidth || 400;
+  const dispH = 260;
+  canvas.width = dispW * dpr;
+  canvas.height = dispH * dpr;
+  canvas.style.height = dispH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = dispW, H = dispH;
+
+  // Determine visible range (trim SMA lookback prefix)
+  const { visibleFrom } = _lcDateRange();
+  const dates = candles.t.map(ts => new Date(ts * 1000).toISOString().slice(0,10));
+  let visStart = dates.findIndex(d => d >= visibleFrom);
+  if (visStart < 0) visStart = 0;
+
+  // Full data for SMA, visible slice for drawing
+  const allC = candles.c;
+  const sma = _lcComputeSMA(allC, _lc.sma);
+  const rsiAll = _lcComputeRSI(allC, 14);
+
+  const n = allC.length - visStart;
+  if (n < 2) return;
+  const sliceO = candles.o.slice(visStart);
+  const sliceH = candles.h.slice(visStart);
+  const sliceL = candles.l.slice(visStart);
+  const sliceC = candles.c.slice(visStart);
+  const sliceV = candles.v.slice(visStart);
+  const sliceSMA = sma.slice(visStart);
+  const sliceRSI = rsiAll.slice(visStart);
+
+  // Background
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  // Layout
+  const ML = 4, MR = 44, MT = 4, rsiH = 40, volH = 30;
+  const mainH = H - MT - rsiH - 8;
+  const chartW = W - ML - MR;
+
+  // Price range
+  let pMin = Math.min(...sliceL), pMax = Math.max(...sliceH);
+  const pad = (pMax - pMin) * 0.06;
+  pMin -= pad; pMax += pad;
+  const vMax = Math.max(...sliceV) || 1;
+
+  const xFor = i => ML + (i + 0.5) * (chartW / n);
+  const yFor = p => MT + (mainH - volH) - ((p - pMin) / (pMax - pMin)) * (mainH - volH);
+  const candleW = Math.max(1, Math.min(6, (chartW / n) * 0.65));
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 3; i++) {
+    const y = MT + ((mainH - volH) / 3) * i;
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - MR, y); ctx.stroke();
+  }
+
+  // Volume bars
+  for (let i = 0; i < n; i++) {
+    const x = xFor(i);
+    const vh = (sliceV[i] / vMax) * volH;
+    ctx.fillStyle = sliceC[i] >= sliceO[i] ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.12)';
+    ctx.fillRect(x - candleW/2, MT + mainH - vh, candleW, vh);
+  }
+
+  // Candlesticks
+  for (let i = 0; i < n; i++) {
+    const x = xFor(i);
+    const up = sliceC[i] >= sliceO[i];
+    const color = up ? '#3fb950' : '#f85149';
+    const bTop = yFor(Math.max(sliceO[i], sliceC[i]));
+    const bBot = yFor(Math.min(sliceO[i], sliceC[i]));
+    ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, yFor(sliceH[i])); ctx.lineTo(x, yFor(sliceL[i])); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillRect(x - candleW/2, bTop, candleW, Math.max(1, bBot - bTop));
+  }
+
+  // SMA line
+  ctx.strokeStyle = '#d29922';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < n; i++) {
+    if (sliceSMA[i] == null) continue;
+    const x = xFor(i), y = yFor(sliceSMA[i]);
+    if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Y-axis labels
+  ctx.font = '9px "IBM Plex Mono",monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.textAlign = 'left';
+  for (let i = 0; i <= 3; i++) {
+    const p = pMax - (pMax - pMin) * (i / 3);
+    ctx.fillText(p >= 1000 ? p.toFixed(0) : p.toFixed(2), W - MR + 3, MT + ((mainH - volH) / 3) * i + 3);
+  }
+
+  // RSI subplot
+  const rsiTop = MT + mainH + 4;
+  ctx.fillStyle = 'rgba(255,255,255,0.03)';
+  ctx.fillRect(ML, rsiTop, chartW, rsiH);
+  // 30/70 lines
+  ctx.setLineDash([2,2]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 0.5;
+  const ry30 = rsiTop + rsiH * (1 - 30/100);
+  const ry70 = rsiTop + rsiH * (1 - 70/100);
+  ctx.beginPath(); ctx.moveTo(ML, ry30); ctx.lineTo(W-MR, ry30); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ML, ry70); ctx.lineTo(W-MR, ry70); ctx.stroke();
+  ctx.setLineDash([]);
+  // RSI line
+  ctx.strokeStyle = '#8b5cf6';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  started = false;
+  let lastRSI = null;
+  for (let i = 0; i < n; i++) {
+    if (sliceRSI[i] == null) continue;
+    lastRSI = sliceRSI[i];
+    const x = xFor(i), y = rsiTop + rsiH * (1 - sliceRSI[i]/100);
+    if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // RSI label
+  ctx.font = '8px "IBM Plex Mono",monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.textAlign = 'left';
+  ctx.fillText('RSI ' + (lastRSI != null ? lastRSI.toFixed(1) : '--'), ML + 2, rsiTop + 9);
+
+  // Store last SMA value for header
+  const lastSMA = sliceSMA.filter(v => v != null).pop();
+  canvas._lastSMA = lastSMA;
+  canvas._lastRSI = lastRSI;
+}
+
+function renderLotsOfCharts() {
+  const el = document.getElementById('charts-content');
+  if (!el) return;
+
+  const universe = _lcGetUniverse();
+  const sectors = ['All', ...new Set(universe.map(u => u.s))].sort((a,b) => a === 'All' ? -1 : b === 'All' ? 1 : a.localeCompare(b));
+  const filtered = _lc.sector === 'All' ? universe : universe.filter(u => u.s === _lc.sector);
+  const totalPages = Math.ceil(filtered.length / _lc.perPage);
+  if (_lc.page >= totalPages) _lc.page = Math.max(0, totalPages - 1);
+  const start = _lc.page * _lc.perPage;
+  const pageItems = filtered.slice(start, start + _lc.perPage);
+
+  // Build toolbar
+  let html = '<div style="margin-bottom:8px">';
+  // Row 1: Universe selector + SMA selector
+  html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">';
+  html += '<select onchange="_lc.universe=this.value;_lc.page=0;_lc.sector=\'All\';renderLotsOfCharts()" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-size:11px">';
+  html += `<option value="ndx100" ${_lc.universe==='ndx100'?'selected':''}>Nasdaq 100</option>`;
+  html += `<option value="sp500" ${_lc.universe==='sp500'?'selected':''}>S&P 500 (Top 100)</option>`;
+  html += `<option value="watchlist" ${_lc.universe==='watchlist'?'selected':''}>My Watchlist</option>`;
+  html += `<option value="positions" ${_lc.universe==='positions'?'selected':''}>Current Positions</option>`;
+  html += '</select>';
+  html += '<span style="color:var(--text-secondary);font-size:10px">SMA:</span>';
+  html += '<select onchange="_lc.sma=Number(this.value);_lc.cache={};renderLotsOfCharts()" style="background:var(--bg-card);color:#d29922;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 6px;font-size:10px">';
+  [20,50,100,200].forEach(v => { html += `<option value="${v}" ${_lc.sma===v?'selected':''}>${v}</option>`; });
+  html += '</select>';
+  html += '<span style="color:var(--text-secondary);font-size:10px;margin-left:auto">' + filtered.length + ' stocks</span>';
+  html += '</div>';
+
+  // Row 2: Resolution
+  html += '<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px">';
+  html += '<span style="color:var(--text-secondary);font-size:9px;padding:3px 4px">RES:</span>';
+  LC_RESOLUTIONS.forEach(r => {
+    const active = _lc.resolution === r.k;
+    html += `<button class="btn btn-g stats-pill${active?' active':''}" onclick="_lc.resolution='${r.k}';_lc.cache={};_lc.page=0;renderLotsOfCharts()" style="font-size:9px;padding:3px 8px">${r.l}</button>`;
+  });
+  html += '</div>';
+
+  // Row 3: Lookback
+  html += '<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px">';
+  html += '<span style="color:var(--text-secondary);font-size:9px;padding:3px 4px">PERIOD:</span>';
+  LC_LOOKBACKS.forEach(r => {
+    const active = _lc.lookback === r.k;
+    html += `<button class="btn btn-g stats-pill${active?' active':''}" onclick="_lc.lookback='${r.k}';_lc.cache={};_lc.page=0;renderLotsOfCharts()" style="font-size:9px;padding:3px 8px">${r.l}</button>`;
+  });
+  html += '</div>';
+
+  // Row 4: Sector filter
+  html += '<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px">';
+  html += '<span style="color:var(--text-secondary);font-size:9px;padding:3px 4px">SECTOR:</span>';
+  sectors.forEach(s => {
+    const active = _lc.sector === s;
+    const label = s === 'All' ? 'ALL' : s.toUpperCase();
+    html += `<button class="btn btn-g stats-pill${active?' active':''}" onclick="_lc.sector='${s.replace(/'/g,"\\'")}';_lc.page=0;renderLotsOfCharts()" style="font-size:9px;padding:3px 8px">${label}</button>`;
+  });
+  html += '</div>';
+  html += '</div>';
+
+  // Chart grid
+  html += '<div id="charts-grid">';
+  pageItems.forEach((item, idx) => {
+    const gIdx = start + idx;
+    html += `<div class="mini-chart-cell" id="lc-cell-${gIdx}">`;
+    html += `<div class="mini-chart-hdr"><span><span class="tk">${item.t}</span> <span style="color:var(--text-secondary);font-size:9px" id="lc-price-${gIdx}">...</span> <span id="lc-chg-${gIdx}" style="font-size:9px">...</span></span><span class="sma-lbl" id="lc-sma-${gIdx}">SMA(${_lc.sma}) ...</span></div>`;
+    html += `<canvas id="lc-canvas-${gIdx}" style="width:100%;height:260px;cursor:pointer" onclick="_lcClickChart('${item.t}')"></canvas>`;
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Pagination
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:11px;color:var(--text-secondary)">';
+  html += `<span>Displaying ${filtered.length?start+1:0}-${Math.min(start+_lc.perPage,filtered.length)} of ${filtered.length} charts</span>`;
+  html += '<div style="display:flex;gap:6px">';
+  html += `<button class="btn btn-g" ${_lc.page<=0?'disabled':''} onclick="_lc.page--;renderLotsOfCharts()" style="font-size:10px;padding:4px 12px">&lt; PREV</button>`;
+  html += `<button class="btn btn-g" ${_lc.page>=totalPages-1?'disabled':''} onclick="_lc.page++;renderLotsOfCharts()" style="font-size:10px;padding:4px 12px">NEXT &gt;</button>`;
+  html += '</div></div>';
+
+  el.innerHTML = html;
+
+  // Fetch candles for visible items
+  pageItems.forEach((item, idx) => {
+    const gIdx = start + idx;
+    _lcLoadAndDraw(item.t, gIdx);
+  });
+}
+
+async function _lcLoadAndDraw(ticker, idx) {
+  const canvas = document.getElementById('lc-canvas-' + idx);
+  if (!canvas) return;
+
+  // Show loading
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 400;
+  canvas.width = w * dpr; canvas.height = 260 * dpr;
+  canvas.style.height = '260px';
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, w, 260);
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.font = '11px "IBM Plex Mono",monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Loading ' + ticker + '...', w/2, 130);
+
+  const candles = await _lcFetchCandles(ticker);
+  if (!candles) {
+    ctx.clearRect(0,0,w*dpr,260*dpr);
+    ctx.fillStyle = '#0d1117'; ctx.fillRect(0,0,w,260);
+    ctx.fillStyle = 'rgba(248,81,73,0.5)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Failed: ' + ticker, w/2, 130);
+    return;
+  }
+
+  // Draw
+  _lcDrawChart(canvas, candles, ticker);
+
+  // Update header with price info
+  const c = candles.c;
+  const lastPrice = c[c.length - 1];
+  const { visibleFrom } = _lcDateRange();
+  const dates = candles.t.map(ts => new Date(ts*1000).toISOString().slice(0,10));
+  let visStart = dates.findIndex(d => d >= visibleFrom);
+  if (visStart < 0) visStart = 0;
+  const firstPrice = c[visStart];
+  const chgPct = ((lastPrice - firstPrice) / firstPrice * 100);
+  const chgColor = chgPct >= 0 ? '#3fb950' : '#f85149';
+
+  const priceEl = document.getElementById('lc-price-' + idx);
+  const chgEl = document.getElementById('lc-chg-' + idx);
+  const smaEl = document.getElementById('lc-sma-' + idx);
+  if (priceEl) priceEl.textContent = lastPrice.toFixed(2);
+  if (chgEl) { chgEl.textContent = (chgPct >= 0 ? '+' : '') + chgPct.toFixed(2) + '%'; chgEl.style.color = chgColor; }
+  if (smaEl && canvas._lastSMA != null) smaEl.textContent = 'SMA(' + _lc.sma + ') ' + canvas._lastSMA.toFixed(2);
+  else if (smaEl) smaEl.textContent = 'SMA(' + _lc.sma + ') --';
+}
+
+function _lcClickChart(ticker) {
+  // Open TradingView in new tab
+  window.open('https://www.tradingview.com/chart/?symbol=' + ticker, '_blank');
 }
 
 
