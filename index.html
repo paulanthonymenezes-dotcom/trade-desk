@@ -543,6 +543,7 @@ table{width:100%;border-collapse:collapse}
 
 <nav id="left-sidebar">
   <button class="side-btn active" onclick="switchTab('mkts',this)"><span class="nav-icon">◫</span><span class="side-label">Markets</span></button>
+  <button class="side-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span><span class="side-label">Pre-Market</span></button>
   <button class="side-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">Positions</span></button>
   <button class="side-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span><span class="side-label">Watchlist</span></button>
   <div style="height:1px;background:var(--border-subtle);margin:6px 14px"></div>
@@ -626,6 +627,14 @@ table{width:100%;border-collapse:collapse}
 
   </div>
 
+
+  <!-- PRE-MARKET CHECKLIST TAB -->
+  <div id="tab-premarket" class="section">
+    <div id="premarket-split" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:70vh">
+      <div id="premarket-left" style="overflow-y:auto;max-height:85vh"></div>
+      <div id="premarket-right" style="overflow-y:auto;max-height:85vh"></div>
+    </div>
+  </div>
 
   <!-- POSITIONS TAB -->
   <div id="tab-positions" class="section">
@@ -750,6 +759,7 @@ table{width:100%;border-collapse:collapse}
 <!-- Bottom Nav -->
 <nav id="bottom-nav">
   <button class="nav-btn active" onclick="switchTab('mkts',this)"><span class="nav-icon">◫</span>MKTS</button>
+  <button class="nav-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span>PRE</button>
   <button class="nav-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POS</button>
   <button class="nav-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>WATCH</button>
   <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
@@ -3354,7 +3364,6 @@ function diarySubTabs() {
   return `<div style="display:flex;gap:6px;margin-bottom:14px">
     <button class="btn btn-g stats-pill${diarySubTab==="trades"?" active":""}" onclick="setDiarySubTab('trades',this)">TRADE LOG</button>
     <button class="btn btn-g stats-pill${diarySubTab==="journal"?" active":""}" onclick="setDiarySubTab('journal',this)">DAILY JOURNAL</button>
-    <button class="btn btn-g stats-pill${diarySubTab==="checklist"?" active":""}" onclick="setDiarySubTab('checklist',this)">PRE-MARKET</button>
   </div>`;
 }
 function setDiarySubTab(tab, btn) {
@@ -3364,7 +3373,6 @@ function setDiarySubTab(tab, btn) {
   if (btn) btn.classList.add("active");
   document.getElementById('diary-detail-panel').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);font-size:12px">Select a trade to view details</div>';
   if (tab === "journal") renderDiaryJournalView();
-  else if (tab === "checklist") renderMorningChecklist();
   else renderDiaryList();
 }
 let diaryFilter = "All";
@@ -3572,8 +3580,8 @@ function renderMorningChecklist() {
   // ═══════════════════════════════════════════════════════════════════════════
   // LEFT PANEL: Market Read + Risk + Decision Rules
   // ═══════════════════════════════════════════════════════════════════════════
-  let left = diarySubTabs();
-  left += `<div style="font-variant-numeric:tabular-nums;font-size:11px;color:#fff;letter-spacing:0.02em;margin-bottom:14px;text-align:center">
+  let left = '';
+  left += `<div style="font-variant-numeric:tabular-nums;font-size:13px;color:#fff;font-weight:600;letter-spacing:0.02em;margin-bottom:14px;text-align:center">
     ☀ PRE-MARKET CHECKLIST — ${dayName} ${dateLabel}
   </div>`;
 
@@ -3848,8 +3856,11 @@ function renderMorningChecklist() {
     }
   }
 
-  document.getElementById("diary-list-panel").innerHTML = left;
-  document.getElementById("diary-detail-panel").innerHTML = right;
+  // Render into premarket tab if it exists, otherwise fall back to diary panels
+  const leftEl = document.getElementById("premarket-left") || document.getElementById("diary-list-panel");
+  const rightEl = document.getElementById("premarket-right") || document.getElementById("diary-detail-panel");
+  leftEl.innerHTML = left;
+  rightEl.innerHTML = right;
 }
 
 // Helper: add event row
@@ -9735,7 +9746,7 @@ setInterval(mktLoadMarketData, MKT_REFRESH_INTERVAL);
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['mkts', 'diary', 'stats', 'forecast', 'scanner', 'charts'].includes(tab);
+  const isDashboardTab = ['mkts', 'premarket', 'diary', 'stats', 'forecast', 'scanner', 'charts'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -9804,6 +9815,8 @@ function switchTab(tab, btn) {
     if (typeof renderScanner === 'function') renderScanner();
   } else if (tab === 'charts') {
     if (typeof renderLotsOfCharts === 'function') renderLotsOfCharts();
+  } else if (tab === 'premarket') {
+    if (typeof renderMorningChecklist === 'function') renderMorningChecklist();
   } else if (tab === 'mkts') {
     if (!_marketData) mktLoadAll();
   }
