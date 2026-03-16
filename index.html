@@ -631,8 +631,8 @@ table{width:100%;border-collapse:collapse}
   <!-- PRE-MARKET CHECKLIST TAB -->
   <div id="tab-premarket" class="section">
     <div id="premarket-split" style="display:grid;grid-template-columns:1fr 1fr;gap:0;min-height:70vh;width:100%">
-      <div id="premarket-left" style="overflow-y:auto;max-height:85vh;padding-right:14px"></div>
-      <div id="premarket-right" style="overflow-y:auto;max-height:85vh;border-left:1.5px solid rgba(255,255,255,0.15);padding-left:14px"></div>
+      <div id="premarket-left" style="overflow-y:auto;max-height:85vh;padding-right:14px;box-sizing:border-box;width:100%"></div>
+      <div id="premarket-right" style="overflow-y:auto;max-height:85vh;border-left:1.5px solid rgba(255,255,255,0.15);padding-left:14px;box-sizing:border-box;width:100%"></div>
     </div>
   </div>
 
@@ -3557,7 +3557,7 @@ function renderMorningChecklist() {
 
   const I = `width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:6px 8px;font-size:12px;box-sizing:border-box;`;
   const L = `font-size:10px;font-weight:500;color:${C.textSec};letter-spacing:0;margin-bottom:4px;`;
-  const S = `padding:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;`;
+  const S = `padding:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;width:100%;box-sizing:border-box;`;
   const H = `font-size:11px;font-weight:600;color:#fff;letter-spacing:0.02em;margin-bottom:10px;`;
 
   const dayNames = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
@@ -3737,7 +3737,7 @@ function renderMorningChecklist() {
         const statusColor = p.earlyOrRight==='right'?C.pos:p.earlyOrRight==='broken'?C.neg:p.earlyOrRight==='early'?C.warn:'rgba(255,255,255,0.5)';
         const convBar = p.conviction ? '█'.repeat(p.conviction) + '░'.repeat(5-p.conviction) : '—';
         const t = open.find(tr=>tr.ticker===p.ticker && String(tr.shortStrike)===String(p.shortStrike));
-        right += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid ${C.border};border-radius:4px;background:${C.bg}">
+        right += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid ${C.border};border-radius:4px;background:${C.bg};width:100%;box-sizing:border-box">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
             <span style="color:#fff;font-weight:600;font-size:12px">${p.ticker}</span>
             <span style="color:${statusColor};font-size:10px;font-weight:600;text-transform:uppercase">${p.earlyOrRight||'?'}</span>
@@ -3786,7 +3786,7 @@ function renderMorningChecklist() {
       const maxLoss = (width - perSpread) * 100 * (t.contracts||1);
       const existing = perPos.find(p=>p.ticker===t.ticker && p.shortStrike===t.shortStrike) || {};
       const dte = t.expiry ? Math.ceil((new Date(t.expiry+'T16:00:00') - new Date())/(86400000)) : '?';
-      right += `<div style="padding:10px;margin-bottom:8px;border:1px solid ${C.border};border-radius:4px;background:${C.bg}">
+      right += `<div style="padding:10px;margin-bottom:8px;border:1px solid ${C.border};border-radius:4px;background:${C.bg};width:100%;box-sizing:border-box">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <div>
             <span style="font-size:12px;font-weight:600;color:#fff">${t.ticker}</span>
