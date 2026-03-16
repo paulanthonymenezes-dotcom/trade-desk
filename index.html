@@ -10182,8 +10182,91 @@ async function _lcLoadAndDraw(ticker, idx) {
 }
 
 function _lcClickChart(ticker) {
-  // Open TradingView in new tab
-  window.open('https://www.tradingview.com/chart/?symbol=' + ticker, '_blank');
+  const overlay = document.getElementById('lc-lightbox');
+  if (!overlay) return;
+  const item = _lcGetUniverse().find(u => u.t === ticker);
+  const name = item ? item.n : '';
+  overlay.querySelector('#lc-lb-title').textContent = ticker + '  ' + name;
+  overlay.querySelector('#lc-lb-tv').href = 'https://www.tradingview.com/chart/?symbol=' + ticker;
+  overlay.style.display = 'flex';
+  const canvas = document.getElementById('lc-lb-canvas');
+  const key = ticker + '|' + _lc.resolution + '|' + _lc.lookback;
+  const candles = _lc.cache[key];
+  if (candles) {
+    setTimeout(() => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.parentElement.clientWidth - 40 || 1200;
+      const h = 500;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      _lcDrawChartLg(ctx, candles, w, h);
+    }, 50);
+  }
+}
+
+function _lcDrawChartLg(ctx, candles, W, H) {
+  if (!candles?.c?.length) return;
+  const isIntraday = ['1','5','15','30','60'].includes(_lc.resolution);
+  let visStart = 0;
+  if (!isIntraday) {
+    const { visibleFrom } = _lcDateRange();
+    const dates = candles.t.map(ts => new Date(ts*1000).toISOString().slice(0,10));
+    visStart = dates.findIndex(d => d >= visibleFrom);
+    if (visStart < 0) visStart = 0;
+  } else {
+    visStart = Math.max(0, candles.c.length - Math.max(200, candles.c.length - _lc.sma));
+  }
+  const allC = candles.c;
+  const sma = _lcComputeSMA(allC, _lc.sma);
+  const rsiAll = _lcComputeRSI(allC, 14);
+  const n = allC.length - visStart;
+  if (n < 2) return;
+  const sO = candles.o.slice(visStart), sH = candles.h.slice(visStart), sL = candles.l.slice(visStart);
+  const sC = candles.c.slice(visStart), sV = candles.v.slice(visStart);
+  const sSMA = sma.slice(visStart), sRSI = rsiAll.slice(visStart);
+
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);
+  const ML = 10, MR = 60, MT = 10, rsiH = 60, volH = 40;
+  const mainH = H - MT - rsiH - 16;
+  const chartW = W - ML - MR;
+  let pMin = Math.min(...sL), pMax = Math.max(...sH);
+  const pad = (pMax - pMin) * 0.06; pMin -= pad; pMax += pad;
+  const vMax = Math.max(...sV) || 1;
+  const xF = i => ML + (i + 0.5) * (chartW / n);
+  const yF = p => MT + (mainH - volH) - ((p - pMin) / (pMax - pMin)) * (mainH - volH);
+  const cW = Math.max(1, Math.min(10, (chartW / n) * 0.65));
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 5; i++) { const y = MT + ((mainH-volH)/5)*i; ctx.beginPath(); ctx.moveTo(ML,y); ctx.lineTo(W-MR,y); ctx.stroke(); }
+  // Volume
+  for (let i = 0; i < n; i++) { const x = xF(i), vh = (sV[i]/vMax)*volH; ctx.fillStyle = sC[i]>=sO[i]?'rgba(63,185,80,0.12)':'rgba(248,81,73,0.12)'; ctx.fillRect(x-cW/2, MT+mainH-vh, cW, vh); }
+  // Candles
+  for (let i = 0; i < n; i++) { const x = xF(i), up = sC[i]>=sO[i], col = up?'#3fb950':'#f85149'; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, yF(sH[i])); ctx.lineTo(x, yF(sL[i])); ctx.stroke(); ctx.fillStyle = col; const bT = yF(Math.max(sO[i],sC[i])), bB = yF(Math.min(sO[i],sC[i])); ctx.fillRect(x-cW/2, bT, cW, Math.max(1, bB-bT)); }
+  // SMA
+  ctx.strokeStyle = '#d29922'; ctx.lineWidth = 1.5; ctx.beginPath(); let st = false;
+  for (let i = 0; i < n; i++) { if (sSMA[i]==null) continue; const x = xF(i), y = yF(sSMA[i]); if (!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); } ctx.stroke();
+  // Y labels
+  ctx.font = '11px "IBM Plex Mono",monospace'; ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.textAlign = 'left';
+  for (let i = 0; i <= 5; i++) { const p = pMax-(pMax-pMin)*(i/5); ctx.fillText(p>=1000?p.toFixed(0):p.toFixed(2), W-MR+4, MT+((mainH-volH)/5)*i+4); }
+  // X date labels
+  ctx.font = '9px "IBM Plex Mono",monospace'; ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.textAlign = 'center';
+  const ts = candles.t.slice(visStart); const step = Math.max(1, Math.floor(n/10));
+  for (let i = 0; i < n; i += step) { const d = new Date(ts[i]*1000); const lbl = isIntraday?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):(d.getMonth()+1)+'/'+d.getDate(); ctx.fillText(lbl, xF(i), MT+mainH+10); }
+  // RSI
+  const rT = MT + mainH + 16;
+  ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fillRect(ML, rT, chartW, rsiH);
+  ctx.setLineDash([2,2]); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(ML, rT+rsiH*(1-30/100)); ctx.lineTo(W-MR, rT+rsiH*(1-30/100)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ML, rT+rsiH*(1-70/100)); ctx.lineTo(W-MR, rT+rsiH*(1-70/100)); ctx.stroke();
+  ctx.setLineDash([]); ctx.strokeStyle = '#8b5cf6'; ctx.lineWidth = 1.2; ctx.beginPath(); st = false; let lastR = null;
+  for (let i = 0; i < n; i++) { if (sRSI[i]==null) continue; lastR = sRSI[i]; const x = xF(i), y = rT+rsiH*(1-sRSI[i]/100); if (!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); } ctx.stroke();
+  ctx.font = '10px "IBM Plex Mono",monospace'; ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.textAlign = 'left';
+  ctx.fillText('RSI(14) '+(lastR!=null?lastR.toFixed(1):'--'), ML+4, rT+12);
 }
 
 
@@ -10240,5 +10323,17 @@ function _lcClickChart(ticker) {
   </div>
   <div id="debug-log" style="font-size:10px;line-height:1.8"></div>
 </div>
+
+<div id="lc-lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)this.style.display='none'">
+  <div style="display:flex;justify-content:space-between;align-items:center;width:100%;max-width:1400px;margin-bottom:8px">
+    <span id="lc-lb-title" style="color:var(--text-primary);font-size:16px;font-weight:700;font-family:'Inter',sans-serif"></span>
+    <div>
+      <a id="lc-lb-tv" href="#" target="_blank" style="color:var(--accent,#2f81f7);font-size:11px;margin-right:16px;font-family:'Inter',sans-serif">Open in TradingView ↗</a>
+      <button onclick="document.getElementById('lc-lightbox').style.display='none'" style="background:none;border:none;color:var(--text-secondary);font-size:24px;cursor:pointer;font-family:'Inter',sans-serif">×</button>
+    </div>
+  </div>
+  <canvas id="lc-lb-canvas" style="max-width:1400px;width:100%"></canvas>
+</div>
+
 </body>
 </html>
