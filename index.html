@@ -3599,7 +3599,7 @@ function renderMorningChecklist() {
         </div>
         <div>
           <div style="${L}">BIASES TODAY</div>
-          <input type="text" id="cl-biases" placeholder="Baggage from yesterday?" value="${escHtml(cl.biases||'')}" style="${I}padding:5px 8px;">
+          <input type="text" id="cl-biases" placeholder="" value="${escHtml(cl.biases||'')}" style="${I}padding:5px 8px;">
         </div>
       </div>
     </div>`;
@@ -3610,26 +3610,26 @@ function renderMorningChecklist() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
         <div>
           <div style="${L}">FUTURES / PRE-MARKET</div>
-          <textarea id="cl-futures" placeholder="ES +0.3%, NQ +0.5%, gaps?" style="${I}min-height:40px;resize:vertical">${escHtml(cl.futures||'')}</textarea>
+          <textarea id="cl-futures" placeholder="" style="${I}min-height:40px;resize:vertical">${escHtml(cl.futures||'')}</textarea>
         </div>
         <div>
           <div style="${L}">CRYPTO / OVERNIGHT</div>
-          <textarea id="cl-crypto" placeholder="BTC 85k, ETH flat, any large moves?" style="${I}min-height:40px;resize:vertical">${escHtml(cl.crypto||'')}</textarea>
+          <textarea id="cl-crypto" placeholder="" style="${I}min-height:40px;resize:vertical">${escHtml(cl.crypto||'')}</textarea>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
         <div>
           <div style="${L}">IV / VIX OUTLOOK</div>
-          <input type="text" id="cl-ivOutlook" placeholder="VIX 18, elevated? IV crush expected?" value="${escHtml(cl.ivOutlook||'')}" style="${I}">
+          <input type="text" id="cl-ivOutlook" placeholder="" value="${escHtml(cl.ivOutlook||'')}" style="${I}">
         </div>
         <div>
           <div style="${L}">GAP RISK</div>
-          <input type="text" id="cl-gapRisk" placeholder="Any overnight gaps on your tickers?" value="${escHtml(cl.gapRisk||'')}" style="${I}">
+          <input type="text" id="cl-gapRisk" placeholder="" value="${escHtml(cl.gapRisk||'')}" style="${I}">
         </div>
       </div>
       <div style="border-top:1px solid ${C.border};padding-top:10px">
         <div style="${L}color:rgba(255,255,255,0.7)">MARKET NARRATIVE — What is the market trying to do today? What's the dominant theme?</div>
-        <textarea id="cl-narrative" placeholder="Risk-on rotation into tech after soft CPI... Market trying to break above 6700 resistance... Dollar weakness driving commodities..." style="${I}min-height:50px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.narrative||'')}</textarea>
+        <textarea id="cl-narrative" placeholder="" style="${I}min-height:50px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.narrative||'')}</textarea>
       </div>
     </div>`;
 
@@ -3638,11 +3638,11 @@ function renderMorningChecklist() {
       <div style="${H}">🎯 POSITIONING & PAIN TRADE</div>
       <div style="margin-bottom:8px">
         <div style="${L}">WHERE IS THE CROWD POSITIONED?</div>
-        <textarea id="cl-crowdPos" placeholder="Everyone long tech / Short vol crowded / Retail piling into memes / Hedge funds net short..." style="${I}min-height:40px;resize:vertical">${escHtml(cl.crowdPos||'')}</textarea>
+        <textarea id="cl-crowdPos" placeholder="" style="${I}min-height:40px;resize:vertical">${escHtml(cl.crowdPos||'')}</textarea>
       </div>
       <div>
         <div style="${L}color:rgba(255,255,255,0.6)">WHAT IS THE PAIN TRADE? Which move would hurt the most people?</div>
-        <textarea id="cl-painTrade" placeholder="A sharp rally would squeeze shorts / A gap down traps all the dip buyers / VIX spike to 25 would blow up short-vol..." style="${I}min-height:40px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.painTrade||'')}</textarea>
+        <textarea id="cl-painTrade" placeholder="" style="${I}min-height:40px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.painTrade||'')}</textarea>
       </div>
     </div>`;
 
@@ -3652,15 +3652,15 @@ function renderMorningChecklist() {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
         <div>
           <div style="${L}">ACCOUNT</div>
-          <input type="text" id="cl-account" placeholder="$45,000" value="${cl.account || (bal ? '$'+bal.toLocaleString() : '')}" style="${I}font-size:11px;">
+          <input type="text" id="cl-account" placeholder="" value="${cl.account || (bal ? '$'+bal.toLocaleString() : '')}" style="${I}font-size:11px;">
         </div>
         <div>
           <div style="${L}">MAX LOSS TODAY</div>
-          <input type="text" id="cl-maxLoss" placeholder="$500" value="${escHtml(cl.maxLoss||'')}" style="${I}font-size:11px;">
+          <input type="text" id="cl-maxLoss" placeholder="" value="${escHtml(cl.maxLoss||'')}" style="${I}font-size:11px;">
         </div>
         <div>
           <div style="${L}">PROFIT TARGET</div>
-          <input type="text" id="cl-profitTarget" placeholder="$300" value="${escHtml(cl.profitTarget||'')}" style="${I}font-size:11px;">
+          <input type="text" id="cl-profitTarget" placeholder="" value="${escHtml(cl.profitTarget||'')}" style="${I}font-size:11px;">
         </div>
       </div>
     </div>`;
@@ -3676,8 +3676,8 @@ function renderMorningChecklist() {
           <div style="font-size:8px;color:rgba(255,255,255,0.3);padding:0 4px">IMPACT</div>
         </div>
         ${existingEvents.map((ev,i) => `<div class="cl-event-row" style="display:grid;grid-template-columns:72px 1fr 80px;gap:4px;margin-bottom:3px">
-          <input type="text" class="cl-ev-time" placeholder="${i===0?'8:30 AM':i===1?'10:00 AM':'4:15 PM'}" value="${escHtml(ev.time||'')}" style="${I}font-size:10px;padding:4px 6px;text-align:center;">
-          <input type="text" class="cl-ev-name" placeholder="${i===0?'CPI MoM (exp 0.3%)':i===1?'Consumer Sentiment':'NVDA earnings AMC'}" value="${escHtml(ev.event||'')}" style="${I}font-size:10px;padding:4px 6px;">
+          <input type="text" class="cl-ev-time" placeholder="" value="${escHtml(ev.time||'')}" style="${I}font-size:10px;padding:4px 6px;text-align:center;">
+          <input type="text" class="cl-ev-name" placeholder="" value="${escHtml(ev.event||'')}" style="${I}font-size:10px;padding:4px 6px;">
           <select class="cl-ev-impact" style="${I}font-size:10px;padding:4px;">
             <option value="">—</option>
             <option value="high"${ev.impact==='high'?' selected':''}>🔴 HIGH</option>
@@ -3700,7 +3700,7 @@ function renderMorningChecklist() {
         for (let i = 0; i < Math.max(rules.length, 4); i++) {
           rh += `<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">
             <span style="font-size:10px;color:${C.accent}99;font-weight:700;min-width:16px">${i+1}.</span>
-            <input type="text" class="cl-decision-rule" placeholder="${i===0?defaultRule0:i===1?'If I hit daily max loss, I shut it down — no exceptions':i===2?'If VIX spikes above 25, I do NOT open new positions':'If X happens, I will do Y...'}" value="${escHtml(rules[i]||'')}" style="${I}font-size:11px;border-color:rgba(255,255,255,0.15);">
+            <input type="text" class="cl-decision-rule" placeholder="" value="${escHtml(rules[i]||'')}" style="${I}font-size:11px;border-color:rgba(255,255,255,0.15);">
           </div>`;
         }
         return rh;
@@ -3712,7 +3712,7 @@ function renderMorningChecklist() {
     left += `<div class="card" style="${S}border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.02)">
       <div style="${H}color:${C.pos};">🎯 THE ONE TRADE</div>
       <div style="${L}color:rgba(255,255,255,0.7)">What is the ONE trade I will make today if conditions are met? Singular focus.</div>
-      <textarea id="cl-plan" placeholder="If SPX pulls back to 6620 support with VIX below 20, I sell NVDA 175/170 put spread for $1.20 credit.&#10;&#10;If conditions aren't met, I do NOTHING." style="${I}min-height:60px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.plan||'')}</textarea>
+      <textarea id="cl-plan" placeholder="" style="${I}min-height:60px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.plan||'')}</textarea>
     </div>`;
 
     // SAVE
@@ -3814,11 +3814,11 @@ function renderMorningChecklist() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div>
             <div style="${L}">INVALIDATION (what kills this)</div>
-            <input type="text" class="cl-invalidation" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="NVDA below 170, breaks trend" value="${escHtml(existing.invalidation||'')}" style="${I}font-size:10px;">
+            <input type="text" class="cl-invalidation" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="" value="${escHtml(existing.invalidation||'')}" style="${I}font-size:10px;">
           </div>
           <div>
             <div style="${L}">EXIT PLAN (if broken)</div>
-            <input type="text" class="cl-exitplan" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="Close on open, limit order at X, roll..." value="${escHtml(existing.exitPlan||'')}" style="${I}font-size:10px;border-color:${C.neg}44;">
+            <input type="text" class="cl-exitplan" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="" value="${escHtml(existing.exitPlan||'')}" style="${I}font-size:10px;border-color:${C.neg}44;">
           </div>
         </div>
       </div>`;
@@ -3857,7 +3857,7 @@ function _clAddEventRow() {
   const div = document.createElement('div');
   div.className = 'cl-event-row';
   div.style.cssText = 'display:grid;grid-template-columns:72px 1fr 80px;gap:4px;margin-bottom:3px';
-  div.innerHTML = `<input type="text" class="cl-ev-time" placeholder="2:00 PM" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px 6px;font-size:10px;box-sizing:border-box;text-align:center;"><input type="text" class="cl-ev-name" placeholder="Event..." style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px 6px;font-size:10px;box-sizing:border-box;"><select class="cl-ev-impact" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px;font-size:10px;box-sizing:border-box;"><option value="">—</option><option value="high">🔴 HIGH</option><option value="medium">🟡 MED</option><option value="low">🟢 LOW</option></select>`;
+  div.innerHTML = `<input type="text" class="cl-ev-time" placeholder="" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px 6px;font-size:10px;box-sizing:border-box;text-align:center;"><input type="text" class="cl-ev-name" placeholder="" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px 6px;font-size:10px;box-sizing:border-box;"><select class="cl-ev-impact" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px;font-size:10px;box-sizing:border-box;"><option value="">—</option><option value="high">🔴 HIGH</option><option value="medium">🟡 MED</option><option value="low">🟢 LOW</option></select>`;
   list.appendChild(div);
 }
 
@@ -3867,7 +3867,7 @@ function _clAddDecisionRule() {
   const existing = container.querySelectorAll('.cl-decision-rule').length;
   const div = document.createElement('div');
   div.style.cssText = 'display:flex;gap:6px;margin-bottom:5px;align-items:center';
-  div.innerHTML = `<span style="font-size:10px;color:${C.accent}99;font-weight:700;min-width:16px">${existing+1}.</span><input type="text" class="cl-decision-rule" placeholder="If X happens, I will do Y..." style="width:100%;background:${C.bgCard};color:#fff;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:6px 8px;font-size:11px;box-sizing:border-box;">`;
+  div.innerHTML = `<span style="font-size:10px;color:${C.accent}99;font-weight:700;min-width:16px">${existing+1}.</span><input type="text" class="cl-decision-rule" placeholder="" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:6px 8px;font-size:11px;box-sizing:border-box;">`;
   container.insertBefore(div, event.target);
 }
 
