@@ -89,7 +89,6 @@ html,body{height:100%;background:var(--bg-primary);color:var(--text-primary);fon
   border:1px solid var(--border-subtle);
   border-radius:6px;
   overflow:hidden;
-  align-self:start;
 }
 .section-box.full-width{grid-column:1/-1}
 .section-header{
@@ -564,13 +563,14 @@ table{width:100%;border-collapse:collapse}
       <div id="indices-body"><div class="loading">Loading...</div></div>
     </div>
 
-    <!-- Economic Calendar & Earnings (collapsed to match indices height) -->
+    <!-- Economic Calendar & Earnings -->
     <div class="section-box" id="sec-calendar">
       <div class="section-header" style="display:flex;justify-content:space-between;align-items:center">
         <span><span class="section-title">Economic Calendar & Earnings</span> <span class="section-subtitle" id="cal-range"></span></span>
         <button class="btn btn-g" id="cal-expand-btn" onclick="toggleCalendarExpand()" style="font-size:9px;padding:3px 10px">SHOW ALL ▼</button>
       </div>
-      <div id="calendar-body" style="overflow:hidden"><div class="loading">Loading...</div></div>
+      <div id="cal-country-filter" style="display:flex;gap:4px;flex-wrap:wrap;padding:6px 10px 2px"></div>
+      <div id="calendar-body" style="max-height:320px;overflow-y:auto"><div class="loading">Loading...</div></div>
     </div>
 
     <!-- US Equity Sectors -->
@@ -9249,6 +9249,38 @@ function mktRenderCalendar(events) {
 
   if (!allEvents.length) { calBody.innerHTML = '<div class="empty">No upcoming events</div>'; const cr = mkt$('cal-range'); if(cr) cr.textContent = ''; return; }
   const sorted = [...allEvents].sort((a,b) => String(a.datetime||a.report_date||'').localeCompare(String(b.datetime||b.report_date||'')));
+
+  // Store sorted events globally for filtering
+  window._calAllEvents = sorted;
+
+  // Build country filter pills
+  const countries = [...new Set(sorted.map(e => e.country || 'Other'))].sort();
+  const filterEl = document.getElementById('cal-country-filter');
+  if (filterEl) {
+    let fhtml = '<button class="btn btn-g stats-pill active" onclick="filterCalByCountry(\'All\',this)" style="font-size:9px;padding:2px 8px">ALL</button>';
+    for (const c of countries) {
+      fhtml += `<button class="btn btn-g stats-pill" onclick="filterCalByCountry('${c.replace(/'/g,"\\'")}',this)" style="font-size:9px;padding:2px 8px">${c}</button>`;
+    }
+    filterEl.innerHTML = fhtml;
+  }
+
+  calRenderFiltered(sorted);
+}
+
+let _calCountryFilter = 'All';
+function filterCalByCountry(country, btn) {
+  _calCountryFilter = country;
+  // Update active pill
+  const filterEl = document.getElementById('cal-country-filter');
+  if (filterEl) filterEl.querySelectorAll('.stats-pill').forEach(b => b.classList.toggle('active', b === btn));
+  // Re-render with filter
+  const filtered = country === 'All' ? window._calAllEvents : window._calAllEvents.filter(e => (e.country || 'Other') === country);
+  calRenderFiltered(filtered);
+}
+
+function calRenderFiltered(sorted) {
+  const calBody = mkt$('calendar-body');
+  if (!calBody) return;
   const groups = {};
   for (const ev of sorted) { const d = String(ev.datetime || ev.report_date || '').slice(0,10); if (!groups[d]) groups[d] = []; groups[d].push(ev); }
   let html = '<table class="data-table" style="width:100%"><thead><tr><th>Date</th><th>Country</th><th>Event</th><th class="r">Prev</th><th class="r">Cons</th><th class="r">Actual</th></tr></thead><tbody>';
@@ -9269,24 +9301,22 @@ function mktRenderCalendar(events) {
   }
   html += '</tbody></table>';
   calBody.innerHTML = html;
-  // Start collapsed — constrain the whole sec-calendar box, not just the body
-  const secCal = document.getElementById('sec-calendar');
-  if (!window._calExpanded && secCal) { secCal.style.maxHeight = '360px'; }
   const totalCount = sorted.length;
-  const cr = mkt$('cal-range'); if(cr) cr.textContent = totalCount + ' events';
+  const allCount = (window._calAllEvents || []).length;
+  const cr = mkt$('cal-range'); if(cr) cr.textContent = (_calCountryFilter === 'All' ? allCount : totalCount + '/' + allCount) + ' events';
 }
 
 let _calExpanded = false;
 function toggleCalendarExpand() {
-  const secCal = document.getElementById('sec-calendar');
+  const calBody = mkt$('calendar-body');
   const btn = document.getElementById('cal-expand-btn');
-  if (!secCal || !btn) return;
+  if (!calBody || !btn) return;
   _calExpanded = !_calExpanded;
   if (_calExpanded) {
-    secCal.style.maxHeight = 'none';
+    calBody.style.maxHeight = 'none';
     btn.textContent = 'COLLAPSE ▲';
   } else {
-    secCal.style.maxHeight = '360px';
+    calBody.style.maxHeight = '320px';
     btn.textContent = 'SHOW ALL ▼';
   }
 }
