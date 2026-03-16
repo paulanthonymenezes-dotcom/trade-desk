@@ -9842,15 +9842,13 @@ async function _lcFetchCandles(ticker) {
     let url;
     if (isIntraday) {
       // Intraday: proxy through backend (MDA token is IP-locked to server)
+      // Keep bars reasonable — MDA caps intraday at ~1000 bars
       const lb = _lc.lookback;
-      let bars = 200;
       const barsPerDay = res === '5' ? 78 : res === '15' ? 26 : res === '30' ? 13 : res === '60' ? 7 : 78;
-      if (lb === '5D') bars = barsPerDay * 5;
-      else if (lb === '1M') bars = barsPerDay * 22;
-      else if (lb === '3M') bars = barsPerDay * 65;
-      else if (lb === '6M') bars = barsPerDay * 130;
-      else bars = barsPerDay * 22;
-      bars = Math.min(bars + _lc.sma, 5000);
+      let days = lb === '5D' ? 5 : lb === '1M' ? 22 : lb === '3M' ? 65 : lb === '6M' ? 130 : 5;
+      // For intraday, cap to ~5 trading days unless explicitly asked for more
+      if (days > 10) days = 10;
+      let bars = Math.min(barsPerDay * days + 50, 800); // +50 for SMA headroom, cap 800
       url = MKT_API + '/candles/' + res + '/' + ticker + '?countback=' + bars;
       const r = await fetch(url);
       const d = await r.json();
