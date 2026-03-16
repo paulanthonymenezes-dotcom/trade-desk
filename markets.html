@@ -9841,24 +9841,22 @@ async function _lcFetchCandles(ticker) {
   try {
     let url;
     if (isIntraday) {
-      // Intraday: proxy through backend (MDA token is IP-locked to server)
-      // Keep bars reasonable — MDA caps intraday at ~1000 bars
+      // Intraday: use countback, cap bars
       const lb = _lc.lookback;
       const barsPerDay = res === '5' ? 78 : res === '15' ? 26 : res === '30' ? 13 : res === '60' ? 7 : 78;
       let days = lb === '5D' ? 5 : lb === '1M' ? 22 : lb === '3M' ? 65 : lb === '6M' ? 130 : 5;
-      // For intraday, cap to ~5 trading days unless explicitly asked for more
       if (days > 10) days = 10;
-      let bars = Math.min(barsPerDay * days + 50, 800); // +50 for SMA headroom, cap 800
+      let bars = Math.min(barsPerDay * days + 50, 800);
       url = MKT_API + '/candles/' + res + '/' + ticker + '?countback=' + bars;
-      const r = await fetch(url);
-      const d = await r.json();
-      if (d.s === 'ok') { _lc.cache[key] = d; return d; }
     } else {
-      // Daily/weekly/monthly: use mdaFetch directly (works from browser for daily)
+      // Daily/weekly/monthly: use from/to
       const { from, to } = _lcDateRange();
-      const d = await mdaFetch('/stocks/candles/' + res + '/' + ticker + '/?from=' + from + '&to=' + to);
-      if (d.s === 'ok') { _lc.cache[key] = d; return d; }
+      url = MKT_API + '/candles/' + res + '/' + ticker + '?start=' + from + '&end=' + to;
     }
+    // All requests proxied through backend (MDA token is IP-locked to server)
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.s === 'ok') { _lc.cache[key] = d; return d; }
   } catch {}
   return null;
 }
