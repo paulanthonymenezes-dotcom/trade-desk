@@ -548,6 +548,46 @@ async def live_calendar(country: str = None):
             return {"error": str(e), "events": []}
 
 
+# ── MDA Candle Proxy (IP-locked token requires server-side calls) ───────────
+
+import httpx as _httpx
+
+_MDA_BASE = "https://api.marketdata.app/v1"
+_MDA_TOKEN = "d2E2NDEybGtwZTBabnhSV2pkeEZBb3JfWW9uOHpKNnNIRTJ2bzNYZVlMcz0"
+_candle_cache: dict = {}
+_CANDLE_TTL = 300  # 5 minutes for intraday
+
+@app.get("/api/candles/{resolution}/{ticker}")
+async def proxy_candles(resolution: str, ticker: str, countback: int = None, start: str = None, end: str = None):
+    """Proxy MDA candle requests through the server (IP-locked token)."""
+    now = _time.time()
+    cache_key = f"candle_{resolution}_{ticker}_{countback}_{start}_{end}"
+    if _candle_cache.get(cache_key) and (now - _candle_cache.get(f"{cache_key}_ts", 0)) < _CANDLE_TTL:
+        return _candle_cache[cache_key]
+
+    params = {"token": _MDA_TOKEN, "format": "json"}
+    if countback:
+        params["countback"] = countback
+    if start:
+        params["from"] = start
+    if end:
+        params["to"] = end
+
+    url = f"{_MDA_BASE}/stocks/candles/{resolution}/{ticker}/"
+    try:
+        async with _httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url, params=params)
+            data = r.json()
+            if data.get("s") == "ok":
+                _candle_cache[cache_key] = data
+                _candle_cache[f"{cache_key}_ts"] = now
+            return data
+    except Exception as e:
+        if _candle_cache.get(cache_key):
+            return _candle_cache[cache_key]
+        return {"s": "error", "errmsg": str(e)}
+
+
 # ── Positions (from Supabase state table for market dashboard) ─────────────
 
 @app.get("/api/positions/open")

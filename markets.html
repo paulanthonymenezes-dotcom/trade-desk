@@ -9841,23 +9841,26 @@ async function _lcFetchCandles(ticker) {
   try {
     let url;
     if (isIntraday) {
-      // For intraday, use countback (number of bars) — MDA doesn't support from/to well for intraday
+      // Intraday: proxy through backend (MDA token is IP-locked to server)
       const lb = _lc.lookback;
-      let bars = 200; // default
+      let bars = 200;
       const barsPerDay = res === '5' ? 78 : res === '15' ? 26 : res === '30' ? 13 : res === '60' ? 7 : 78;
       if (lb === '5D') bars = barsPerDay * 5;
       else if (lb === '1M') bars = barsPerDay * 22;
       else if (lb === '3M') bars = barsPerDay * 65;
       else if (lb === '6M') bars = barsPerDay * 130;
-      else bars = barsPerDay * 22; // default to ~1 month for intraday
-      bars = Math.min(bars + _lc.sma, 5000); // add SMA lookback, cap at 5000
-      url = '/stocks/candles/' + res + '/' + ticker + '/?countback=' + bars;
+      else bars = barsPerDay * 22;
+      bars = Math.min(bars + _lc.sma, 5000);
+      url = MKT_API + '/candles/' + res + '/' + ticker + '?countback=' + bars;
+      const r = await fetch(url);
+      const d = await r.json();
+      if (d.s === 'ok') { _lc.cache[key] = d; return d; }
     } else {
+      // Daily/weekly/monthly: use mdaFetch directly (works from browser for daily)
       const { from, to } = _lcDateRange();
-      url = '/stocks/candles/' + res + '/' + ticker + '/?from=' + from + '&to=' + to;
+      const d = await mdaFetch('/stocks/candles/' + res + '/' + ticker + '/?from=' + from + '&to=' + to);
+      if (d.s === 'ok') { _lc.cache[key] = d; return d; }
     }
-    const d = await mdaFetch(url);
-    if (d.s === 'ok') { _lc.cache[key] = d; return d; }
   } catch {}
   return null;
 }
