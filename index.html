@@ -630,9 +630,9 @@ table{width:100%;border-collapse:collapse}
 
   <!-- PRE-MARKET CHECKLIST TAB -->
   <div id="tab-premarket" class="section">
-    <div id="premarket-split" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:70vh">
+    <div id="premarket-split" style="display:grid;grid-template-columns:1fr 1fr;gap:0;min-height:70vh">
       <div id="premarket-left" style="overflow-y:auto;max-height:85vh"></div>
-      <div id="premarket-right" style="overflow-y:auto;max-height:85vh"></div>
+      <div id="premarket-right" style="overflow-y:auto;max-height:85vh;border-left:1.5px solid rgba(255,255,255,0.15);padding-left:14px"></div>
     </div>
   </div>
 
@@ -647,7 +647,7 @@ table{width:100%;border-collapse:collapse}
     </div>
     <div id="positions-snapshot"></div>
     <div id="incomplete-banner"></div>
-    <div id="positions-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>
+    <div id="positions-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;border:2px solid rgba(255,255,255,0.15);border-radius:6px;padding:10px"></div>
   </div>
 
   <!-- WATCHLIST TAB -->
@@ -1066,11 +1066,11 @@ table{width:100%;border-collapse:collapse}
   </div>
 </div>
 
-<!-- SR LEVELS MODAL -->
+<!-- LEVELS & THESIS MODAL -->
 <div id="sr-modal" class="overlay" style="display:none">
-  <div class="modal" style="max-width:420px">
+  <div class="modal" style="max-width:480px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <div id="sr-modal-title" style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--positive);letter-spacing:0.02em">S/R LEVELS</div>
+      <div id="sr-modal-title" style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--positive);letter-spacing:0.02em">LEVELS & THESIS</div>
       <button onclick="closeSRModal()" style="background:none;border:none;color:var(--text-secondary);font-size:22px">×</button>
     </div>
     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Set your price action support & resistance levels. Leave blank to hide.</div>
@@ -1086,9 +1086,18 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>R2</label><input id="sr-r2" type="number" placeholder=""></div>
       <div class="frow"><label>R3</label><input id="sr-r3" type="number" placeholder=""></div>
     </div>
+    <div style="font-size:10px;color:var(--text-secondary);letter-spacing:0;margin-bottom:8px">TARGET PRICE</div>
+    <div class="g3" style="margin-bottom:16px">
+      <div class="frow"><label>Entry Target</label><input id="sr-target" type="number" placeholder="e.g. 205.00"></div>
+      <div class="frow"><label>Direction</label><select id="sr-target-dir"><option value="below">Alert below</option><option value="above">Alert above</option></select></div>
+    </div>
+    <div style="font-size:10px;color:var(--text-secondary);letter-spacing:0;margin-bottom:8px">THESIS</div>
+    <div style="margin-bottom:16px">
+      <textarea id="sr-thesis" placeholder="Why am I watching this? What's the setup? What needs to happen?" style="height:60px;resize:vertical;width:100%;box-sizing:border-box"></textarea>
+    </div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-g" onclick="closeSRModal()" style="flex:1">CANCEL</button>
-      <button class="btn btn-p" onclick="saveSRLevels()" style="flex:1">SAVE LEVELS</button>
+      <button class="btn btn-p" onclick="saveSRLevels()" style="flex:1">SAVE</button>
     </div>
   </div>
 
@@ -2270,21 +2279,6 @@ function checkAlerts() {
 }
 
 // ── Watchlist Entry Target Alerts ─────────────────────────────────────────────
-function setWatchlistTarget(ticker) {
-  const q = STATE.quotes[ticker];
-  const existing = STATE.watchlistTargets?.[ticker];
-  const currentPrice = q ? q.price.toFixed(2) : '';
-  const price = prompt(`Set entry target price for ${ticker}${currentPrice ? ' (current: $' + currentPrice + ')' : ''}:`, existing?.price || '');
-  if (price === null) return;
-  const p = parseFloat(price);
-  if (isNaN(p) || p <= 0) { alert('Invalid price'); return; }
-  if (!STATE.watchlistTargets) STATE.watchlistTargets = {};
-  const direction = q && p < q.price ? 'below' : 'above';
-  STATE.watchlistTargets[ticker] = { price: p, direction };
-  save();
-  renderWatchlist();
-}
-
 function clearWatchlistTarget(ticker) {
   if (STATE.watchlistTargets?.[ticker]) {
     delete STATE.watchlistTargets[ticker];
@@ -2519,8 +2513,7 @@ function renderWatchlist() {
         <span style="flex:1"></span>
         <span onclick="event.stopPropagation()">
           <button onclick="copyTickerContext('${ticker}',event)" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">COPY</button>
-          <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">S/R</button>
-          <button onclick="setWatchlistTarget('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">TARGET</button>
+          <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">LEVELS</button>
         </span>
       </div>` : ""}
     </div>`;
@@ -2879,9 +2872,9 @@ function renderSnapshot() {
     </div>`;
   }).join("");
 
-  el.innerHTML = `<div style="margin-bottom:14px;border:1.5px solid rgba(255,255,255,0.2);border-radius:6px;padding:12px">
+  el.innerHTML = `<div style="margin-bottom:14px;border:2px solid rgba(255,255,255,0.2);border-radius:6px;padding:12px">
     <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:8px">SNAPSHOT</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">${rows}</div>
+    <div style="display:grid;grid-template-columns:1fr;gap:6px">${rows}</div>
   </div>`;
 }
 
@@ -2923,7 +2916,7 @@ function renderPositions() {
       if (!hasSR) warnings.push("S/R");
     }
 
-    return `<div class="card" id="trade-${t.id}" data-chart-ticker="${t.ticker}" style="border:1px solid ${warnings.length?C.warnDim:C.border}">
+    return `<div class="card" id="trade-${t.id}" data-chart-ticker="${t.ticker}" style="border:1px solid ${warnings.length?C.warnDim:'rgba(255,255,255,0.12)'}">
 
       <!-- Header: ticker + price + DTE -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
@@ -3569,7 +3562,7 @@ function renderMorningChecklist() {
 
   const I = `width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:6px 8px;font-size:12px;box-sizing:border-box;`;
   const L = `font-size:10px;font-weight:500;color:${C.textSec};letter-spacing:0;margin-bottom:4px;`;
-  const S = `padding:10px;margin-bottom:8px;border:1px solid ${C.border};`;
+  const S = `padding:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;`;
   const H = `font-size:11px;font-weight:600;color:#fff;letter-spacing:0.02em;margin-bottom:10px;`;
 
   const dayNames = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
@@ -3640,8 +3633,8 @@ function renderMorningChecklist() {
         </div>
       </div>
       <div style="border-top:1px solid ${C.border};padding-top:10px">
-        <div style="${L}color:${C.warn}">MARKET NARRATIVE — What is the market trying to do today? What's the dominant theme?</div>
-        <textarea id="cl-narrative" placeholder="Risk-on rotation into tech after soft CPI... Market trying to break above 6700 resistance... Dollar weakness driving commodities..." style="${I}min-height:50px;resize:vertical;border-color:${C.warn}33;">${escHtml(cl.narrative||'')}</textarea>
+        <div style="${L}color:rgba(255,255,255,0.7)">MARKET NARRATIVE — What is the market trying to do today? What's the dominant theme?</div>
+        <textarea id="cl-narrative" placeholder="Risk-on rotation into tech after soft CPI... Market trying to break above 6700 resistance... Dollar weakness driving commodities..." style="${I}min-height:50px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.narrative||'')}</textarea>
       </div>
     </div>`;
 
@@ -3653,8 +3646,8 @@ function renderMorningChecklist() {
         <textarea id="cl-crowdPos" placeholder="Everyone long tech / Short vol crowded / Retail piling into memes / Hedge funds net short..." style="${I}min-height:40px;resize:vertical">${escHtml(cl.crowdPos||'')}</textarea>
       </div>
       <div>
-        <div style="${L}color:${C.neg}">WHAT IS THE PAIN TRADE? Which move would hurt the most people?</div>
-        <textarea id="cl-painTrade" placeholder="A sharp rally would squeeze shorts / A gap down traps all the dip buyers / VIX spike to 25 would blow up short-vol..." style="${I}min-height:40px;resize:vertical;border-color:${C.neg}33;">${escHtml(cl.painTrade||'')}</textarea>
+        <div style="${L}color:rgba(255,255,255,0.6)">WHAT IS THE PAIN TRADE? Which move would hurt the most people?</div>
+        <textarea id="cl-painTrade" placeholder="A sharp rally would squeeze shorts / A gap down traps all the dip buyers / VIX spike to 25 would blow up short-vol..." style="${I}min-height:40px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.painTrade||'')}</textarea>
       </div>
     </div>`;
 
@@ -3668,11 +3661,11 @@ function renderMorningChecklist() {
         </div>
         <div>
           <div style="${L}">MAX LOSS TODAY</div>
-          <input type="text" id="cl-maxLoss" placeholder="$500" value="${escHtml(cl.maxLoss||'')}" style="${I}font-size:11px;border-color:${C.neg}44;">
+          <input type="text" id="cl-maxLoss" placeholder="$500" value="${escHtml(cl.maxLoss||'')}" style="${I}font-size:11px;">
         </div>
         <div>
           <div style="${L}">PROFIT TARGET</div>
-          <input type="text" id="cl-profitTarget" placeholder="$300" value="${escHtml(cl.profitTarget||'')}" style="${I}font-size:11px;border-color:${C.pos}44;">
+          <input type="text" id="cl-profitTarget" placeholder="$300" value="${escHtml(cl.profitTarget||'')}" style="${I}font-size:11px;">
         </div>
       </div>
     </div>`;
@@ -3703,28 +3696,28 @@ function renderMorningChecklist() {
 
     // ── 6. DECISION RULES — THE BIBLE
     const defaultRule0 = 'If my thesis is BROKEN on any position, I execute my exit plan immediately regardless of P&L';
-    left += `<div class="card" style="${S}border:1px solid ${C.warn}44;background:rgba(255,193,7,0.03)">
-      <div style="${H}color:${C.warn};">⚡ DECISION RULES — TODAY'S BIBLE</div>
+    left += `<div class="card" style="${S}border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.02)">
+      <div style="${H}color:rgba(255,255,255,0.8);">⚡ DECISION RULES — TODAY'S BIBLE</div>
       <div style="font-size:9px;color:rgba(255,255,255,0.35);margin-bottom:8px">If X happens, I will do Y. Pre-committed. No emotion. No improvising.</div>
       ${(() => {
         const rules = cl.decisionRules || [defaultRule0,'','',''];
         let rh = '';
         for (let i = 0; i < Math.max(rules.length, 4); i++) {
           rh += `<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">
-            <span style="font-size:10px;color:${C.warn};font-weight:700;min-width:16px">${i+1}.</span>
-            <input type="text" class="cl-decision-rule" placeholder="${i===0?defaultRule0:i===1?'If I hit daily max loss, I shut it down — no exceptions':i===2?'If VIX spikes above 25, I do NOT open new positions':'If X happens, I will do Y...'}" value="${escHtml(rules[i]||'')}" style="${I}font-size:11px;border-color:${C.warn}33;">
+            <span style="font-size:10px;color:${C.accent}99;font-weight:700;min-width:16px">${i+1}.</span>
+            <input type="text" class="cl-decision-rule" placeholder="${i===0?defaultRule0:i===1?'If I hit daily max loss, I shut it down — no exceptions':i===2?'If VIX spikes above 25, I do NOT open new positions':'If X happens, I will do Y...'}" value="${escHtml(rules[i]||'')}" style="${I}font-size:11px;border-color:rgba(255,255,255,0.15);">
           </div>`;
         }
         return rh;
       })()}
-      <button onclick="_clAddDecisionRule()" style="background:transparent;border:1px dashed ${C.warn}44;border-radius:3px;color:${C.warn};font-size:9px;padding:3px;width:100%;cursor:pointer;opacity:0.6">+ ADD RULE</button>
+      <button onclick="_clAddDecisionRule()" style="background:transparent;border:1px dashed rgba(255,255,255,0.15);border-radius:3px;color:rgba(255,255,255,0.5);font-size:9px;padding:3px;width:100%;cursor:pointer;opacity:0.6">+ ADD RULE</button>
     </div>`;
 
     // ── 7. THE ONE TRADE (Donnelly singular focus)
-    left += `<div class="card" style="${S}border:1px solid ${C.pos}44;background:rgba(38,166,154,0.03)">
+    left += `<div class="card" style="${S}border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.02)">
       <div style="${H}color:${C.pos};">🎯 THE ONE TRADE</div>
-      <div style="${L}color:${C.pos}">What is the ONE trade I will make today if conditions are met? Singular focus.</div>
-      <textarea id="cl-plan" placeholder="If SPX pulls back to 6620 support with VIX below 20, I sell NVDA 175/170 put spread for $1.20 credit.&#10;&#10;If conditions aren't met, I do NOTHING." style="${I}min-height:60px;resize:vertical;border-color:${C.pos}33;">${escHtml(cl.plan||'')}</textarea>
+      <div style="${L}color:rgba(255,255,255,0.7)">What is the ONE trade I will make today if conditions are met? Singular focus.</div>
+      <textarea id="cl-plan" placeholder="If SPX pulls back to 6620 support with VIX below 20, I sell NVDA 175/170 put spread for $1.20 credit.&#10;&#10;If conditions aren't met, I do NOTHING." style="${I}min-height:60px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.plan||'')}</textarea>
     </div>`;
 
     // SAVE
@@ -3879,7 +3872,7 @@ function _clAddDecisionRule() {
   const existing = container.querySelectorAll('.cl-decision-rule').length;
   const div = document.createElement('div');
   div.style.cssText = 'display:flex;gap:6px;margin-bottom:5px;align-items:center';
-  div.innerHTML = `<span style="font-size:10px;color:${C.warn};font-weight:700;min-width:16px">${existing+1}.</span><input type="text" class="cl-decision-rule" placeholder="If X happens, I will do Y..." style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.warn}33;border-radius:4px;padding:6px 8px;font-size:11px;box-sizing:border-box;">`;
+  div.innerHTML = `<span style="font-size:10px;color:${C.accent}99;font-weight:700;min-width:16px">${existing+1}.</span><input type="text" class="cl-decision-rule" placeholder="If X happens, I will do Y..." style="width:100%;background:${C.bgCard};color:#fff;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:6px 8px;font-size:11px;box-sizing:border-box;">`;
   container.insertBefore(div, event.target);
 }
 
@@ -6662,13 +6655,18 @@ let srModalTicker = null;
 function openSRModal(ticker) {
   srModalTicker = ticker;
   const sr = STATE.srLevels[ticker] || {};
-  document.getElementById("sr-modal-title").textContent = ticker + " — S/R LEVELS";
+  document.getElementById("sr-modal-title").textContent = ticker + " — LEVELS & THESIS";
   document.getElementById("sr-s1").value = sr.s1||"";
   document.getElementById("sr-s2").value = sr.s2||"";
   document.getElementById("sr-s3").value = sr.s3||"";
   document.getElementById("sr-r1").value = sr.r1||"";
   document.getElementById("sr-r2").value = sr.r2||"";
   document.getElementById("sr-r3").value = sr.r3||"";
+  const target = STATE.watchlistTargets?.[ticker] || {};
+  document.getElementById("sr-target").value = target.price || "";
+  document.getElementById("sr-target-dir").value = target.direction || "below";
+  const thesis = STATE.watchlistThesis?.[ticker] || "";
+  document.getElementById("sr-thesis").value = thesis;
   document.getElementById("sr-modal").style.display = "flex";
 }
 function closeSRModal() { document.getElementById("sr-modal").style.display = "none"; }
@@ -6676,6 +6674,23 @@ function saveSRLevels() {
   const get = (id) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? "" : v; };
   STATE.srLevels = STATE.srLevels || {};
   STATE.srLevels[srModalTicker] = { s1:get("sr-s1"), s2:get("sr-s2"), s3:get("sr-s3"), r1:get("sr-r1"), r2:get("sr-r2"), r3:get("sr-r3") };
+  // Save target price
+  const targetPrice = parseFloat(document.getElementById("sr-target").value);
+  const targetDir = document.getElementById("sr-target-dir").value;
+  if (!STATE.watchlistTargets) STATE.watchlistTargets = {};
+  if (!isNaN(targetPrice) && targetPrice > 0) {
+    STATE.watchlistTargets[srModalTicker] = { price: targetPrice, direction: targetDir };
+  } else {
+    delete STATE.watchlistTargets[srModalTicker];
+  }
+  // Save thesis
+  const thesis = document.getElementById("sr-thesis").value.trim();
+  if (!STATE.watchlistThesis) STATE.watchlistThesis = {};
+  if (thesis) {
+    STATE.watchlistThesis[srModalTicker] = thesis;
+  } else {
+    delete STATE.watchlistThesis[srModalTicker];
+  }
   save(); closeSRModal(); renderWatchlist();
 }
 
