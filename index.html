@@ -9855,9 +9855,11 @@ async function _lcFetchCandles(ticker) {
     }
     // All requests proxied through backend (MDA token is IP-locked to server)
     const r = await fetch(url);
+    if (!r.ok) { console.warn('LC fetch HTTP', r.status, ticker, url); return null; }
     const d = await r.json();
     if (d.s === 'ok') { _lc.cache[key] = d; return d; }
-  } catch {}
+    console.warn('LC fetch not ok:', ticker, d.s, d.errmsg || '');
+  } catch (e) { console.warn('LC fetch error:', ticker, e.message); }
   return null;
 }
 
@@ -10119,10 +10121,10 @@ function renderLotsOfCharts() {
 
   el.innerHTML = html;
 
-  // Fetch candles for visible items
+  // Fetch candles for visible items (stagger to avoid rate limits)
   pageItems.forEach((item, idx) => {
     const gIdx = start + idx;
-    _lcLoadAndDraw(item.t, gIdx);
+    setTimeout(() => _lcLoadAndDraw(item.t, gIdx), idx * 200);
   });
 }
 
