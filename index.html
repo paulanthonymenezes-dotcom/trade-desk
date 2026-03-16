@@ -3548,7 +3548,7 @@ function editJournalEntry(date) {
     </div>`;
 }
 
-// ── Morning Checklist (Donnelly-style pre-market routine) ────────────────────
+// ── Morning Checklist (Alpha Trader / Donnelly framework) ────────────────────
 function renderMorningChecklist() {
   if (!STATE.dailyJournal) STATE.dailyJournal = {};
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
@@ -3559,20 +3559,18 @@ function renderMorningChecklist() {
   const perPos = cl.perPosition || [];
   const isLocked = !!cl.savedAt;
 
-  const inputStyle = `width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:6px 8px;font-size:12px;box-sizing:border-box;`;
-  const labelStyle = `font-size:10px;font-weight:500;color:${C.textSec};letter-spacing:0;margin-bottom:4px;`;
-  const sectionStyle = `padding:10px;margin-bottom:8px;border:1px solid ${C.border};`;
-  const hdrStyle = `font-size:11px;font-weight:600;color:#fff;letter-spacing:0.02em;margin-bottom:10px;`;
+  const I = `width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:6px 8px;font-size:12px;box-sizing:border-box;`;
+  const L = `font-size:10px;font-weight:500;color:${C.textSec};letter-spacing:0;margin-bottom:4px;`;
+  const S = `padding:10px;margin-bottom:8px;border:1px solid ${C.border};`;
+  const H = `font-size:11px;font-weight:600;color:#fff;letter-spacing:0.02em;margin-bottom:10px;`;
 
-  // ── Header
   const dayNames = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
-  const now = new Date();
-  const etNow = new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
+  const etNow = new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));
   const dayName = dayNames[etNow.getDay()];
   const dateLabel = etNow.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}).toUpperCase();
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // LEFT PANEL: Quick Summary (Mindset + Risk + Overnight + Events + Decision Rules)
+  // LEFT PANEL: Market Read + Risk + Decision Rules
   // ═══════════════════════════════════════════════════════════════════════════
   let left = diarySubTabs();
   left += `<div style="font-variant-numeric:tabular-nums;font-size:11px;color:#fff;letter-spacing:0.02em;margin-bottom:14px;text-align:center">
@@ -3582,100 +3580,109 @@ function renderMorningChecklist() {
   if (isLocked) {
     left += renderChecklistReadOnly(cl, open, today);
   } else {
-    // 1. MINDSET
-    left += `<div class="card" style="${sectionStyle}">
-      <div style="${hdrStyle}">🧠 MINDSET</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+
+    // ── 1. MINDSET (compact)
+    left += `<div class="card" style="${S}">
+      <div style="${H}">🧠 MINDSET</div>
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:10px;align-items:end">
         <div>
-          <div style="${labelStyle}">ENERGY (1-5)</div>
-          <div style="display:flex;gap:4px">${[1,2,3,4,5].map(n=>
-            `<button onclick="document.getElementById('cl-energy').value='${n}';this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.warn}';this.style.color='#000'" style="flex:1;padding:6px 0;border:1px solid ${C.border};border-radius:3px;background:${cl.energy==n?C.warn:'transparent'};color:${cl.energy==n?'#000':'rgba(255,255,255,0.5)'};font-variant-numeric:tabular-nums;font-size:11px;cursor:pointer">${n}</button>`
+          <div style="${L}">ENERGY</div>
+          <div style="display:flex;gap:3px">${[1,2,3,4,5].map(n=>
+            `<button onclick="document.getElementById('cl-energy').value='${n}';this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.warn}';this.style.color='#000'" style="width:28px;height:28px;border:1px solid ${C.border};border-radius:3px;background:${cl.energy==n?C.warn:'transparent'};color:${cl.energy==n?'#000':'rgba(255,255,255,0.5)'};font-size:11px;cursor:pointer">${n}</button>`
           ).join('')}</div>
           <input type="hidden" id="cl-energy" value="${cl.energy||''}">
         </div>
         <div>
-          <div style="${labelStyle}">MOOD</div>
-          <select id="cl-mood" style="${inputStyle}">
+          <div style="${L}">MOOD</div>
+          <select id="cl-mood" style="${I}padding:5px 8px;">
             <option value="">Select...</option>
             ${['Focused','Confident','Neutral','Anxious','Tired','Frustrated','Revenge-mode'].map(m=>
               `<option value="${m}"${cl.mood===m?' selected':''}>${m}</option>`
             ).join('')}
           </select>
         </div>
+        <div>
+          <div style="${L}">BIASES TODAY</div>
+          <input type="text" id="cl-biases" placeholder="Baggage from yesterday?" value="${escHtml(cl.biases||'')}" style="${I}padding:5px 8px;">
+        </div>
+      </div>
+    </div>`;
+
+    // ── 2. OVERNIGHT & MARKET NARRATIVE (Donnelly "overnight story")
+    left += `<div class="card" style="${S}">
+      <div style="${H}">🌙 OVERNIGHT & MARKET NARRATIVE</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div>
+          <div style="${L}">FUTURES / PRE-MARKET</div>
+          <textarea id="cl-futures" placeholder="ES +0.3%, NQ +0.5%, gaps?" style="${I}min-height:40px;resize:vertical">${escHtml(cl.futures||'')}</textarea>
+        </div>
+        <div>
+          <div style="${L}">CRYPTO / OVERNIGHT</div>
+          <textarea id="cl-crypto" placeholder="BTC 85k, ETH flat, any large moves?" style="${I}min-height:40px;resize:vertical">${escHtml(cl.crypto||'')}</textarea>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="${L}">IV / VIX OUTLOOK</div>
+          <input type="text" id="cl-ivOutlook" placeholder="VIX 18, elevated? IV crush expected?" value="${escHtml(cl.ivOutlook||'')}" style="${I}">
+        </div>
+        <div>
+          <div style="${L}">GAP RISK</div>
+          <input type="text" id="cl-gapRisk" placeholder="Any overnight gaps on your tickers?" value="${escHtml(cl.gapRisk||'')}" style="${I}">
+        </div>
+      </div>
+      <div style="border-top:1px solid ${C.border};padding-top:10px">
+        <div style="${L}color:${C.warn}">MARKET NARRATIVE — What is the market trying to do today? What's the dominant theme?</div>
+        <textarea id="cl-narrative" placeholder="Risk-on rotation into tech after soft CPI... Market trying to break above 6700 resistance... Dollar weakness driving commodities..." style="${I}min-height:50px;resize:vertical;border-color:${C.warn}33;">${escHtml(cl.narrative||'')}</textarea>
+      </div>
+    </div>`;
+
+    // ── 3. POSITIONING & PAIN TRADE (Donnelly crowd/pain concept)
+    left += `<div class="card" style="${S}">
+      <div style="${H}">🎯 POSITIONING & PAIN TRADE</div>
+      <div style="margin-bottom:8px">
+        <div style="${L}">WHERE IS THE CROWD POSITIONED?</div>
+        <textarea id="cl-crowdPos" placeholder="Everyone long tech / Short vol crowded / Retail piling into memes / Hedge funds net short..." style="${I}min-height:40px;resize:vertical">${escHtml(cl.crowdPos||'')}</textarea>
       </div>
       <div>
-        <div style="${labelStyle}">BIASES / DISTRACTIONS TODAY</div>
-        <input type="text" id="cl-biases" placeholder="Anything clouding your judgment? Baggage from yesterday?" value="${escHtml(cl.biases||'')}" style="${inputStyle}">
+        <div style="${L}color:${C.neg}">WHAT IS THE PAIN TRADE? Which move would hurt the most people?</div>
+        <textarea id="cl-painTrade" placeholder="A sharp rally would squeeze shorts / A gap down traps all the dip buyers / VIX spike to 25 would blow up short-vol..." style="${I}min-height:40px;resize:vertical;border-color:${C.neg}33;">${escHtml(cl.painTrade||'')}</textarea>
       </div>
     </div>`;
 
-    // 2. RISK PARAMETERS
-    left += `<div class="card" style="${sectionStyle}">
-      <div style="${hdrStyle}">📊 RISK PARAMETERS — ${open.length} OPEN</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    // ── 4. RISK PARAMETERS (compact)
+    left += `<div class="card" style="${S}">
+      <div style="${H}">📊 RISK — ${open.length} OPEN POSITIONS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
         <div>
-          <div style="${labelStyle}">ACCOUNT VALUE</div>
-          <input type="text" id="cl-account" placeholder="$45,000" value="${cl.account || (bal ? '$'+bal.toLocaleString() : '')}" style="${inputStyle}">
+          <div style="${L}">ACCOUNT</div>
+          <input type="text" id="cl-account" placeholder="$45,000" value="${cl.account || (bal ? '$'+bal.toLocaleString() : '')}" style="${I}font-size:11px;">
         </div>
         <div>
-          <div style="${labelStyle}">DAILY PROFIT TARGET ($)</div>
-          <input type="text" id="cl-profitTarget" placeholder="$300 — what makes today a good day?" value="${escHtml(cl.profitTarget||'')}" style="${inputStyle}border-color:${C.pos}44;">
-        </div>
-      </div>
-      <div style="${labelStyle}">MAX DAILY LOSS — PORTFOLIO ($)</div>
-      <input type="text" id="cl-maxLoss" placeholder="$500 — your hard stop for the day. Walk away." value="${escHtml(cl.maxLoss||'')}" style="${inputStyle}border-color:${C.neg}44;margin-bottom:10px;">
-      ${open.length ? `<div style="${labelStyle}">MAX DAILY LOSS — PER TICKER</div>
-      <div style="display:grid;grid-template-columns:repeat(${Math.min(open.length,3)},1fr);gap:6px">
-        ${open.map(t => {
-          const existingMax = (cl.perTickerMaxLoss||{})[t.ticker] || '';
-          return `<div>
-            <div style="font-size:10px;color:#fff;font-weight:600;margin-bottom:3px">${t.ticker}</div>
-            <input type="text" class="cl-ticker-maxloss" data-ticker="${t.ticker}" placeholder="$200" value="${escHtml(existingMax)}" style="${inputStyle}font-size:10px;border-color:${C.neg}44;">
-          </div>`;
-        }).join('')}
-      </div>` : ''}
-    </div>`;
-
-    // 3. OVERNIGHT / PRE-MARKET SNAPSHOT
-    left += `<div class="card" style="${sectionStyle}">
-      <div style="${hdrStyle}">🌙 OVERNIGHT & PRE-MARKET SNAPSHOT</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-        <div>
-          <div style="${labelStyle}">FUTURES / PRE-MARKET</div>
-          <textarea id="cl-futures" placeholder="ES +0.3%, NQ +0.5%&#10;Gaps up/down? Size of gap?" style="${inputStyle}min-height:48px;resize:vertical">${escHtml(cl.futures||'')}</textarea>
+          <div style="${L}">MAX LOSS TODAY</div>
+          <input type="text" id="cl-maxLoss" placeholder="$500" value="${escHtml(cl.maxLoss||'')}" style="${I}font-size:11px;border-color:${C.neg}44;">
         </div>
         <div>
-          <div style="${labelStyle}">CRYPTO OVERNIGHT</div>
-          <textarea id="cl-crypto" placeholder="BTC 85k steady, ETH flat&#10;Any large moves overnight?" style="${inputStyle}min-height:48px;resize:vertical">${escHtml(cl.crypto||'')}</textarea>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div>
-          <div style="${labelStyle}">IV / VIX OUTLOOK</div>
-          <textarea id="cl-ivOutlook" placeholder="VIX at 18, elevated. IV crush expected after CPI?" style="${inputStyle}min-height:48px;resize:vertical">${escHtml(cl.ivOutlook||'')}</textarea>
-        </div>
-        <div>
-          <div style="${labelStyle}">GAP RISK / UNUSUAL ACTIVITY</div>
-          <textarea id="cl-gapRisk" placeholder="NVDA gapping down 2% on China news&#10;IBIT up 3% on ETF flows" style="${inputStyle}min-height:48px;resize:vertical">${escHtml(cl.gapRisk||'')}</textarea>
+          <div style="${L}">PROFIT TARGET</div>
+          <input type="text" id="cl-profitTarget" placeholder="$300" value="${escHtml(cl.profitTarget||'')}" style="${I}font-size:11px;border-color:${C.pos}44;">
         </div>
       </div>
     </div>`;
 
-    // 4. TODAY'S EVENTS — CATALYST CALENDAR WITH TIMES
+    // ── 5. CATALYST CALENDAR WITH TIMES
     const existingEvents = cl.scheduledEvents || [{time:'',event:'',impact:''},{time:'',event:'',impact:''},{time:'',event:'',impact:''}];
-    left += `<div class="card" style="${sectionStyle}">
-      <div style="${hdrStyle}">🗓 TODAY'S EVENTS — DAMAGE OR UPSIDE</div>
-      <div style="${labelStyle}">SCHEDULED EVENTS</div>
+    left += `<div class="card" style="${S}">
+      <div style="${H}">🗓 TODAY'S CATALYSTS</div>
       <div id="cl-events-list">
-        <div style="display:grid;grid-template-columns:80px 1fr 90px;gap:4px;margin-bottom:4px">
+        <div style="display:grid;grid-template-columns:72px 1fr 80px;gap:4px;margin-bottom:3px">
           <div style="font-size:8px;color:rgba(255,255,255,0.3);padding:0 4px">TIME (ET)</div>
-          <div style="font-size:8px;color:rgba(255,255,255,0.3);padding:0 4px">EVENT / DATA RELEASE</div>
+          <div style="font-size:8px;color:rgba(255,255,255,0.3);padding:0 4px">EVENT</div>
           <div style="font-size:8px;color:rgba(255,255,255,0.3);padding:0 4px">IMPACT</div>
         </div>
-        ${existingEvents.map((ev,i) => `<div class="cl-event-row" style="display:grid;grid-template-columns:80px 1fr 90px;gap:4px;margin-bottom:4px">
-          <input type="text" class="cl-ev-time" placeholder="${i===0?'8:30 AM':i===1?'10:00 AM':'4:15 PM'}" value="${escHtml(ev.time||'')}" style="${inputStyle}font-size:10px;padding:5px 6px;text-align:center;">
-          <input type="text" class="cl-ev-name" placeholder="${i===0?'CPI MoM (exp 0.3%)':i===1?'Consumer Sentiment':i===2?'NVDA earnings after close':'Event...'}" value="${escHtml(ev.event||'')}" style="${inputStyle}font-size:10px;padding:5px 6px;">
-          <select class="cl-ev-impact" style="${inputStyle}font-size:10px;padding:5px 4px;">
+        ${existingEvents.map((ev,i) => `<div class="cl-event-row" style="display:grid;grid-template-columns:72px 1fr 80px;gap:4px;margin-bottom:3px">
+          <input type="text" class="cl-ev-time" placeholder="${i===0?'8:30 AM':i===1?'10:00 AM':'4:15 PM'}" value="${escHtml(ev.time||'')}" style="${I}font-size:10px;padding:4px 6px;text-align:center;">
+          <input type="text" class="cl-ev-name" placeholder="${i===0?'CPI MoM (exp 0.3%)':i===1?'Consumer Sentiment':'NVDA earnings AMC'}" value="${escHtml(ev.event||'')}" style="${I}font-size:10px;padding:4px 6px;">
+          <select class="cl-ev-impact" style="${I}font-size:10px;padding:4px;">
             <option value="">—</option>
             <option value="high"${ev.impact==='high'?' selected':''}>🔴 HIGH</option>
             <option value="medium"${ev.impact==='medium'?' selected':''}>🟡 MED</option>
@@ -3683,43 +3690,40 @@ function renderMorningChecklist() {
           </select>
         </div>`).join('')}
       </div>
-      <button onclick="_clAddEventRow()" style="background:transparent;border:1px dashed ${C.border};border-radius:4px;color:rgba(255,255,255,0.4);font-size:9px;padding:4px;width:100%;cursor:pointer;margin-bottom:12px">+ ADD EVENT</button>
-      <div style="margin-top:4px">
-        <div style="${labelStyle}">UNSCHEDULED RISKS / HEADLINES</div>
-        <textarea id="cl-catalysts" placeholder="Tariff talk, geopolitical, sector rotation, unusual options flow..." style="${inputStyle}min-height:40px;resize:vertical">${escHtml(cl.catalysts||'')}</textarea>
-      </div>
+      <button onclick="_clAddEventRow()" style="background:transparent;border:1px dashed ${C.border};border-radius:3px;color:rgba(255,255,255,0.4);font-size:9px;padding:3px;width:100%;cursor:pointer">+ ADD EVENT</button>
     </div>`;
 
-    // 5. DECISION RULES — THE BIBLE
-    left += `<div class="card" style="${sectionStyle}border:1px solid ${C.warn}44;background:rgba(255,193,7,0.03)">
-      <div style="${hdrStyle}color:${C.warn};">⚡ DECISION RULES — TODAY'S BIBLE</div>
-      <div style="font-size:9px;color:rgba(255,255,255,0.4);margin-bottom:10px">If X happens, I will do Y. These are your pre-committed decisions. No emotion, no improvising.</div>
+    // ── 6. DECISION RULES — THE BIBLE
+    const defaultRule0 = 'If my thesis is BROKEN on any position, I execute my exit plan immediately regardless of P&L';
+    left += `<div class="card" style="${S}border:1px solid ${C.warn}44;background:rgba(255,193,7,0.03)">
+      <div style="${H}color:${C.warn};">⚡ DECISION RULES — TODAY'S BIBLE</div>
+      <div style="font-size:9px;color:rgba(255,255,255,0.35);margin-bottom:8px">If X happens, I will do Y. Pre-committed. No emotion. No improvising.</div>
       ${(() => {
-        const rules = cl.decisionRules || ['','','',''];
-        let rulesHtml = '';
-        for (let i = 0; i < 6; i++) {
-          rulesHtml += `<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+        const rules = cl.decisionRules || [defaultRule0,'','',''];
+        let rh = '';
+        for (let i = 0; i < Math.max(rules.length, 4); i++) {
+          rh += `<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">
             <span style="font-size:10px;color:${C.warn};font-weight:700;min-width:16px">${i+1}.</span>
-            <input type="text" class="cl-decision-rule" placeholder="${i===0?'If SPX drops below 6600, I close NVDA spread immediately':i===1?'If VIX spikes above 22, I do NOT open any new positions':i===2?'If IBIT hits +50% profit, I take it off':i===3?'If I hit daily max loss, I shut it down — no exceptions':i===4?'If CPI comes in hot, I hedge with VIX calls':'Add another rule...'}" value="${escHtml((rules[i])||'')}" style="${inputStyle}font-size:11px;border-color:${C.warn}33;">
+            <input type="text" class="cl-decision-rule" placeholder="${i===0?defaultRule0:i===1?'If I hit daily max loss, I shut it down — no exceptions':i===2?'If VIX spikes above 25, I do NOT open new positions':'If X happens, I will do Y...'}" value="${escHtml(rules[i]||'')}" style="${I}font-size:11px;border-color:${C.warn}33;">
           </div>`;
         }
-        return rulesHtml;
+        return rh;
       })()}
-      <button onclick="_clAddDecisionRule()" style="background:transparent;border:1px dashed ${C.warn}44;border-radius:4px;color:${C.warn};font-size:10px;padding:5px;width:100%;cursor:pointer;opacity:0.6">+ ADD RULE</button>
+      <button onclick="_clAddDecisionRule()" style="background:transparent;border:1px dashed ${C.warn}44;border-radius:3px;color:${C.warn};font-size:9px;padding:3px;width:100%;cursor:pointer;opacity:0.6">+ ADD RULE</button>
     </div>`;
 
-    // 6. SESSION PLAN
-    left += `<div class="card" style="${sectionStyle}">
-      <div style="${hdrStyle}">🎯 SESSION PLAN</div>
-      <div style="${labelStyle}">WHAT'S THE PLAN TODAY? (add, trim, hold, do nothing)</div>
-      <textarea id="cl-plan" placeholder="What am I looking to do? Any new entries? At what levels? Or is today a 'do nothing' day?" style="${inputStyle}min-height:55px;resize:vertical">${escHtml(cl.plan||'')}</textarea>
+    // ── 7. THE ONE TRADE (Donnelly singular focus)
+    left += `<div class="card" style="${S}border:1px solid ${C.pos}44;background:rgba(38,166,154,0.03)">
+      <div style="${H}color:${C.pos};">🎯 THE ONE TRADE</div>
+      <div style="${L}color:${C.pos}">What is the ONE trade I will make today if conditions are met? Singular focus.</div>
+      <textarea id="cl-plan" placeholder="If SPX pulls back to 6620 support with VIX below 20, I sell NVDA 175/170 put spread for $1.20 credit.&#10;&#10;If conditions aren't met, I do NOTHING." style="${I}min-height:60px;resize:vertical;border-color:${C.pos}33;">${escHtml(cl.plan||'')}</textarea>
     </div>`;
 
-    // SAVE BUTTON
+    // SAVE
     left += `<div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-p" onclick="saveMorningChecklist('${today}')" style="flex:1;font-size:11px;padding:12px">LOCK IN PRE-MARKET PLAN</button>
     </div>
-    <div style="font-size:9px;color:rgba(255,255,255,0.4);text-align:center;margin-top:8px;font-style:italic">Once saved, this becomes your contract with yourself for the session.</div>`;
+    <div style="font-size:9px;color:rgba(255,255,255,0.35);text-align:center;margin-top:6px;font-style:italic">Once locked, this is your contract for the session.</div>`;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3734,16 +3738,20 @@ function renderMorningChecklist() {
     // Read-only per-position
     if (cl.perPosition?.length) {
       for (const p of cl.perPosition) {
-        const color = p.thesisValid==='yes'?C.pos:p.thesisValid==='no'?C.neg:p.thesisValid==='shaky'?C.warn:'rgba(255,255,255,0.5)';
+        const statusColor = p.earlyOrRight==='right'?C.pos:p.earlyOrRight==='broken'?C.neg:p.earlyOrRight==='early'?C.warn:'rgba(255,255,255,0.5)';
+        const convBar = p.conviction ? '█'.repeat(p.conviction) + '░'.repeat(5-p.conviction) : '—';
         const t = open.find(tr=>tr.ticker===p.ticker && String(tr.shortStrike)===String(p.shortStrike));
         right += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid ${C.border};border-radius:4px;background:${C.bg}">
-          <div style="display:flex;gap:8px;align-items:center">
-            <span style="color:#fff;font-weight:600;min-width:50px;font-size:12px">${p.ticker}</span>
-            <span style="color:${color};font-size:10px;font-weight:600">${(p.thesisValid||'?').toUpperCase()}</span>
-            ${p.invalidation ? `<span style="color:rgba(255,255,255,0.4);font-size:10px">· ${escHtml(p.invalidation)}</span>` : ''}
-            ${p.tickerMaxLoss ? `<span style="color:${C.neg};font-size:10px;margin-left:auto">Max: ${escHtml(p.tickerMaxLoss)}</span>` : ''}
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="color:#fff;font-weight:600;font-size:12px">${p.ticker}</span>
+            <span style="color:${statusColor};font-size:10px;font-weight:600;text-transform:uppercase">${p.earlyOrRight||'?'}</span>
           </div>
-          ${t?.thesis ? `<div style="color:rgba(255,255,255,0.5);font-size:9px;margin-top:3px">${escHtml(t.thesis)}</div>` : ''}
+          <div style="display:flex;gap:12px;font-size:10px;margin-bottom:4px;flex-wrap:wrap">
+            <span style="color:${C.textSec}">Conviction: <span style="color:${C.warn};font-family:monospace">${convBar}</span></span>
+            ${p.invalidation ? `<span style="color:rgba(255,255,255,0.4)">Kill: ${escHtml(p.invalidation)}</span>` : ''}
+            ${p.exitPlan ? `<span style="color:${C.neg}">Exit: ${escHtml(p.exitPlan)}</span>` : ''}
+          </div>
+          ${t?.thesis ? `<div style="color:rgba(255,255,255,0.4);font-size:9px">${escHtml(t.thesis)}</div>` : ''}
         </div>`;
       }
     } else {
@@ -3751,17 +3759,31 @@ function renderMorningChecklist() {
     }
     // Read-only decision rules
     if (cl.decisionRules?.filter(r=>r).length) {
-      right += `<div class="card" style="${sectionStyle}border-color:${C.warn}44;background:rgba(255,193,7,0.03);margin-top:12px">
-        <div style="${hdrStyle}color:${C.warn};">⚡ TODAY'S DECISION RULES</div>`;
+      right += `<div class="card" style="${S}border-color:${C.warn}44;background:rgba(255,193,7,0.03);margin-top:12px">
+        <div style="${H}color:${C.warn};">⚡ TODAY'S RULES</div>`;
       cl.decisionRules.filter(r=>r).forEach((r,i) => {
-        right += `<div style="font-size:11px;color:#fff;margin-bottom:6px;padding:6px 8px;border-left:2px solid ${C.warn};background:rgba(255,193,7,0.04)">
+        right += `<div style="font-size:11px;color:#fff;margin-bottom:5px;padding:5px 8px;border-left:2px solid ${C.warn};background:rgba(255,193,7,0.04)">
           <span style="color:${C.warn};font-weight:700">${i+1}.</span> ${escHtml(r)}
         </div>`;
       });
       right += `</div>`;
     }
+    // Read-only narrative & positioning
+    if (cl.narrative) {
+      right += `<div class="card" style="${S}margin-top:8px">
+        <div style="${H}">MARKET NARRATIVE</div>
+        <div style="color:#fff;font-size:11px;white-space:pre-wrap">${escHtml(cl.narrative)}</div>
+      </div>`;
+    }
+    if (cl.crowdPos || cl.painTrade) {
+      right += `<div class="card" style="${S}margin-top:8px">
+        <div style="${H}">POSITIONING & PAIN TRADE</div>
+        ${cl.crowdPos ? `<div style="font-size:10px;color:${C.textSec};margin-bottom:2px">CROWD</div><div style="color:#fff;font-size:11px;margin-bottom:8px">${escHtml(cl.crowdPos)}</div>` : ''}
+        ${cl.painTrade ? `<div style="font-size:10px;color:${C.neg};margin-bottom:2px">PAIN TRADE</div><div style="color:#fff;font-size:11px">${escHtml(cl.painTrade)}</div>` : ''}
+      </div>`;
+    }
   } else if (open.length) {
-    // Editable per-position
+    // Editable per-position with Conviction + Early/Right/Broken
     for (const t of open) {
       const width = Math.abs(t.shortStrike - t.longStrike);
       const perSpread = (t.premiumCollected||0)/(100*(t.contracts||1));
@@ -3771,31 +3793,37 @@ function renderMorningChecklist() {
       right += `<div style="padding:10px;margin-bottom:8px;border:1px solid ${C.border};border-radius:4px;background:${C.bg}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <div>
-            <span style="font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;color:#fff">${t.ticker}</span>
+            <span style="font-size:12px;font-weight:600;color:#fff">${t.ticker}</span>
             <span style="font-size:10px;color:rgba(255,255,255,0.5);margin-left:6px">${t.shortStrike}/${t.longStrike} x${t.contracts} · ${dte}d</span>
           </div>
-          <div style="font-size:10px;color:${C.neg}">Max loss: $${maxLoss.toFixed(0)}</div>
+          <div style="font-size:10px;color:${C.neg}">Max: $${maxLoss.toFixed(0)}</div>
         </div>
-        <div style="padding:8px;margin-bottom:8px;border:1px solid ${C.border};border-radius:3px;background:${C.bgCard}">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${t.thesis?'4':'0'}px">
-            <div style="font-variant-numeric:tabular-nums;font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0">ENTRY THESIS</div>
-            <button onclick="const ta=this.parentElement.nextElementSibling;const isVis=ta.style.display!=='none';ta.style.display=isVis?'none':'block';this.textContent=isVis?'EDIT':'DONE'" style="background:transparent;border:1px solid ${C.border};border-radius:3px;color:rgba(255,255,255,0.4);font-variant-numeric:tabular-nums;font-size:8px;padding:2px 6px;cursor:pointer">EDIT</button>
+        ${t.thesis ? `<div style="padding:6px 8px;margin-bottom:8px;border:1px solid ${C.border};border-radius:3px;background:${C.bgCard};font-size:10px;color:rgba(255,255,255,0.7)">${escHtml(t.thesis)}</div>` : `<div style="font-size:10px;color:${C.neg};margin-bottom:8px">⚠ No thesis recorded</div>`}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <div style="${L}">CONVICTION (1-5)</div>
+            <div style="display:flex;gap:3px">${[1,2,3,4,5].map(n=>
+              `<button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.warn}';this.style.color='#000';this.parentElement.nextElementSibling.value='${n}'" style="flex:1;height:26px;border:1px solid ${C.border};border-radius:3px;background:${existing.conviction==n?C.warn:'transparent'};color:${existing.conviction==n?'#000':'rgba(255,255,255,0.5)'};font-size:10px;cursor:pointer">${n}</button>`
+            ).join('')}<input type="hidden" class="cl-conviction" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" value="${existing.conviction||''}"></div>
           </div>
-          ${t.thesis ? `<div style="font-size:10px;color:#fff;white-space:pre-wrap">${escHtml(t.thesis)}</div>` : `<div style="font-size:10px;color:${C.neg}">⚠ No thesis recorded — add one</div>`}
-          <textarea onblur="updateTradeField(${t.id},'thesis',this.value);this.previousElementSibling.textContent=this.value||'⚠ No thesis recorded — add one';this.previousElementSibling.style.color=this.value?'#fff':'${C.neg}'" style="display:none;${inputStyle}font-size:10px;margin-top:6px;min-height:50px;resize:vertical">${escHtml(t.thesis||'')}</textarea>
-        </div>
-        <div style="margin-bottom:6px">
-          <div style="${labelStyle}">IS THE THESIS STILL VALID?</div>
-          <div style="display:flex;gap:4px">
-            <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.pos}';this.style.color='#000';this.parentElement.nextElementSibling.querySelector('input').value='yes'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='yes'?C.pos:'transparent'};color:${existing.thesisValid==='yes'?'#000':'rgba(255,255,255,0.5)'};font-variant-numeric:tabular-nums;font-size:10px;cursor:pointer">YES</button>
-            <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.neg}';this.style.color='#fff';this.parentElement.nextElementSibling.querySelector('input').value='no'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='no'?C.neg:'transparent'};color:${existing.thesisValid==='no'?'#fff':'rgba(255,255,255,0.5)'};font-variant-numeric:tabular-nums;font-size:10px;cursor:pointer">NO — CLOSE IT</button>
-            <button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.warn}';this.style.color='#000';this.parentElement.nextElementSibling.querySelector('input').value='shaky'" style="flex:1;padding:5px;border:1px solid ${C.border};border-radius:3px;background:${existing.thesisValid==='shaky'?C.warn:'transparent'};color:${existing.thesisValid==='shaky'?'#000':'rgba(255,255,255,0.5)'};font-variant-numeric:tabular-nums;font-size:10px;cursor:pointer">SHAKY</button>
+          <div>
+            <div style="${L}">AM I EARLY OR AM I RIGHT?</div>
+            <div style="display:flex;gap:3px">${['Early','Right','Broken'].map(v => {
+              const col = v==='Right'?C.pos:v==='Broken'?C.neg:C.warn;
+              const isActive = existing.earlyOrRight===v.toLowerCase();
+              return `<button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${col}';this.style.color='${v==='Broken'?'#fff':'#000'}';this.parentElement.nextElementSibling.value='${v.toLowerCase()}'" style="flex:1;height:26px;border:1px solid ${C.border};border-radius:3px;background:${isActive?col:'transparent'};color:${isActive?(v==='Broken'?'#fff':'#000'):'rgba(255,255,255,0.5)'};font-size:10px;cursor:pointer;font-weight:${isActive?'600':'400'}">${v.toUpperCase()}</button>`;
+            }).join('')}<input type="hidden" class="cl-early-right" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" value="${existing.earlyOrRight||''}"></div>
           </div>
-          <div><input type="hidden" class="cl-thesis-valid" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" value="${existing.thesisValid||''}"></div>
         </div>
-        <div>
-          <div style="${labelStyle}">WHAT INVALIDATES THIS? (price level, event, time)</div>
-          <input type="text" class="cl-invalidation" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="e.g. NVDA below 170, earnings miss, breaks trend" value="${escHtml(existing.invalidation||'')}" style="${inputStyle}font-size:10px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <div style="${L}">INVALIDATION (what kills this)</div>
+            <input type="text" class="cl-invalidation" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="NVDA below 170, breaks trend" value="${escHtml(existing.invalidation||'')}" style="${I}font-size:10px;">
+          </div>
+          <div>
+            <div style="${L}">EXIT PLAN (if broken)</div>
+            <input type="text" class="cl-exitplan" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="Close on open, limit order at X, roll..." value="${escHtml(existing.exitPlan||'')}" style="${I}font-size:10px;border-color:${C.neg}44;">
+          </div>
         </div>
       </div>`;
     }
@@ -3803,18 +3831,18 @@ function renderMorningChecklist() {
     right += `<div style="color:rgba(255,255,255,0.3);font-size:11px;text-align:center;padding:30px">No open positions to review</div>`;
   }
 
-  // Past checklists (right panel, below positions)
+  // Past checklists
   const pastDays = Object.entries(STATE.dailyJournal)
     .filter(([d,e])=>d!==today && e.checklist?.savedAt)
     .sort((a,b)=>b[0].localeCompare(a[0]))
     .slice(0,10);
   if (pastDays.length) {
-    right += `<div style="font-variant-numeric:tabular-nums;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.02em;margin:20px 0 10px">PAST CHECKLISTS</div>`;
+    right += `<div style="font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:0.02em;margin:20px 0 10px">PAST CHECKLISTS</div>`;
     for (const [date, entry] of pastDays) {
       const d = new Date(date+'T12:00:00');
       const dayLabel = ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()] + ' ' + ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][d.getMonth()] + ' ' + d.getDate();
-      right += `<details class="card" style="padding:12px;margin-bottom:6px;border:1px solid ${C.border}">
-        <summary style="font-variant-numeric:tabular-nums;font-size:10px;color:rgba(255,255,255,0.5);cursor:pointer">${dayLabel} — Energy: ${entry.checklist.energy||'?'}/5 · ${entry.checklist.mood||'?'}</summary>
+      right += `<details class="card" style="padding:10px;margin-bottom:5px;border:1px solid ${C.border}">
+        <summary style="font-size:10px;color:rgba(255,255,255,0.5);cursor:pointer">${dayLabel} — Energy: ${entry.checklist.energy||'?'}/5 · ${entry.checklist.mood||'?'}</summary>
         <div style="margin-top:8px">${renderChecklistReadOnly(entry.checklist, [], date, true)}</div>
       </details>`;
     }
@@ -3824,22 +3852,22 @@ function renderMorningChecklist() {
   document.getElementById("diary-detail-panel").innerHTML = right;
 }
 
-// Helper to add more scheduled event rows
+// Helper: add event row
 function _clAddEventRow() {
   const list = document.getElementById('cl-events-list');
   const div = document.createElement('div');
   div.className = 'cl-event-row';
-  div.style.cssText = 'display:grid;grid-template-columns:80px 1fr 90px;gap:4px;margin-bottom:4px';
-  div.innerHTML = `<input type="text" class="cl-ev-time" placeholder="2:00 PM" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:5px 6px;font-size:10px;box-sizing:border-box;text-align:center;"><input type="text" class="cl-ev-name" placeholder="Event..." style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:5px 6px;font-size:10px;box-sizing:border-box;"><select class="cl-ev-impact" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:5px 4px;font-size:10px;box-sizing:border-box;"><option value="">—</option><option value="high">🔴 HIGH</option><option value="medium">🟡 MED</option><option value="low">🟢 LOW</option></select>`;
+  div.style.cssText = 'display:grid;grid-template-columns:72px 1fr 80px;gap:4px;margin-bottom:3px';
+  div.innerHTML = `<input type="text" class="cl-ev-time" placeholder="2:00 PM" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px 6px;font-size:10px;box-sizing:border-box;text-align:center;"><input type="text" class="cl-ev-name" placeholder="Event..." style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px 6px;font-size:10px;box-sizing:border-box;"><select class="cl-ev-impact" style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.border};border-radius:4px;padding:4px;font-size:10px;box-sizing:border-box;"><option value="">—</option><option value="high">🔴 HIGH</option><option value="medium">🟡 MED</option><option value="low">🟢 LOW</option></select>`;
   list.appendChild(div);
 }
 
-// Helper to add more decision rule inputs
+// Helper: add decision rule
 function _clAddDecisionRule() {
   const container = event.target.parentElement;
   const existing = container.querySelectorAll('.cl-decision-rule').length;
   const div = document.createElement('div');
-  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:5px;align-items:center';
   div.innerHTML = `<span style="font-size:10px;color:${C.warn};font-weight:700;min-width:16px">${existing+1}.</span><input type="text" class="cl-decision-rule" placeholder="If X happens, I will do Y..." style="width:100%;background:${C.bgCard};color:#fff;border:1px solid ${C.warn}33;border-radius:4px;padding:6px 8px;font-size:11px;box-sizing:border-box;">`;
   container.insertBefore(div, event.target);
 }
@@ -3851,61 +3879,58 @@ function renderChecklistReadOnly(cl, open, date, compact) {
 
   if (!compact) {
     h += `<div class="card" style="padding:10px;margin-bottom:8px;border:1px solid ${C.pos}44;background:${C.posDim}">
-      <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.pos};letter-spacing:0.02em;margin-bottom:4px">✅ PRE-MARKET PLAN LOCKED</div>
+      <div style="font-size:10px;color:${C.pos};letter-spacing:0.02em;margin-bottom:4px">✅ PRE-MARKET PLAN LOCKED</div>
       <div style="font-size:10px;color:rgba(255,255,255,0.5)">Saved at ${cl.savedAt ? new Date(cl.savedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : ''} — this is your contract for the session</div>
       <button class="btn btn-g" onclick="unlockChecklist('${date}')" style="font-size:9px;margin-top:8px;opacity:.6">EDIT</button>
     </div>`;
   }
 
-  // Mindset
+  // Mindset row
   const energyBar = cl.energy ? '🟢'.repeat(cl.energy) + '⚫'.repeat(5-cl.energy) : '—';
-  h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;${s}">
+  h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;${s}">
     <div><span style="${lbl}">ENERGY</span><br>${energyBar}</div>
     <div><span style="${lbl}">MOOD</span><br><span style="color:#fff">${cl.mood||'—'}</span></div>
     <div><span style="${lbl}">BIASES</span><br><span style="color:#fff">${escHtml(cl.biases||'None')}</span></div>
   </div>`;
 
-  // Risk parameters
-  h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;${s}">
-    <div><span style="${lbl}">MAX PORTFOLIO LOSS</span><br><span style="color:${C.neg}">${escHtml(cl.maxLoss||'—')}</span></div>
-    <div><span style="${lbl}">PROFIT TARGET</span><br><span style="color:${C.pos}">${escHtml(cl.profitTarget||'—')}</span></div>
+  // Risk
+  h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;${s}">
+    <div><span style="${lbl}">ACCOUNT</span><br><span style="color:#fff">${escHtml(cl.account||'—')}</span></div>
+    <div><span style="${lbl}">MAX LOSS</span><br><span style="color:${C.neg}">${escHtml(cl.maxLoss||'—')}</span></div>
+    <div><span style="${lbl}">TARGET</span><br><span style="color:${C.pos}">${escHtml(cl.profitTarget||'—')}</span></div>
   </div>`;
-  if (cl.perTickerMaxLoss && Object.keys(cl.perTickerMaxLoss).length) {
-    h += `<div style="${lbl}">PER-TICKER MAX LOSS</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">`;
-    for (const [tk, val] of Object.entries(cl.perTickerMaxLoss)) {
-      h += `<span style="font-size:10px;color:${C.neg};background:rgba(239,83,80,0.08);padding:3px 8px;border-radius:3px;border:1px solid ${C.neg}33">${tk}: ${escHtml(val)}</span>`;
-    }
+
+  // Overnight
+  if (cl.futures || cl.crypto || cl.ivOutlook || cl.gapRisk) {
+    h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;${s}">`;
+    if (cl.futures) h += `<div><span style="${lbl}">FUTURES</span><br><span style="color:#fff">${escHtml(cl.futures)}</span></div>`;
+    if (cl.crypto) h += `<div><span style="${lbl}">CRYPTO</span><br><span style="color:#fff">${escHtml(cl.crypto)}</span></div>`;
+    if (cl.ivOutlook) h += `<div><span style="${lbl}">IV/VIX</span><br><span style="color:#fff">${escHtml(cl.ivOutlook)}</span></div>`;
+    if (cl.gapRisk) h += `<div><span style="${lbl}">GAP RISK</span><br><span style="color:#fff">${escHtml(cl.gapRisk)}</span></div>`;
     h += `</div>`;
   }
 
-  // Overnight snapshot
-  if (cl.futures || cl.crypto || cl.ivOutlook || cl.gapRisk) {
-    h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;${s}">`;
-    if (cl.futures) h += `<div><span style="${lbl}">FUTURES</span><br><span style="color:#fff;white-space:pre-wrap">${escHtml(cl.futures)}</span></div>`;
-    if (cl.crypto) h += `<div><span style="${lbl}">CRYPTO</span><br><span style="color:#fff;white-space:pre-wrap">${escHtml(cl.crypto)}</span></div>`;
-    if (cl.ivOutlook) h += `<div><span style="${lbl}">IV / VIX</span><br><span style="color:#fff;white-space:pre-wrap">${escHtml(cl.ivOutlook)}</span></div>`;
-    if (cl.gapRisk) h += `<div><span style="${lbl}">GAP RISK</span><br><span style="color:#fff;white-space:pre-wrap">${escHtml(cl.gapRisk)}</span></div>`;
-    h += `</div>`;
-  }
+  // Narrative
+  if (cl.narrative) h += `<div style="${lbl}color:${C.warn}">NARRATIVE</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.narrative)}</div>`;
 
   // Scheduled events
   if (cl.scheduledEvents?.length) {
-    h += `<div style="${lbl}">SCHEDULED EVENTS</div>`;
+    h += `<div style="${lbl}">CATALYSTS</div>`;
     for (const ev of cl.scheduledEvents) {
-      const impactColor = ev.impact==='high'?C.neg:ev.impact==='medium'?C.warn:ev.impact==='low'?C.pos:'rgba(255,255,255,0.3)';
-      const impactDot = ev.impact==='high'?'🔴':ev.impact==='medium'?'🟡':ev.impact==='low'?'🟢':'';
-      h += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;${s}">
-        <span style="color:${C.warn};font-weight:600;min-width:65px;font-size:10px">${escHtml(ev.time||'—')}</span>
+      const dot = ev.impact==='high'?'🔴':ev.impact==='medium'?'🟡':ev.impact==='low'?'🟢':'';
+      h += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:3px;${s}">
+        <span style="color:${C.warn};font-weight:600;min-width:60px;font-size:10px">${escHtml(ev.time||'—')}</span>
         <span style="color:#fff;flex:1">${escHtml(ev.event)}</span>
-        ${impactDot ? `<span style="font-size:9px">${impactDot}</span>` : ''}
+        ${dot ? `<span style="font-size:9px">${dot}</span>` : ''}
       </div>`;
     }
-    h += `<div style="margin-bottom:8px"></div>`;
+    h += `<div style="margin-bottom:6px"></div>`;
   } else if (cl.macro) {
-    h += `<div style="${lbl}">TODAY'S EVENTS</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.macro)}</div>`;
+    h += `<div style="${lbl}">EVENTS</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.macro)}</div>`;
   }
-  if (cl.catalysts) h += `<div style="${lbl}">RISKS / HEADLINES</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.catalysts)}</div>`;
-  if (cl.plan) h += `<div style="${lbl}">SESSION PLAN</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap">${escHtml(cl.plan)}</div>`;
+
+  // The One Trade
+  if (cl.plan) h += `<div style="${lbl}color:${C.pos}">THE ONE TRADE</div><div style="color:#fff;${s}margin-bottom:8px;white-space:pre-wrap;border-left:2px solid ${C.pos};padding-left:8px">${escHtml(cl.plan)}</div>`;
 
   return h;
 }
@@ -3914,25 +3939,22 @@ function saveMorningChecklist(date) {
   if (!STATE.dailyJournal) STATE.dailyJournal = {};
   if (!STATE.dailyJournal[date]) STATE.dailyJournal[date] = {};
 
-  // Gather per-position data
+  // Gather per-position data (with conviction + early/right/broken)
   const perPosition = [];
-  document.querySelectorAll('.cl-thesis-valid').forEach(input => {
+  document.querySelectorAll('.cl-invalidation').forEach(input => {
     const ticker = input.dataset.ticker;
     const strike = input.dataset.strike;
-    const valid = input.value;
-    const invEl = document.querySelector(`.cl-invalidation[data-ticker="${ticker}"][data-strike="${strike}"]`);
+    const convEl = document.querySelector(`.cl-conviction[data-ticker="${ticker}"][data-strike="${strike}"]`);
+    const earlyEl = document.querySelector(`.cl-early-right[data-ticker="${ticker}"][data-strike="${strike}"]`);
+    const exitEl = document.querySelector(`.cl-exitplan[data-ticker="${ticker}"][data-strike="${strike}"]`);
     perPosition.push({
       ticker,
       shortStrike: strike,
-      thesisValid: valid,
-      invalidation: invEl ? invEl.value.trim() : ''
+      conviction: convEl ? convEl.value : '',
+      earlyOrRight: earlyEl ? earlyEl.value : '',
+      invalidation: input.value.trim(),
+      exitPlan: exitEl ? exitEl.value.trim() : ''
     });
-  });
-
-  // Gather per-ticker max loss
-  const perTickerMaxLoss = {};
-  document.querySelectorAll('.cl-ticker-maxloss').forEach(input => {
-    if (input.value.trim()) perTickerMaxLoss[input.dataset.ticker] = input.value.trim();
   });
 
   // Gather scheduled events
@@ -3957,14 +3979,15 @@ function saveMorningChecklist(date) {
     account: document.getElementById('cl-account')?.value?.trim() || '',
     maxLoss: document.getElementById('cl-maxLoss')?.value?.trim() || '',
     profitTarget: document.getElementById('cl-profitTarget')?.value?.trim() || '',
-    perTickerMaxLoss,
     perPosition,
     futures: document.getElementById('cl-futures')?.value?.trim() || '',
     crypto: document.getElementById('cl-crypto')?.value?.trim() || '',
     ivOutlook: document.getElementById('cl-ivOutlook')?.value?.trim() || '',
     gapRisk: document.getElementById('cl-gapRisk')?.value?.trim() || '',
+    narrative: document.getElementById('cl-narrative')?.value?.trim() || '',
+    crowdPos: document.getElementById('cl-crowdPos')?.value?.trim() || '',
+    painTrade: document.getElementById('cl-painTrade')?.value?.trim() || '',
     scheduledEvents,
-    catalysts: document.getElementById('cl-catalysts')?.value?.trim() || '',
     decisionRules,
     plan: document.getElementById('cl-plan')?.value?.trim() || '',
     savedAt: new Date().toISOString()
