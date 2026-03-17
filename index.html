@@ -591,7 +591,7 @@ table{width:100%;border-collapse:collapse}
 
     <!-- Global Yields -->
     <div class="section-box" id="sec-yields">
-      <div class="section-header"><span class="section-title">Global Government Bond Yields</span></div>
+      <div class="section-header"><span class="section-title">US Treasury Yields</span></div>
       <div id="yields-body"><div class="loading">Loading...</div></div>
     </div>
 
@@ -1702,7 +1702,7 @@ async function fetchQuote(ticker) {
 
 async function fetchCandles(ticker, from, to) {
   try {
-    const r = await fetch("/mkt/api/eodhd/candles/" + ticker + "?start=" + from + "&end=" + to);
+    const r = await fetch("/api/candles?ticker=" + ticker + "&start=" + from + "&end=" + to);
     if (!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
     return d.s === "ok" ? d : null;
@@ -9486,7 +9486,7 @@ function mktRenderYields(yields) {
   const el = mkt$('yields-body');
   if (!el) return;
   if (!yields || !yields.length) { el.innerHTML = '<div class="empty">No yield data</div>'; return; }
-  const mats = ['1Y','2Y','5Y','10Y','30Y'];
+  const mats = ['3M','5Y','10Y','30Y'];
   let html = `<table class="data-table yield-table"><thead><tr><th>Country</th>`;
   for (const m of mats) html += `<th class="r">${m}</th>`;
   html += '</tr></thead><tbody>';
@@ -9552,7 +9552,7 @@ async function mktFetchAllSpreads(positions) {
 }
 
 async function mktFetchCandles(ticker) {
-  try { const from = new Date(Date.now() - 365*86400000).toISOString().slice(0,10); const to = new Date().toISOString().slice(0,10); const r = await fetch('/mkt/api/eodhd/candles/' + ticker + '?start=' + from + '&end=' + to); if (r.ok) { const d = await r.json(); if (d.s === 'ok') { _posCandles[ticker] = d; return d; } } } catch {} return null;
+  try { const from = new Date(Date.now() - 365*86400000).toISOString().slice(0,10); const to = new Date().toISOString().slice(0,10); const r = await fetch('/api/candles?ticker=' + ticker + '&start=' + from + '&end=' + to); if (r.ok) { const d = await r.json(); if (d.s === 'ok') { _posCandles[ticker] = d; return d; } } } catch {} return null;
 }
 
 async function mktFetchATMiv(ticker) {
@@ -9856,6 +9856,27 @@ async function _mktYahooSection(symbols) {
   }
 }
 
+async function _mktYahooYields() {
+  const syms = [
+    {y: "^IRX", mat: "3M"},
+    {y: "^FVX", mat: "5Y"},
+    {y: "^TNX", mat: "10Y"},
+    {y: "^TYX", mat: "30Y"},
+  ];
+  try {
+    const r = await fetch(MKT_QUOTE_API + '?symbols=' + syms.map(s=>s.y).join(','));
+    if (!r.ok) return [];
+    const d = await r.json();
+    if (d.s !== 'ok') return [];
+    const row = {country: "United States", flag: "🇺🇸"};
+    for (const s of syms) {
+      const q = d.quotes[s.y];
+      row[s.mat] = q ? q.price.toFixed(3) + '%' : '—';
+    }
+    return [row];
+  } catch { return []; }
+}
+
 // ── Data Loading (Markets tab) ──────────────────────────────────────────────
 async function mktLoadMarketData() {
   try {
@@ -9868,7 +9889,7 @@ async function mktLoadMarketData() {
       _mktYahooSection(_MKT_SYMBOLS.globalEmerging),
       _mktYahooSection([..._MKT_SYMBOLS.currencies, ..._MKT_SYMBOLS.crypto]),
       _mktYahooSection(_MKT_SYMBOLS.commodities),
-      fetch(MKT_API + '/market-overview').then(r => r.ok ? r.json() : null).then(d => d?.yields || []).catch(() => []),
+      _mktYahooYields(),
     ]);
     _marketData = {indices, sectors, globalBroad, globalDeveloped, globalEmerging, currencies, commodities, yields, ts: Math.floor(Date.now()/1000)};
     mktRenderQuoteTable(indices, 'indices-body');
@@ -10104,7 +10125,7 @@ async function _lcFetchCandles(ticker) {
     } else {
       // Daily/weekly/monthly: use EODHD (no IP-lock issues)
       const { from, to } = _lcDateRange();
-      url = MKT_API + '/eodhd/candles/' + ticker + '?start=' + from + '&end=' + to;
+      url = '/api/candles?ticker=' + ticker + '&start=' + from + '&end=' + to;
     }
     // All requests proxied through backend (MDA token is IP-locked to server)
     const r = await fetch(url);
