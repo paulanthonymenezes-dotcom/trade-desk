@@ -857,7 +857,8 @@ table{width:100%;border-collapse:collapse}
       </div>
     </div>
 
-    <div class="frow"><label>Thesis — why are you in this trade?</label><textarea id="tf-thesis" style="height:60px" placeholder="What's the setup? What needs to happen for this to work?"></textarea></div>
+    <div class="frow"><label>Thesis to Enter — why are you in this trade?</label><textarea id="tf-thesis" style="height:60px" placeholder=""></textarea></div>
+    <div class="frow"><label>Thesis to Exit — when do you get out?</label><textarea id="tf-exitThesis" style="height:45px" placeholder=""></textarea></div>
     <div class="frow">
       <label>Entry Chart</label>
       <div style="display:flex;gap:8px;align-items:center">
@@ -2759,11 +2760,17 @@ function updateAutoMAEMFE(trade, stockPrice) {
   const pnl = liveUnrealizedPnl(trade, stockPrice);
   if (pnl === null) return;
 
+  const src = pnlSource(trade);
+  const isStock = (trade.tradeType||"").startsWith("Stock");
+
+  // Only record MAE/MFE from reliable sources (live spread quotes or stock prices)
+  // Intrinsic approx is too inaccurate for deep ITM / high DTE spreads
+  if (!isStock && src !== "live") return;
+
   if (!trade._autoMAE) trade._autoMAE = { pnl: null, price: null, date: null, src: null };
   if (!trade._autoMFE) trade._autoMFE = { pnl: null, price: null, date: null, src: null };
 
   const today = new Date().toISOString().slice(0, 10);
-  const src = pnlSource(trade);
 
   // MAE = worst unrealized P&L (most negative)
   if (trade._autoMAE.pnl === null || pnl < trade._autoMAE.pnl) {
@@ -3293,9 +3300,13 @@ function renderDiary() {
           </select>
         </div>
       </div>
+      <div class="frow" style="margin-bottom:6px">
+        <label>Thesis to Enter</label>
+        <textarea onblur="updateTradeField(${t.id},'thesis',this.value)" style="height:50px" placeholder="">${t.thesis||""}</textarea>
+      </div>
       <div class="frow" style="margin-bottom:0">
-        <label>Thesis</label>
-        <textarea onblur="updateTradeField(${t.id},'thesis',this.value)" style="height:70px" placeholder="Why this trade? What's the setup?">${t.thesis||""}</textarea>
+        <label>Thesis to Exit</label>
+        <textarea onblur="updateTradeField(${t.id},'exitThesis',this.value)" style="height:40px" placeholder="">${t.exitThesis||""}</textarea>
       </div>
     </div>
 
@@ -6118,6 +6129,7 @@ function openTradeModal(id=null) {
   document.getElementById("tf-pop").value = t?.pop||"";
   document.getElementById("tf-assetClass").value = t?.assetClass||"Options";
   document.getElementById("tf-thesis").value = t?.thesis||"";
+  document.getElementById("tf-exitThesis").value = t?.exitThesis||"";
   // Show existing chart if any
   pendingChartDataUrl = null;
   const existingChart = t?.chartLink||'';
@@ -6325,6 +6337,7 @@ function saveTrade() {
     entryType: document.getElementById("tf-entryType").value,
     assetClass: document.getElementById("tf-assetClass").value,
     thesis: document.getElementById("tf-thesis").value,
+    exitThesis: document.getElementById("tf-exitThesis").value,
     chartLink: pendingChartDataUrl === "CLEARED" ? '' : (pendingChartDataUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : '')),
   };
 
@@ -7502,6 +7515,15 @@ function confirmIBKRImport() {
     });
     STATE._spreadSLFixed2 = true;
     if (changed) save();
+  }
+  // One-time migration: clear bad MAE/MFE recorded from broken intrinsic approx
+  if (!STATE._maeMfeCleaned) {
+    (STATE.trades||[]).forEach(t => {
+      if (t._autoMAE?.src === "approx") { t._autoMAE = null; console.log(`[migration] Cleared bad MAE for ${t.ticker}`); }
+      if (t._autoMFE?.src === "approx") { t._autoMFE = null; console.log(`[migration] Cleared bad MFE for ${t.ticker}`); }
+    });
+    STATE._maeMfeCleaned = true;
+    save();
   }
   // One-time migration: recalculate spreadSL from % of premium (not % of max risk)
   if (!STATE._spreadSLFixed3) {
