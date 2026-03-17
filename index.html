@@ -2687,11 +2687,30 @@ async function refreshSpreadQuotes() {
 }
 
 // Intrinsic value approximation (always available from real-time stock price)
+// WARNING: Only accurate when short strike is OTM or near expiry.
+// For deep ITM spreads with high DTE, extrinsic value makes this wildly inaccurate.
 function intrinsicSpreadValue(trade, stockPrice) {
   if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
   const width = Math.abs(trade.shortStrike - trade.longStrike);
   const type = (trade.tradeType || "").toLowerCase();
-  if (type.includes("bear call") || type.includes("short call") || type.includes("covered call")) {
+  const isBearCall = type.includes("bear call") || type.includes("short call") || type.includes("covered call");
+
+  let shortITM; // how deep ITM is the short strike
+  if (isBearCall) {
+    shortITM = stockPrice - trade.shortStrike; // positive = ITM for calls
+  } else {
+    shortITM = trade.shortStrike - stockPrice; // positive = ITM for puts
+  }
+
+  // If short strike is deep ITM (>5% of stock price) and DTE > 14, intrinsic is unreliable
+  // because the long leg still has significant extrinsic value we can't estimate
+  const dte = daysLeft(trade.expiry);
+  const deepITMpct = (shortITM / stockPrice) * 100;
+  if (shortITM > 0 && deepITMpct > 5 && dte > 14) {
+    return null; // force "awaiting live quote" instead of showing garbage
+  }
+
+  if (isBearCall) {
     return Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
   }
   return Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
@@ -2822,8 +2841,10 @@ function renderSnapshot() {
     } else if (q) {
       const sl = t.slPrice ? parseFloat(t.slPrice) : null;
       const tp = t.tpPrice ? parseFloat(t.tpPrice) : null;
-      breached = sl && q.price <= sl;
-      tpHit = tp && q.price >= tp;
+      const _tt = (t.tradeType||"").toLowerCase();
+      const _bull = _tt.includes("bull") || _tt.includes("put");
+      breached = sl && (_bull ? q.price <= sl : q.price >= sl);
+      tpHit = tp && (_bull ? q.price >= tp : q.price <= tp);
 
       if (breached) {
         // SL BREACHED — full red bar
@@ -2841,22 +2862,33 @@ function renderSnapshot() {
         healthColor = healthPct <= 20 ? 'rgba(239,83,80,0.5)' : healthPct <= 40 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
         healthTitle = `${healthPct.toFixed(0)}% SL→TP`;
       } else if (sl) {
-        const dist = ((q.price - sl) / sl) * 100;
+        // Direction-aware SL distance
+        const __tt = (t.tradeType||"").toLowerCase();
+        const __bull = __tt.includes("bull") || __tt.includes("put");
+        const dist = __bull ? ((q.price - sl) / sl) * 100 : ((sl - q.price) / sl) * 100;
         healthPct = Math.max(5, Math.min(95, dist * 10));
         healthColor = dist < 2 ? 'rgba(239,83,80,0.5)' : dist < 5 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
-        healthTitle = `${dist.toFixed(1)}% above SL`;
+        healthTitle = `${dist.toFixed(1)}% from SL`;
       } else if (tp) {
-        const range = tp - t.shortStrike;
-        const prox = range > 0 ? ((q.price - t.shortStrike) / range) * 100 : 50;
+        const __tt = (t.tradeType||"").toLowerCase();
+        const __bull = __tt.includes("bull") || __tt.includes("put");
+        const range = __bull ? (tp - t.shortStrike) : (t.shortStrike - tp);
+        const prog = __bull ? (q.price - t.shortStrike) : (t.shortStrike - q.price);
+        const prox = range > 0 ? (prog / range) * 100 : 50;
         healthPct = Math.max(5, Math.min(95, prox));
         healthColor = prox <= 20 ? 'rgba(239,83,80,0.5)' : prox <= 40 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
         healthTitle = `${(100 - prox).toFixed(0)}% to TP`;
       } else {
-        const prox = ((q.price - t.shortStrike) / q.price) * 100;
-        healthPct = prox <= 0 ? 100 : Math.max(5, Math.min(95, prox / 10 * 100));
-        healthColor = prox <= 2 ? 'rgba(239,83,80,0.5)' : prox <= 5 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
-        if (prox <= 0) { breached = true; healthColor = C.neg; }
-        healthTitle = prox <= 0 ? "BELOW SHORT STRIKE" : `${prox.toFixed(1)}% from strike`;
+        // No SL/TP: show distance from short strike (direction-aware)
+        const __tt = (t.tradeType||"").toLowerCase();
+        const __bull = __tt.includes("bull") || __tt.includes("put");
+        const safeProx = __bull
+          ? ((q.price - t.shortStrike) / q.price) * 100   // bull: above = safe
+          : ((t.shortStrike - q.price) / q.price) * 100;  // bear: below = safe
+        healthPct = safeProx <= 0 ? 100 : Math.max(5, Math.min(95, safeProx / 10 * 100));
+        healthColor = safeProx <= 2 ? 'rgba(239,83,80,0.5)' : safeProx <= 5 ? 'rgba(255,255,255,0.3)' : 'rgba(38,166,154,0.5)';
+        if (safeProx <= 0) { breached = true; healthColor = C.neg; }
+        healthTitle = safeProx <= 0 ? (__bull ? "BELOW SHORT STRIKE" : "ABOVE SHORT STRIKE") : `${safeProx.toFixed(1)}% from strike`;
       }
     }
 
@@ -2915,10 +2947,16 @@ function renderPositions() {
     const q = STATE.quotes[t.ticker];
     const isStock = (t.tradeType||"").startsWith("Stock");
     const dl = isStock ? null : daysLeft(t.expiry);
-    const maxLoss = isStock ? null : (t.shortStrike - t.longStrike) * t.contracts * 100 - t.premiumCollected;
-    const prox = (!isStock && q) ? ((q.price - t.shortStrike) / q.price * 100) : null;
-    const proxColor = prox===null?C.textMut:prox<2?'rgba(239,83,80,0.5)':prox<5?'rgba(255,255,255,0.35)':'rgba(38,166,154,0.5)';
-    const proxWidth = prox===null?50:Math.max(0,Math.min(prox/10*100,100));
+    const maxLoss = isStock ? null : Math.abs(t.shortStrike - t.longStrike) * t.contracts * 100 - t.premiumCollected;
+    const _ttype = (t.tradeType||"").toLowerCase();
+    const _isBull = _ttype.includes("bull") || _ttype.includes("put");
+    // For bull spreads: positive = price above short strike = SAFE
+    // For bear spreads: positive = price above short strike = DANGER (flip sign for safety calc)
+    const proxRaw = (!isStock && q) ? ((q.price - t.shortStrike) / q.price * 100) : null;
+    const proxSafe = proxRaw !== null ? (_isBull ? proxRaw : -proxRaw) : null; // positive = safe for both
+    const prox = proxRaw; // keep raw for display
+    const proxColor = proxSafe===null?C.textMut:proxSafe<2?'rgba(239,83,80,0.5)':proxSafe<5?'rgba(255,255,255,0.35)':'rgba(38,166,154,0.5)';
+    const proxWidth = proxSafe===null?50:Math.max(0,Math.min(Math.abs(proxSafe)/10*100,100));
 
     // Child trades (partial closes)
     const childTrades = STATE.trades.filter(c=>c.parentTradeId===t.id && c.status!=="Open");
@@ -3084,7 +3122,7 @@ function renderPositions() {
         return `${hasMaeMfe || livePnl !== null ? `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:4px;padding:12px;margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em">TRADE P&L</div>
-            <div style="font-size:9px;color:${src==="live"?C.pos:src==="stock"?C.pos:C.textTri}">${src==="stock"?"● stock price":src==="live"?"● live spread $"+(spreadMid?.toFixed(2)||"?")+(spreadDelta!=null?" · Δ"+spreadDelta.toFixed(2):"")+(spreadTs?" · "+spreadTs:""):"○ intrinsic approx"}</div>
+            <div style="font-size:9px;color:${src==="live"?C.pos:src==="stock"?C.pos:C.textTri}">${src==="stock"?"● stock price":src==="live"?"● live spread $"+(spreadMid?.toFixed(2)||"?")+(spreadDelta!=null?" · Δ"+spreadDelta.toFixed(2):"")+(spreadTs?" · "+spreadTs:""):livePnl!==null?"○ intrinsic approx":"○ awaiting live quote"}</div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:${hasMaeMfe && livePnl !== null ? '8' : '0'}px">
