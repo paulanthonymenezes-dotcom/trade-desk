@@ -3,7 +3,7 @@
 Run with: uvicorn backtesting.server:app --reload --port 8787
 """
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -585,6 +585,46 @@ async def proxy_candles(resolution: str, ticker: str, countback: int = None, sta
     except Exception as e:
         if _candle_cache.get(cache_key):
             return _candle_cache[cache_key]
+        return {"s": "error", "errmsg": str(e)}
+
+
+# ── Generic MDA proxy (so frontend never hits MDA directly → preserves IP lock) ──
+
+_mda_generic_cache: dict = {}
+_MDA_GENERIC_TTL = 60  # 1 minute cache
+
+
+@app.get("/api/mda/{path:path}")
+async def proxy_mda(path: str, request: Request):
+    """Proxy any MarketData.app request through the server.
+
+    This ensures the MDA token is only ever used from the server IP,
+    preventing IP-lock issues on MDA's single-device plans.
+    """
+    now = _time.time()
+    query_string = str(request.query_params)
+    cache_key = f"mda_{path}_{query_string}"
+    if _mda_generic_cache.get(cache_key) and (now - _mda_generic_cache.get(f"{cache_key}_ts", 0)) < _MDA_GENERIC_TTL:
+        return _mda_generic_cache[cache_key]
+
+    # Forward all query params, inject token
+    params = dict(request.query_params)
+    params["token"] = _MDA_TOKEN
+    if "format" not in params:
+        params["format"] = "json"
+
+    url = f"{_MDA_BASE}/{path}"
+    try:
+        async with _httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url, params=params)
+            data = r.json()
+            if data.get("s") == "ok":
+                _mda_generic_cache[cache_key] = data
+                _mda_generic_cache[f"{cache_key}_ts"] = now
+            return data
+    except Exception as e:
+        if _mda_generic_cache.get(cache_key):
+            return _mda_generic_cache[cache_key]
         return {"s": "error", "errmsg": str(e)}
 
 

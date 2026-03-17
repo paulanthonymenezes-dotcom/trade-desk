@@ -1645,9 +1645,11 @@ async function load() {
   } catch(e) {}
 }
 
-// ── Market Data API ───────────────────────────────────────────────────────────
+// ── Market Data API (routed through server proxy to preserve IP lock) ────────
 async function mdaFetch(path, retries=2) {
-  const url = MDA_BASE + path + (path.includes("?") ? "&" : "?") + "token=" + MDA_TOKEN + "&format=json";
+  // Route through server: /mkt/api/mda/ + path (strip leading slash)
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+  const url = "/mkt/api/mda/" + cleanPath;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const r = await fetch(url);
@@ -9449,9 +9451,10 @@ function mktFmtMoney(n) { if (n == null) return '—'; const v = Number(n); if (
 function mktTimeAgo(ts) { if (!ts) return ''; const d = new Date(ts * 1000); return d.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true}); }
 function mktFormatDate(d) { if (!d) return ''; try { return new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); } catch { return d; } }
 
-// MDA fetch for markets tab (uses same token)
+// MDA fetch for markets tab (routes through server proxy)
 async function mktMdaFetch(path, retries=2) {
-  const url = MDA_BASE + path + (path.includes("?") ? "&" : "?") + "token=" + MDA_TOKEN + "&format=json";
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+  const url = "/mkt/api/mda/" + cleanPath;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const r = await fetch(url);
