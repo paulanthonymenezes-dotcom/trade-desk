@@ -599,6 +599,11 @@ table{width:100%;border-collapse:collapse}
             backColor: '0d1117',
             fontColor: 'c9d1d9'
           });
+          // Force iframe to fill container (FJ widget hardcodes 340px)
+          setTimeout(function(){
+            var iframe = document.querySelector('#fj-calendar-container iframe');
+            if(iframe) { iframe.style.width = '100%'; iframe.style.minWidth = '100%'; }
+          }, 500);
         }
       };
       document.body.appendChild(s);
