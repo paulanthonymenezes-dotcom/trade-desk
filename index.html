@@ -2239,42 +2239,66 @@ function checkAlerts() {
     if ((t.tradeType||"").startsWith("Stock")) return;
     const q = STATE.quotes[t.ticker];
     if (!q) return;
-    const prox = ((q.price - t.shortStrike)/q.price)*100;
     const dl = daysLeft(t.expiry);
     const key = t.id + "-";
 
-    // Strike proximity warning
-    if (prox < STATE.alertStrikeProx && prox >= 0 && !_alertedThisCycle.has(key+"prox")) {
+    // Determine direction: bullish (put spreads) vs bearish (call spreads)
+    const tt = (t.tradeType||"").toLowerCase();
+    const isBullish = tt.includes("bull") || tt.includes("put");
+    // Bull put: want price ABOVE short strike. Bear call: want price BELOW short strike.
+
+    // Strike proximity warning — direction-aware
+    const proxPct = Math.abs((q.price - t.shortStrike)/q.price)*100;
+    const dangerZone = isBullish
+      ? (q.price - t.shortStrike)/q.price*100  // positive = safe, shrinking = danger
+      : (t.shortStrike - q.price)/q.price*100; // positive = safe, shrinking = danger
+
+    if (dangerZone < STATE.alertStrikeProx && dangerZone >= 0 && !_alertedThisCycle.has(key+"prox")) {
       _alertedThisCycle.add(key+"prox");
-      sendTelegram(`⚠️ <b>${t.ticker}</b> — $${q.price.toFixed(2)} only ${prox.toFixed(1)}% above short strike $${t.shortStrike}\nDTE: ${dl}`);
+      const dir = isBullish ? "above" : "below";
+      sendTelegram(`⚠️ <b>${t.ticker}</b> — $${q.price.toFixed(2)} only ${dangerZone.toFixed(1)}% ${dir} short strike $${t.shortStrike}\nDTE: ${dl} | ${t.tradeType||"Spread"}`);
     }
 
-    // Short strike breach
-    if (q.price < t.shortStrike && !_alertedThisCycle.has(key+"breach")) {
+    // Short strike breach — direction-aware
+    const breached = isBullish ? (q.price < t.shortStrike) : (q.price > t.shortStrike);
+    if (breached && !_alertedThisCycle.has(key+"breach")) {
       _alertedThisCycle.add(key+"breach");
-      sendTelegram(`🔴 <b>${t.ticker} BREACHED SHORT STRIKE</b>\n$${q.price.toFixed(2)} < $${t.shortStrike} | DTE: ${dl}`);
+      const sym = isBullish ? "<" : ">";
+      sendTelegram(`🔴 <b>${t.ticker} BREACHED SHORT STRIKE</b>\n$${q.price.toFixed(2)} ${sym} $${t.shortStrike} | DTE: ${dl} | ${t.tradeType||"Spread"}`);
     }
 
-    // TP HIT — alert + auto-exit
-    if (t.tpPrice && q.price >= parseFloat(t.tpPrice) && !_alertedThisCycle.has(key+"tp")) {
-      _alertedThisCycle.add(key+"tp");
-      const tpLbl = getSRLabel(t.ticker, t.tpPrice);
-      sendTelegram(`✅ <b>${t.ticker} HIT RESISTANCE</b>${tpLbl?" ("+tpLbl+")":""}\n$${q.price.toFixed(2)} ≥ $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
-      if (STATE.autoExitEnabled) triggerAutoExit(t, "tp", q.price);
+    // TP HIT — direction-aware
+    // Bull: TP when price rises to target. Bear: TP when price drops to target.
+    if (t.tpPrice && !_alertedThisCycle.has(key+"tp")) {
+      const tpHit = isBullish ? (q.price >= parseFloat(t.tpPrice)) : (q.price <= parseFloat(t.tpPrice));
+      if (tpHit) {
+        _alertedThisCycle.add(key+"tp");
+        const tpLbl = getSRLabel(t.ticker, t.tpPrice);
+        const lvl = isBullish ? "RESISTANCE" : "SUPPORT TARGET";
+        const sym = isBullish ? "≥" : "≤";
+        sendTelegram(`✅ <b>${t.ticker} HIT ${lvl}</b>${tpLbl?" ("+tpLbl+")":""}\n$${q.price.toFixed(2)} ${sym} $${t.tpPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts} | ${t.tradeType||"Spread"}`);
+        if (STATE.autoExitEnabled) triggerAutoExit(t, "tp", q.price);
+      }
     }
 
-    // SL HIT — alert + auto-exit
-    if (t.slPrice && q.price <= parseFloat(t.slPrice) && !_alertedThisCycle.has(key+"sl")) {
-      _alertedThisCycle.add(key+"sl");
-      const slLbl = getSRLabel(t.ticker, t.slPrice);
-      sendTelegram(`🛑 <b>${t.ticker} BROKE SUPPORT</b>${slLbl?" ("+slLbl+")":""}\n$${q.price.toFixed(2)} ≤ $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts}`);
-      if (STATE.autoExitEnabled) triggerAutoExit(t, "sl", q.price);
+    // SL HIT — direction-aware
+    // Bull: SL when price drops to stop. Bear: SL when price rises to stop.
+    if (t.slPrice && !_alertedThisCycle.has(key+"sl")) {
+      const slHit = isBullish ? (q.price <= parseFloat(t.slPrice)) : (q.price >= parseFloat(t.slPrice));
+      if (slHit) {
+        _alertedThisCycle.add(key+"sl");
+        const slLbl = getSRLabel(t.ticker, t.slPrice);
+        const lvl = isBullish ? "BROKE SUPPORT" : "BROKE RESISTANCE";
+        const sym = isBullish ? "≤" : "≥";
+        sendTelegram(`🛑 <b>${t.ticker} ${lvl}</b>${slLbl?" ("+slLbl+")":""}\n$${q.price.toFixed(2)} ${sym} $${t.slPrice}\n${t.longStrike}/${t.shortStrike} x${t.contracts} | ${t.tradeType||"Spread"}`);
+        if (STATE.autoExitEnabled) triggerAutoExit(t, "sl", q.price);
+      }
     }
 
     // Expiry warning
     if (dl === 1 && !_alertedThisCycle.has(key+"exp")) {
       _alertedThisCycle.add(key+"exp");
-      sendTelegram(`⏰ <b>${t.ticker}</b> expires TOMORROW — ${t.longStrike}/${t.shortStrike} x${t.contracts}`);
+      sendTelegram(`⏰ <b>${t.ticker}</b> expires TOMORROW — ${t.longStrike}/${t.shortStrike} x${t.contracts} | ${t.tradeType||"Spread"}`);
     }
   });
 }
