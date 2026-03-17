@@ -576,11 +576,17 @@ table{width:100%;border-collapse:collapse}
       <div id="indices-body"><div class="loading">Loading...</div></div>
     </div>
 
-    <!-- Economic Calendar -->
-    <div class="section-box" id="sec-calendar" style="overflow:hidden;min-width:0;padding:0;border:1px solid var(--border-subtle);border-radius:4px">
-      <div style="height:420px;position:relative">
-        <iframe src="https://s.tradingview.com/embed-widget/events/?locale=en&colorTheme=dark&isTransparent=true&width=100%25&height=100%25&importanceFilter=0,1&currencyFilter=USD,EUR,GBP,JPY,CAD,AUD,CNY,CHF" style="width:100%;height:100%;border:none;display:block"></iframe>
-      </div>
+    <!-- Economic Calendar / News -->
+    <div class="section-box" id="sec-calendar" style="padding:10px 12px">
+      <div class="section-header"><span class="section-title">News & Calendar</span></div>
+      <a href="https://www.financialjuice.com" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--border-subtle);border-radius:5px;text-decoration:none;color:#fff;transition:border-color 0.15s" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor=''">
+        <span style="font-size:18px">📡</span>
+        <div>
+          <div style="font-size:12px;font-weight:600;letter-spacing:0.02em">Financial Juice</div>
+          <div style="font-size:10px;color:var(--text-secondary);margin-top:1px">Live news, econ calendar, voice alerts, earnings</div>
+        </div>
+        <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary)">↗</span>
+      </a>
     </div>
 
     <!-- US Equity Sectors -->
