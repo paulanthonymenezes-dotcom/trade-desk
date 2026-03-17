@@ -595,9 +595,9 @@ table{width:100%;border-collapse:collapse}
       <div id="yields-body"><div class="loading">Loading...</div></div>
     </div>
 
-    <!-- Global Markets -->
+    <!-- Global Broad -->
     <div class="section-box" id="sec-global-broad">
-      <div class="section-header"><span class="section-title">Global Markets</span></div>
+      <div class="section-header"><span class="section-title">Global Indices</span></div>
       <div id="global-broad-body"><div class="loading">Loading...</div></div>
     </div>
 
@@ -9797,24 +9797,25 @@ const _MKT_SYMBOLS = {
     {y: "XLB",  ticker: "XLB",  name: "Materials"},
   ],
   globalBroad: [
-    {y: "EEM",  ticker: "EEM",  name: "Emerging"},
-    {y: "ACWI", ticker: "ACWI", name: "Developed Blend"},
-    {y: "EFA",  ticker: "EFA",  name: "Developed"},
+    {y: "^GSPC", ticker: "SPX",   name: "S&P 500"},
+    {y: "ACWI",  ticker: "ACWI",  name: "MSCI World"},
+    {y: "EEM",   ticker: "EEM",   name: "Emerging Mkts ETF"},
   ],
   globalDeveloped: [
-    {y: "EWJ", ticker: "EWJ", name: "Japan"},
-    {y: "EWU", ticker: "EWU", name: "United Kingdom"},
-    {y: "EWG", ticker: "EWG", name: "Germany"},
-    {y: "EWA", ticker: "EWA", name: "Australia"},
-    {y: "EWQ", ticker: "EWQ", name: "France"},
+    {y: "^N225",  ticker: "NI225", name: "Nikkei 225"},
+    {y: "^HSI",   ticker: "HSI",   name: "Hang Seng"},
+    {y: "^FTSE",  ticker: "FTSE",  name: "FTSE 100"},
+    {y: "^GDAXI", ticker: "DAX",   name: "DAX"},
+    {y: "^AXJO",  ticker: "ASX",   name: "ASX 200"},
+    {y: "^FCHI",  ticker: "CAC",   name: "CAC 40"},
   ],
   globalEmerging: [
-    {y: "EWY", ticker: "EWY", name: "South Korea"},
-    {y: "FXI", ticker: "FXI", name: "China"},
-    {y: "EWW", ticker: "EWW", name: "Mexico"},
-    {y: "EPI", ticker: "EPI", name: "India"},
-    {y: "EWZ", ticker: "EWZ", name: "Brazil"},
-    {y: "EZA", ticker: "EZA", name: "South Africa"},
+    {y: "^KS11",   ticker: "KOSPI",  name: "KOSPI"},
+    {y: "000001.SS", ticker: "SHCOMP", name: "Shanghai Composite"},
+    {y: "^BSESN",  ticker: "SENSEX", name: "BSE Sensex"},
+    {y: "^BVSP",   ticker: "IBOV",   name: "Bovespa"},
+    {y: "^MXX",    ticker: "IPC",    name: "IPC Mexico"},
+    {y: "^TWII",   ticker: "TWSE",   name: "Taiwan Weighted"},
   ],
   currencies: [
     {y: "USDJPY=X", ticker: "USDJPY", name: "Japanese Yen"},
