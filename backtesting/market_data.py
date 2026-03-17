@@ -23,45 +23,44 @@ CACHE_TTL = 60  # seconds
 
 # ── Symbol definitions ───────────────────────────────────────────────────────
 
-# MarketData.app — US equities & ETFs (one quote call each, parallelized)
-MDA_QUOTES = {
+# MDA_QUOTES no longer used — all quotes now via EODHD to avoid IP-lock issues
+MDA_QUOTES = {}
+
+# EODHD real-time — indices, FX, crypto, sectors, global ETFs
+EODHD_QUOTES = {
     "sectors": [
-        {"s": "XLU",  "name": "Utilities"},
-        {"s": "XLP",  "name": "Cons. Staples"},
-        {"s": "XLE",  "name": "Energy"},
-        {"s": "XLRE", "name": "Real Estate"},
-        {"s": "XLF",  "name": "Financials"},
-        {"s": "XLV",  "name": "Health Care"},
-        {"s": "XLI",  "name": "Industrials"},
-        {"s": "XLY",  "name": "Cons. Discretionary"},
-        {"s": "XLC",  "name": "Communications"},
-        {"s": "XLK",  "name": "Technology"},
-        {"s": "XLB",  "name": "Materials"},
+        {"s": "XLU.US",  "ticker": "XLU",  "name": "Utilities"},
+        {"s": "XLP.US",  "ticker": "XLP",  "name": "Cons. Staples"},
+        {"s": "XLE.US",  "ticker": "XLE",  "name": "Energy"},
+        {"s": "XLRE.US", "ticker": "XLRE", "name": "Real Estate"},
+        {"s": "XLF.US",  "ticker": "XLF",  "name": "Financials"},
+        {"s": "XLV.US",  "ticker": "XLV",  "name": "Health Care"},
+        {"s": "XLI.US",  "ticker": "XLI",  "name": "Industrials"},
+        {"s": "XLY.US",  "ticker": "XLY",  "name": "Cons. Discretionary"},
+        {"s": "XLC.US",  "ticker": "XLC",  "name": "Communications"},
+        {"s": "XLK.US",  "ticker": "XLK",  "name": "Technology"},
+        {"s": "XLB.US",  "ticker": "XLB",  "name": "Materials"},
     ],
     "globalBroad": [
-        {"s": "EEM",  "name": "Emerging"},
-        {"s": "ACWI", "name": "Developed Blend"},
-        {"s": "EFA",  "name": "Developed"},
+        {"s": "EEM.US",  "ticker": "EEM",  "name": "Emerging"},
+        {"s": "ACWI.US", "ticker": "ACWI", "name": "Developed Blend"},
+        {"s": "EFA.US",  "ticker": "EFA",  "name": "Developed"},
     ],
     "globalDeveloped": [
-        {"s": "EWJ", "name": "Japan"},
-        {"s": "EWU", "name": "United Kingdom"},
-        {"s": "EWG", "name": "Germany"},
-        {"s": "EWA", "name": "Australia"},
-        {"s": "EWQ", "name": "France"},
+        {"s": "EWJ.US", "ticker": "EWJ", "name": "Japan"},
+        {"s": "EWU.US", "ticker": "EWU", "name": "United Kingdom"},
+        {"s": "EWG.US", "ticker": "EWG", "name": "Germany"},
+        {"s": "EWA.US", "ticker": "EWA", "name": "Australia"},
+        {"s": "EWQ.US", "ticker": "EWQ", "name": "France"},
     ],
     "globalEmerging": [
-        {"s": "EWY", "name": "South Korea"},
-        {"s": "FXI", "name": "China"},
-        {"s": "EWW", "name": "Mexico"},
-        {"s": "EPI", "name": "India"},
-        {"s": "EWZ", "name": "Brazil"},
-        {"s": "EZA", "name": "South Africa"},
+        {"s": "EWY.US", "ticker": "EWY", "name": "South Korea"},
+        {"s": "FXI.US", "ticker": "FXI", "name": "China"},
+        {"s": "EWW.US", "ticker": "EWW", "name": "Mexico"},
+        {"s": "EPI.US", "ticker": "EPI", "name": "India"},
+        {"s": "EWZ.US", "ticker": "EWZ", "name": "Brazil"},
+        {"s": "EZA.US", "ticker": "EZA", "name": "South Africa"},
     ],
-}
-
-# EODHD real-time — indices, FX, crypto
-EODHD_QUOTES = {
     "indices": [
         {"s": "GSPC.INDX",  "ticker": "SPX",  "name": "S&P 500"},
         {"s": "DJI.INDX",   "ticker": "INDU", "name": "Dow Jones"},
@@ -238,32 +237,31 @@ async def get_market_overview() -> dict:
     if _overview_cache["data"] and (now - _overview_cache["ts"]) < CACHE_TTL:
         return _overview_cache["data"]
 
-    async with httpx.AsyncClient(headers=MDA_HEADERS, timeout=15) as mda_client:
-        async with httpx.AsyncClient(timeout=15) as eodhd_client:
-            # Fire all requests in parallel
-            (
-                sectors,
-                global_broad,
-                global_developed,
-                global_emerging,
-                indices,
-                vix,
-                currencies,
-                crypto,
-                commodities,
-                yields,
-            ) = await asyncio.gather(
-                _fetch_mda_section(mda_client, MDA_QUOTES["sectors"]),
-                _fetch_mda_section(mda_client, MDA_QUOTES["globalBroad"]),
-                _fetch_mda_section(mda_client, MDA_QUOTES["globalDeveloped"]),
-                _fetch_mda_section(mda_client, MDA_QUOTES["globalEmerging"]),
-                _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["indices"]),
-                _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["vix"]),
-                _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["currencies"]),
-                _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["crypto"]),
-                _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["commodities"]),
-                _fetch_yields(eodhd_client),
-            )
+    async with httpx.AsyncClient(timeout=15) as eodhd_client:
+        # All quotes now via EODHD — no MDA IP-lock issues
+        (
+            sectors,
+            global_broad,
+            global_developed,
+            global_emerging,
+            indices,
+            vix,
+            currencies,
+            crypto,
+            commodities,
+            yields,
+        ) = await asyncio.gather(
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["sectors"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["globalBroad"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["globalDeveloped"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["globalEmerging"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["indices"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["vix"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["currencies"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["crypto"]),
+            _fetch_eodhd_section(eodhd_client, EODHD_QUOTES["commodities"]),
+            _fetch_yields(eodhd_client),
+        )
 
     result = {
         "indices": indices,
