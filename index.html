@@ -9774,23 +9774,112 @@ function mktRenderWatchlist() {
   el.innerHTML = html;
 }
 
+// ── Market overview symbol map (Yahoo tickers) ──────────────────────────────
+const _MKT_SYMBOLS = {
+  indices: [
+    {y: "^GSPC",  ticker: "SPX",  name: "S&P 500"},
+    {y: "^DJI",   ticker: "INDU", name: "Dow Jones"},
+    {y: "^IXIC",  ticker: "NDX",  name: "Nasdaq"},
+    {y: "^RUT",   ticker: "RTY",  name: "Russell 2000"},
+    {y: "^VIX",   ticker: "VIX",  name: "CBOE VIX"},
+  ],
+  sectors: [
+    {y: "XLU",  ticker: "XLU",  name: "Utilities"},
+    {y: "XLP",  ticker: "XLP",  name: "Cons. Staples"},
+    {y: "XLE",  ticker: "XLE",  name: "Energy"},
+    {y: "XLRE", ticker: "XLRE", name: "Real Estate"},
+    {y: "XLF",  ticker: "XLF",  name: "Financials"},
+    {y: "XLV",  ticker: "XLV",  name: "Health Care"},
+    {y: "XLI",  ticker: "XLI",  name: "Industrials"},
+    {y: "XLY",  ticker: "XLY",  name: "Cons. Discretionary"},
+    {y: "XLC",  ticker: "XLC",  name: "Communications"},
+    {y: "XLK",  ticker: "XLK",  name: "Technology"},
+    {y: "XLB",  ticker: "XLB",  name: "Materials"},
+  ],
+  globalBroad: [
+    {y: "EEM",  ticker: "EEM",  name: "Emerging"},
+    {y: "ACWI", ticker: "ACWI", name: "Developed Blend"},
+    {y: "EFA",  ticker: "EFA",  name: "Developed"},
+  ],
+  globalDeveloped: [
+    {y: "EWJ", ticker: "EWJ", name: "Japan"},
+    {y: "EWU", ticker: "EWU", name: "United Kingdom"},
+    {y: "EWG", ticker: "EWG", name: "Germany"},
+    {y: "EWA", ticker: "EWA", name: "Australia"},
+    {y: "EWQ", ticker: "EWQ", name: "France"},
+  ],
+  globalEmerging: [
+    {y: "EWY", ticker: "EWY", name: "South Korea"},
+    {y: "FXI", ticker: "FXI", name: "China"},
+    {y: "EWW", ticker: "EWW", name: "Mexico"},
+    {y: "EPI", ticker: "EPI", name: "India"},
+    {y: "EWZ", ticker: "EWZ", name: "Brazil"},
+    {y: "EZA", ticker: "EZA", name: "South Africa"},
+  ],
+  currencies: [
+    {y: "USDJPY=X", ticker: "USDJPY", name: "Japanese Yen"},
+    {y: "EURUSD=X", ticker: "EURUSD", name: "Euro"},
+    {y: "GBPUSD=X", ticker: "GBPUSD", name: "British Pound"},
+    {y: "USDCAD=X", ticker: "USDCAD", name: "Canadian Dollar"},
+  ],
+  crypto: [
+    {y: "BTC-USD", ticker: "BTCUSD", name: "Bitcoin"},
+  ],
+  commodities: [
+    {y: "GLD",  ticker: "XAUUSD", name: "Gold"},
+    {y: "USO",  ticker: "CL1",    name: "Crude Oil"},
+    {y: "BNO",  ticker: "CO1",    name: "Brent Crude"},
+    {y: "UNG",  ticker: "NG1",    name: "Natural Gas"},
+  ],
+};
+
+async function _mktYahooSection(symbols) {
+  const yTickers = symbols.map(s => s.y);
+  try {
+    const r = await fetch(MKT_QUOTE_API + '?symbols=' + yTickers.join(','));
+    if (!r.ok) return symbols.map(s => ({name: s.name, ticker: s.ticker, price: 0, change: 0, changePct: 0}));
+    const d = await r.json();
+    if (d.s !== 'ok') throw new Error('Bad response');
+    return symbols.map(s => {
+      const q = d.quotes[s.y];
+      return {
+        name: s.name,
+        ticker: s.ticker,
+        price: q ? q.price : 0,
+        change: q ? q.change : 0,
+        changePct: q ? q.changePct : 0,
+      };
+    });
+  } catch(e) {
+    console.warn('Yahoo section error:', e);
+    return symbols.map(s => ({name: s.name, ticker: s.ticker, price: 0, change: 0, changePct: 0}));
+  }
+}
+
 // ── Data Loading (Markets tab) ──────────────────────────────────────────────
 async function mktLoadMarketData() {
   try {
-    const r = await fetch(MKT_API + '/market-overview');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    _marketData = await r.json();
-    // Merge VIX into indices table
-    const indicesWithVix = [...(_marketData.indices || []), ...(_marketData.vix || [])];
-    mktRenderQuoteTable(indicesWithVix, 'indices-body');
-    mktRenderSectors(_marketData.sectors);
-    mktRenderYields(_marketData.yields);
-    mktRenderQuoteTable(_marketData.globalBroad, 'global-broad-body');
-    mktRenderQuoteTable(_marketData.globalDeveloped, 'global-dev-body');
-    mktRenderQuoteTable(_marketData.globalEmerging, 'global-em-body');
-    mktRenderQuoteTable(_marketData.currencies, 'currencies-body');
-    mktRenderQuoteTable(_marketData.commodities, 'commodities-body');
-    const lu = mkt$('last-updated'); if(lu) lu.textContent = 'Updated ' + mktTimeAgo(_marketData.ts);
+    // Fetch all sections in parallel via Yahoo (real-time)
+    const [indices, sectors, globalBroad, globalDeveloped, globalEmerging, currencies, commodities, yields] = await Promise.all([
+      _mktYahooSection([..._MKT_SYMBOLS.indices]),
+      _mktYahooSection(_MKT_SYMBOLS.sectors),
+      _mktYahooSection(_MKT_SYMBOLS.globalBroad),
+      _mktYahooSection(_MKT_SYMBOLS.globalDeveloped),
+      _mktYahooSection(_MKT_SYMBOLS.globalEmerging),
+      _mktYahooSection([..._MKT_SYMBOLS.currencies, ..._MKT_SYMBOLS.crypto]),
+      _mktYahooSection(_MKT_SYMBOLS.commodities),
+      fetch(MKT_API + '/market-overview').then(r => r.ok ? r.json() : null).then(d => d?.yields || []).catch(() => []),
+    ]);
+    _marketData = {indices, sectors, globalBroad, globalDeveloped, globalEmerging, currencies, commodities, yields, ts: Math.floor(Date.now()/1000)};
+    mktRenderQuoteTable(indices, 'indices-body');
+    mktRenderSectors(sectors);
+    mktRenderYields(yields);
+    mktRenderQuoteTable(globalBroad, 'global-broad-body');
+    mktRenderQuoteTable(globalDeveloped, 'global-dev-body');
+    mktRenderQuoteTable(globalEmerging, 'global-em-body');
+    mktRenderQuoteTable(currencies, 'currencies-body');
+    mktRenderQuoteTable(commodities, 'commodities-body');
+    const lu = mkt$('last-updated'); if(lu) lu.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   } catch (e) { console.error('Market data error:', e); const el = mkt$('indices-body'); if(el) el.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>'; }
 }
 
