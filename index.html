@@ -1693,20 +1693,12 @@ async function fetchQuotesYahoo(tickers) {
   }
 }
 
-// Fallback: single quote from MarketData.app (24h delayed on free/trial)
-async function fetchQuoteMDA(ticker) {
-  try {
-    const d = await mdaFetch("/stocks/quotes/" + ticker + "/");
-    if (d.s !== "ok") { dbg("Quote " + ticker + ": " + (d.errmsg||d.s), "warn"); return null; }
-    return { price: d.last[0], change: d.change[0], changePct: d.changepct[0] * 100, volume: d.volume[0], ts: new Date().toLocaleTimeString(), updated: d.updated?.[0]||0, source: "mda-delayed" };
-  } catch(e) { dbg("Quote " + ticker + " error: " + e.message, "error"); return null; }
-}
-
-// Primary: try Yahoo, fallback to MDA
+// Primary: Yahoo Finance quote via Vercel proxy
 async function fetchQuote(ticker) {
   const yq = await fetchQuotesYahoo([ticker]);
   if (yq && yq[ticker]) return yq[ticker];
-  return fetchQuoteMDA(ticker);
+  dbg("Quote " + ticker + ": Yahoo failed, no fallback", "warn");
+  return null;
 }
 
 async function fetchCandles(ticker, from, to) {
@@ -9532,9 +9524,7 @@ async function mktFetchPositionQuotes(positions) {
     const r = await fetch(MKT_QUOTE_API + '?symbols=' + tickers.join(','));
     if (r.ok) { const d = await r.json(); if (d.s === 'ok' && d.quotes) { for (const [t, q] of Object.entries(d.quotes)) { _posQuotes[t] = { price: q.price, change: q.change, changePct: q.changePct, prevClose: q.previousClose, volume: q.volume, source: 'yahoo' }; } } }
   } catch(e) { console.warn('Yahoo batch error:', e); }
-  for (const t of tickers) {
-    if (!_posQuotes[t]) { try { const d = await mktMdaFetch('/stocks/quotes/' + t + '/'); if (d.s === 'ok') _posQuotes[t] = { price: d.last[0], change: d.change?.[0]||0, changePct: (d.changepct?.[0]||0)*100, volume: d.volume?.[0]||0, source: 'mda' }; } catch {} }
-  }
+  // MDA fallback removed — Yahoo covers stock quotes, MDA IP-locked
 }
 
 async function mktFetchSpreadQuote(trade) {
@@ -9836,7 +9826,7 @@ async function mktLoadWatchlist() {
     _mktWatchlist = { tickers: data.tickers || [], targets: data.targets || {}, notes: data.notes || {}, srLevels: data.srLevels || {}, sectors: data.sectors || {} };
     if (_mktWatchlist.tickers.length) {
       try { const qr = await fetch(MKT_QUOTE_API + '?symbols=' + _mktWatchlist.tickers.join(',')); if (qr.ok) { const qd = await qr.json(); if (qd.s === 'ok' && qd.quotes) { for (const [t, q] of Object.entries(qd.quotes)) { _wlQuotes[t] = { price: q.price, change: q.change, changePct: q.changePct, prevClose: q.previousClose, volume: q.volume }; } } } } catch(e) { console.warn('Watchlist quotes error:', e); }
-      for (const t of _mktWatchlist.tickers) { if (!_wlQuotes[t]) { try { const d = await mktMdaFetch('/stocks/quotes/' + t + '/'); if (d.s === 'ok') _wlQuotes[t] = { price: d.last[0], change: d.change?.[0]||0, changePct: (d.changepct?.[0]||0)*100, volume: d.volume?.[0]||0 }; } catch {} } }
+      // MDA fallback removed — Yahoo covers stock quotes
     }
     mktRenderWatchlist();
   } catch(e) { console.error('Watchlist error:', e); const el = mkt$('watchlist-body'); if(el) el.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>'; }
