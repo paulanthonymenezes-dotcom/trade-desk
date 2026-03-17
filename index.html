@@ -3881,7 +3881,7 @@ function renderChecklistReadOnly(cl, open, date, compact) {
     h += `<div class="card" style="padding:10px;margin-bottom:8px;border:1px solid ${C.pos}44;background:${C.posDim}">
       <div style="font-size:10px;color:${C.pos};letter-spacing:0.02em;margin-bottom:4px">✅ PRE-MARKET PLAN LOCKED</div>
       <div style="font-size:10px;color:rgba(255,255,255,0.5)">Saved at ${cl.savedAt ? new Date(cl.savedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : ''} — this is your contract for the session</div>
-      <button class="btn btn-g" onclick="unlockChecklist('${date}')" style="font-size:9px;margin-top:8px;opacity:.6">EDIT</button>
+      <button class="btn btn-g" onclick="unlockChecklist('${date}')" style="font-size:10px;margin-top:8px;padding:4px 12px;border:1px solid rgba(255,255,255,0.3)">✏️ EDIT CHECKLIST</button>
     </div>`;
   }
 
