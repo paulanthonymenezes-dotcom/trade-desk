@@ -196,15 +196,32 @@ async def _fetch_eodhd_section(client: httpx.AsyncClient, items: list[dict]) -> 
     return out
 
 
+async def _eodhd_eod_last(client: httpx.AsyncClient, symbol: str) -> float | None:
+    """Fetch latest EOD close from EODHD (works for bonds where real-time returns NA)."""
+    async with _sem:
+        try:
+            r = await client.get(
+                f"{EODHD_BASE}/eod/{symbol}",
+                params={"api_token": EODHD_API_TOKEN, "fmt": "json", "period": "d", "order": "d", "from": "2026-01-01"},
+            )
+            if r.status_code == 200:
+                rows = r.json()
+                if isinstance(rows, list) and rows:
+                    return float(rows[0].get("close", 0))
+        except Exception:
+            pass
+    return None
+
+
 async def _fetch_yields(client: httpx.AsyncClient) -> list[dict]:
-    """Fetch global bond yields from EODHD GBOND exchange."""
+    """Fetch global bond yields from EODHD GBOND exchange (EOD endpoint)."""
     # Collect all yield symbols
     all_items = []
     for country, bonds in YIELD_SYMBOLS.items():
         for eodhd_sym, maturity in bonds:
             all_items.append({"country": country, "s": eodhd_sym, "maturity": maturity})
 
-    tasks = [_eodhd_rt(client, item["s"]) for item in all_items]
+    tasks = [_eodhd_eod_last(client, item["s"]) for item in all_items]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Group by country
@@ -213,8 +230,8 @@ async def _fetch_yields(client: httpx.AsyncClient) -> list[dict]:
         c = item["country"]
         if c not in by_country:
             by_country[c] = {"country": c, "flag": _flag(c)}
-        q = result if isinstance(result, dict) else None
-        by_country[c][item["maturity"]] = f"{q['price']:.3f}%" if q and q["price"] else "—"
+        val = result if isinstance(result, float) and result else None
+        by_country[c][item["maturity"]] = f"{val:.3f}%" if val else "—"
 
     # Preserve order
     return [by_country[c] for c in YIELD_SYMBOLS if c in by_country]
