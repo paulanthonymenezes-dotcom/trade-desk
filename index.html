@@ -1703,7 +1703,9 @@ async function fetchQuote(ticker) {
 
 async function fetchCandles(ticker, from, to) {
   try {
-    const d = await mdaFetch("/stocks/candles/D/" + ticker + "/?from=" + from + "&to=" + to);
+    const r = await fetch("/mkt/api/eodhd/candles/" + ticker + "?start=" + from + "&end=" + to);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
     return d.s === "ok" ? d : null;
   } catch { return null; }
 }
@@ -1848,8 +1850,10 @@ function drawIVSparkline(history, width=60, height=24) {
 
 async function fetchEarnings(ticker) {
   try {
-    const d = await mdaFetch("/stocks/earnings/" + ticker + "/?datekey=next");
-    return d.s === "ok" && d.reportDate ? d.reportDate[0] : null;
+    const r = await fetch("/mkt/api/eodhd/earnings/" + ticker);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.s === "ok" && d.date ? d.date : null;
   } catch { return null; }
 }
 
@@ -9549,7 +9553,7 @@ async function mktFetchAllSpreads(positions) {
 }
 
 async function mktFetchCandles(ticker) {
-  try { const from = new Date(Date.now() - 365*86400000).toISOString().slice(0,10); const to = new Date().toISOString().slice(0,10); const d = await mktMdaFetch('/stocks/candles/D/' + ticker + '/?from=' + from + '&to=' + to); if (d.s === 'ok') { _posCandles[ticker] = d; return d; } } catch {} return null;
+  try { const from = new Date(Date.now() - 365*86400000).toISOString().slice(0,10); const to = new Date().toISOString().slice(0,10); const r = await fetch('/mkt/api/eodhd/candles/' + ticker + '?start=' + from + '&end=' + to); if (r.ok) { const d = await r.json(); if (d.s === 'ok') { _posCandles[ticker] = d; return d; } } } catch {} return null;
 }
 
 async function mktFetchATMiv(ticker) {
@@ -10002,7 +10006,7 @@ async function _lcFetchCandles(ticker) {
   try {
     let url;
     if (isIntraday) {
-      // Intraday: use countback, cap bars
+      // Intraday: use MDA via server proxy (EODHD doesn't have intraday)
       const lb = _lc.lookback;
       const barsPerDay = res === '5' ? 78 : res === '15' ? 26 : res === '30' ? 13 : res === '60' ? 7 : 78;
       let days = lb === '5D' ? 5 : lb === '1M' ? 22 : lb === '3M' ? 65 : lb === '6M' ? 130 : 5;
@@ -10010,9 +10014,9 @@ async function _lcFetchCandles(ticker) {
       let bars = Math.min(barsPerDay * days + 50, 800);
       url = MKT_API + '/candles/' + res + '/' + ticker + '?countback=' + bars;
     } else {
-      // Daily/weekly/monthly: use from/to
+      // Daily/weekly/monthly: use EODHD (no IP-lock issues)
       const { from, to } = _lcDateRange();
-      url = MKT_API + '/candles/' + res + '/' + ticker + '?start=' + from + '&end=' + to;
+      url = MKT_API + '/eodhd/candles/' + ticker + '?start=' + from + '&end=' + to;
     }
     // All requests proxied through backend (MDA token is IP-locked to server)
     const r = await fetch(url);

@@ -628,6 +628,76 @@ async def proxy_mda(path: str, request: Request):
         return {"s": "error", "errmsg": str(e)}
 
 
+# ── EODHD Candle Proxy (no IP lock, replaces MDA for OHLCV) ──────────────
+
+from backtesting.config import EODHD_API_TOKEN as _EODHD_TOKEN
+
+_EODHD_BASE = "https://eodhd.com/api"
+_eodhd_candle_cache: dict = {}
+_EODHD_CANDLE_TTL = 300  # 5 min
+
+
+@app.get("/api/eodhd/candles/{ticker}")
+async def proxy_eodhd_candles(ticker: str, start: str = None, end: str = None):
+    """Proxy EODHD OHLCV candles. Returns MDA-compatible format {s,t,o,h,l,c,v}."""
+    now = _time.time()
+    cache_key = f"eodhd_candle_{ticker}_{start}_{end}"
+    if _eodhd_candle_cache.get(cache_key) and (now - _eodhd_candle_cache.get(f"{cache_key}_ts", 0)) < _EODHD_CANDLE_TTL:
+        return _eodhd_candle_cache[cache_key]
+
+    params = {"api_token": _EODHD_TOKEN, "fmt": "json", "period": "d"}
+    if start:
+        params["from"] = start
+    if end:
+        params["to"] = end
+
+    url = f"{_EODHD_BASE}/eod/{ticker}.US"
+    try:
+        async with _httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url, params=params)
+            rows = r.json()
+            if not isinstance(rows, list) or not rows:
+                return {"s": "no_data"}
+            # Convert EODHD format to MDA-compatible arrays
+            data = {
+                "s": "ok",
+                "t": [int(_time.mktime(_time.strptime(row["date"], "%Y-%m-%d"))) for row in rows],
+                "o": [row["open"] for row in rows],
+                "h": [row["high"] for row in rows],
+                "l": [row["low"] for row in rows],
+                "c": [row["close"] for row in rows],
+                "v": [row["volume"] for row in rows],
+            }
+            _eodhd_candle_cache[cache_key] = data
+            _eodhd_candle_cache[f"{cache_key}_ts"] = now
+            return data
+    except Exception as e:
+        if _eodhd_candle_cache.get(cache_key):
+            return _eodhd_candle_cache[cache_key]
+        return {"s": "error", "errmsg": str(e)}
+
+
+@app.get("/api/eodhd/earnings/{ticker}")
+async def proxy_eodhd_earnings(ticker: str):
+    """Fetch next earnings date from EODHD."""
+    try:
+        async with _httpx.AsyncClient(timeout=15) as client:
+            today = _time.strftime("%Y-%m-%d")
+            r = await client.get(
+                f"{_EODHD_BASE}/calendar/earnings",
+                params={"api_token": _EODHD_TOKEN, "fmt": "json", "symbols_short": f"{ticker}.US", "from": today},
+            )
+            rows = r.json()
+            if isinstance(rows, dict) and rows.get("earnings"):
+                rows = rows["earnings"]
+            if isinstance(rows, list) and rows:
+                next_date = rows[0].get("report_date") or rows[0].get("date")
+                return {"s": "ok", "date": next_date}
+            return {"s": "no_data"}
+    except Exception as e:
+        return {"s": "error", "errmsg": str(e)}
+
+
 # ── Positions (from Supabase state table for market dashboard) ─────────────
 
 @app.get("/api/positions/open")
