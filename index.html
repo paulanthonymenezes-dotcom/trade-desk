@@ -842,10 +842,10 @@ table{width:100%;border-collapse:collapse}
         </div>
       </div>
       <div class="frow" style="margin-bottom:0">
-        <label>🚨 Spread SL — % of max risk (spread widens this far past entry)</label>
+        <label>🚨 Spread SL — % of premium lost (close when loss = this % of credit)</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="tf-spreadSLPct" type="number" placeholder="e.g. 75" style="flex:1" oninput="calcSpreadSL()">
-          <span style="color:var(--text-secondary);font-size:11px">% max risk</span>
+          <input id="tf-spreadSLPct" type="number" placeholder="e.g. 50" style="flex:1" oninput="calcSpreadSL()">
+          <span style="color:var(--text-secondary);font-size:11px">% of premium</span>
           <span id="tf-spreadSLCalc" style="color:var(--negative);font-size:12px;font-variant-numeric:tabular-nums;min-width:80px"></span>
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
@@ -3059,7 +3059,7 @@ function renderPositions() {
         ${t.spreadSL ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:8px 10px">
           <div style="font-size:9px;color:${C.neg};letter-spacing:0;margin-bottom:3px">🚨 SPREAD SL</div>
           <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.neg};font-weight:600">$${parseFloat(t.spreadSL).toFixed(2)}</div>
-          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadSLPct}% max risk${spreadSLDist != null ? ` · ~${Math.abs(spreadSLDist)}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${t.spreadSLPct}% premium loss${spreadSLDist != null ? ` · ~${Math.abs(spreadSLDist)}% away` : ""}${spLabel ? ` · ${spLabel}` : ""}</div>
         </div>` : ""}
       </div>`;
       })() : ""}
@@ -6142,10 +6142,9 @@ function calcSpreadSLValue() {
   if (!pct || !premium) return "";
   const perSpread = premium / (100 * contracts);
   const width = Math.abs(shortStrike - longStrike);
-  // SL = entry + (max possible loss per spread × pct)
-  // e.g. entry $5.30 on $6-wide at 75% → $5.30 + ($0.70 × 0.75) = $5.825
-  const maxLossPerSpread = width - perSpread;
-  const sl = Math.min(perSpread + (maxLossPerSpread * pct / 100), width);
+  // SL = entry + (premium per spread × pct / 100)
+  // e.g. collected $3.10/share, 50% SL → lose $1.55 → close when spread is at $3.10 + $1.55 = $4.65
+  const sl = Math.min(perSpread + (perSpread * pct / 100), width);
   return sl.toFixed(2);
 }
 
@@ -7502,6 +7501,24 @@ function confirmIBKRImport() {
       console.log(`[migration] ${t.ticker} ${t.shortStrike}/${t.longStrike}: SL=$${t.spreadSL} (75% max risk), TP=$${t.spreadTP} (50% profit)`);
     });
     STATE._spreadSLFixed2 = true;
+    if (changed) save();
+  }
+  // One-time migration: recalculate spreadSL from % of premium (not % of max risk)
+  if (!STATE._spreadSLFixed3) {
+    let changed = false;
+    (STATE.trades||[]).forEach(t => {
+      if (t.status !== 'Open' || !t.premiumCollected || !t.shortStrike || !t.longStrike || !t.contracts) return;
+      const width = Math.abs(t.shortStrike - t.longStrike);
+      const perSpread = t.premiumCollected / (100 * t.contracts);
+      if (perSpread <= 0) return;
+      const slPct = parseFloat(t.spreadSLPct) || 50;
+      const sl = Math.min(perSpread + (perSpread * slPct / 100), width);
+      t.spreadSLPct = String(slPct);
+      t.spreadSL = sl.toFixed(2);
+      changed = true;
+      console.log(`[migration] ${t.ticker}: SL=$${t.spreadSL} (${slPct}% of premium $${perSpread.toFixed(2)})`);
+    });
+    STATE._spreadSLFixed3 = true;
     if (changed) save();
   }
   // Apply saved theme
