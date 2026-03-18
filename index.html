@@ -2688,7 +2688,8 @@ function intrinsicSpreadValue(trade, stockPrice) {
   if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
   const width = Math.abs(trade.shortStrike - trade.longStrike);
   const type = (trade.tradeType || "").toLowerCase();
-  const isBearCall = type.includes("bear call") || type.includes("short call") || type.includes("covered call");
+  const isCallSide = type.includes("call") && !type.includes("put");
+  const isBearCall = isCallSide || type.includes("bear call") || type.includes("short call") || type.includes("covered call");
 
   let shortITM; // how deep ITM is the short strike
   if (isBearCall) {
@@ -7519,6 +7520,18 @@ function confirmIBKRImport() {
     STATE._maeMfeCleaned = true;
     save();
   }
+  // One-time migration v2: clear ALL MAE/MFE for open trades (call ratio type wasn't matched correctly)
+  if (!STATE._maeMfeCleaned2) {
+    (STATE.trades||[]).forEach(t => {
+      if (t.status === 'Open' && (t._autoMAE || t._autoMFE)) {
+        console.log(`[migration] Reset MAE/MFE for open trade ${t.ticker} (was MAE=${t._autoMAE?.pnl}, MFE=${t._autoMFE?.pnl})`);
+        t._autoMAE = null;
+        t._autoMFE = null;
+      }
+    });
+    STATE._maeMfeCleaned2 = true;
+    save();
+  }
   // One-time migration: recalculate spreadSL from % of premium (not % of max risk)
   if (!STATE._spreadSLFixed3) {
     let changed = false;
@@ -9573,7 +9586,21 @@ function mktIntrinsicSpreadValue(trade, stockPrice) {
   if (!stockPrice || !trade.shortStrike || !trade.longStrike) return null;
   const width = Math.abs(trade.shortStrike - trade.longStrike);
   const type = (trade.tradeType||'').toLowerCase();
-  if (type.includes('bear call') || type.includes('short call') || type.includes('covered call')) return Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
+  const isCallSide = type.includes('call') && !type.includes('put');
+  const isBearish = type.includes('bear') || type.includes('short call') || type.includes('covered call');
+  // Call spreads (including ratio, backspread, broken wing): intrinsic = how far stock is above short strike
+  if (isCallSide || isBearish) {
+    const shortITM = stockPrice - trade.shortStrike;
+    const dte = mktCalcDTE(trade.expiry);
+    const deepPct = (shortITM / stockPrice) * 100;
+    if (shortITM > 0 && deepPct > 5 && dte > 14) return null; // too deep ITM + high DTE = unreliable
+    return Math.max(0, Math.min(width, stockPrice - trade.shortStrike));
+  }
+  // Put spreads
+  const shortITM = trade.shortStrike - stockPrice;
+  const dte = mktCalcDTE(trade.expiry);
+  const deepPct = (shortITM / stockPrice) * 100;
+  if (shortITM > 0 && deepPct > 5 && dte > 14) return null;
   return Math.max(0, Math.min(width, trade.shortStrike - stockPrice));
 }
 
