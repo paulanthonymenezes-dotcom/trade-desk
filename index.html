@@ -576,39 +576,15 @@ table{width:100%;border-collapse:collapse}
       <div id="indices-body"><div class="loading">Loading...</div></div>
     </div>
 
-    <!-- Economic Calendar — Financial Juice embed -->
-    <div class="section-box full-width" id="sec-calendar" style="padding:0;overflow:hidden;border:1px solid var(--border-subtle);border-radius:4px">
-      <div class="section-header" style="padding:10px 12px 4px;display:flex;align-items:center;justify-content:space-between">
-        <span class="section-title">Economic Calendar</span>
-        <a href="https://www.financialjuice.com" target="_blank" rel="noopener" style="font-size:9px;color:var(--text-tertiary);text-decoration:none;letter-spacing:0.03em" onmouseover="this.style.color='#fff'" onmouseout="this.style.color=''">FINANCIAL JUICE ↗</a>
+    <!-- Calendar & News — quick links -->
+    <div class="section-box" id="sec-calendar">
+      <div class="section-header"><span class="section-title">Calendar & News</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="https://www.financialjuice.com" target="_blank" rel="noopener" class="btn btn-g" style="padding:8px 14px;font-size:11px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-visible)">📡 Financial Juice</a>
+        <a href="https://www.forexfactory.com/calendar" target="_blank" rel="noopener" class="btn btn-g" style="padding:8px 14px;font-size:11px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-visible)">📅 Forex Factory</a>
+        <a href="https://www.earningswhispers.com/calendar" target="_blank" rel="noopener" class="btn btn-g" style="padding:8px 14px;font-size:11px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-visible)">🎯 Earnings Whispers</a>
       </div>
-      <div id="fj-calendar-container" style="height:380px"></div>
     </div>
-    <script>
-    (function(){
-      var s = document.createElement('script');
-      s.src = 'https://feed.financialjuice.com/widgets/widgets.js';
-      s.onload = function(){
-        if(typeof FJWidgets !== 'undefined') {
-          FJWidgets.createWidget({
-            widgetType: 'ecocal',
-            mode: 'standard',
-            container: 'fj-calendar-container',
-            width: '100%',
-            height: 380,
-            backColor: '0d1117',
-            fontColor: 'c9d1d9'
-          });
-          // Force iframe to fill container (FJ widget hardcodes 340px)
-          setTimeout(function(){
-            var iframe = document.querySelector('#fj-calendar-container iframe');
-            if(iframe) { iframe.style.width = '100%'; iframe.style.minWidth = '100%'; }
-          }, 500);
-        }
-      };
-      document.body.appendChild(s);
-    })();
-    </script>
 
     <!-- US Equity Sectors -->
     <div class="section-box" id="sec-sectors">
