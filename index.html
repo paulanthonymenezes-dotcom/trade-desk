@@ -7402,8 +7402,6 @@ function parseFlexCSVTrades(csvText) {
       if (parsed) expiryFmt = parsed.expiry;
     }
 
-    const dateOnly = rawDt.split(/[;T,]/)[0].trim().replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
-
     if (!ticker || !expiryFmt || isNaN(strike) || isNaN(qty) || qty === 0) continue;
     if (!side) continue; // Skip non-option rows
 
