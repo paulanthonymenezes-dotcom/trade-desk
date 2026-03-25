@@ -1886,6 +1886,8 @@ function calcHighDist(candles, days) {
 }
 
 function daysLeft(expiry) { return Math.ceil((_toDate(expiry)-new Date())/86400000); }
+const FX_PAIRS = ["EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","NZDUSD","EURJPY","GBPJPY","EURGBP"];
+function isFXTicker(t) { return FX_PAIRS.includes((t||"").replace(/[=/]/g,"").toUpperCase()); }
 function _toDate(v) { return typeof v==='number'&&v<1e12 ? new Date(v*1000) : new Date(v); }
 function dteColor(d) { return d<=3?'rgba(239,83,80,0.6)':d<=7?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.4)'; }
 function dteBucket(d) { return d<=1?"0–1 DTE":d<=7?"2–7 DTE":d<=15?"8–15 DTE":d<=30?"16–30 DTE":d<=45?"31–45 DTE":"45+ DTE"; }
@@ -2092,7 +2094,18 @@ async function refreshAll() {
   } catch(e) { dbg("State re-sync failed: " + e.message, "warn"); }
 
   const openTrades = STATE.trades.filter(t=>t.status==="Open");
-  const tickers = [...new Set([...STATE.watchlist, ...openTrades.map(t=>t.ticker)])];
+  // Map FX tickers to Yahoo format (EURUSD → EURUSD=X) for quote fetching
+  const rawTickers = [...new Set([...STATE.watchlist, ...openTrades.map(t=>t.ticker)])];
+  const fxYahooMap = {}; // "EURUSD=X" → "EURUSD"
+  const tickers = rawTickers.map(t => {
+    const trade = openTrades.find(tr => tr.ticker === t);
+    if (trade && (trade.assetClass === "FX" || isFXTicker(t))) {
+      const ySymbol = t + "=X";
+      fxYahooMap[ySymbol] = t;
+      return ySymbol;
+    }
+    return t;
+  });
   const today = new Date().toISOString().slice(0,10);
   const yearAgo = new Date(Date.now()-366*86400000).toISOString().slice(0,10);
 
@@ -2103,11 +2116,13 @@ async function refreshAll() {
   if (yahooQuotes) {
     dbg("✓ Yahoo Finance: " + Object.keys(yahooQuotes).length + "/" + tickers.length + " quotes (real-time)", "success");
     for (const [t, q] of Object.entries(yahooQuotes)) {
-      const existing = STATE.quotes[t];
+      // Map FX Yahoo symbols back to dashboard tickers (EURUSD=X → EURUSD)
+      const dashTicker = fxYahooMap[t] || t;
+      const existing = STATE.quotes[dashTicker];
       if (!existing || q.price !== existing.price) {
-        STATE.quotes[t] = q;
+        STATE.quotes[dashTicker] = q;
       } else {
-        STATE.quotes[t] = {...existing, ts: q.ts, source: q.source};
+        STATE.quotes[dashTicker] = {...existing, ts: q.ts, source: q.source};
       }
     }
     // Fallback: fetch any missing tickers from MarketData.app
@@ -2934,6 +2949,80 @@ function renderSnapshot() {
   </div>`;
 }
 
+function renderFXCard(t, q) {
+  const rate = q ? q.price : null;
+  const entryRate = t.entryRate || t.shortStrike; // shortStrike used as entry rate for FX
+  const notional = t.notional || t.contracts || 0;
+  const dir = (t.tradeType || "").toLowerCase().includes("short") ? "Short" : "Long";
+  const dirColor = dir === "Long" ? C.pos : C.neg;
+
+  // P&L calculation
+  let pnl = null;
+  if (rate && entryRate) {
+    const pair = (t.ticker || "").toUpperCase();
+    if (pair.startsWith("USD")) {
+      // USDJPY: P&L = notional × (1/entry - 1/current) for USD-based
+      // Simplified: for USDJPY long, profit when rate goes up
+      const diff = rate - entryRate;
+      pnl = dir === "Long" ? notional * diff : notional * -diff;
+      // Convert from JPY to USD for JPY pairs
+      if (pair.includes("JPY")) pnl = pnl / rate;
+    } else {
+      // EURUSD: P&L = notional × (current - entry)
+      const diff = rate - entryRate;
+      pnl = dir === "Long" ? notional * diff : notional * -diff;
+    }
+  }
+  const pnlColor = pnl === null ? C.textMut : pnl >= 0 ? C.pos : C.neg;
+  const rateChange = q ? q.changePct : null;
+  const rateChangeColor = rateChange === null ? C.textMut : rateChange >= 0 ? C.pos : C.neg;
+
+  // TP/SL as rate levels
+  const tp = t.tpPrice ? parseFloat(t.tpPrice) : null;
+  const sl = t.slPrice ? parseFloat(t.slPrice) : null;
+  const tpDist = tp && rate ? ((tp - rate) / rate * 100) : null;
+  const slDist = sl && rate ? ((rate - sl) / rate * 100) : null;
+
+  return `<div class="card" id="trade-${t.id}" data-chart-ticker="${t.ticker}" style="border:1px solid ${C.warn}33">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${C.text}">${t.ticker}</div>
+          <span style="font-size:9px;padding:2px 6px;border-radius:3px;background:${C.warn}22;color:${C.warn};font-weight:600">FX</span>
+          ${rate ? `<div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:rgba(255,255,255,0.7)">${rate.toFixed(4)}</div>
+          <div style="font-size:10px;color:${rateChangeColor}">${rateChange>=0?"+":""}${rateChange?.toFixed(2)||"?"}%</div>` : `<div style="font-size:10px;color:${C.textSec}">loading...</div>`}
+        </div>
+        <div style="font-size:10px;color:${C.text};margin-top:3px">
+          <span style="color:${dirColor};font-weight:600">${dir}</span> · ${Math.abs(notional).toLocaleString()} units · entry ${entryRate ? entryRate.toFixed(4) : "?"}
+          ${t.thesis ? " · " + t.thesis.slice(0,40) : ""}
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        ${pnl !== null ? `<div style="font-variant-numeric:tabular-nums;font-size:14px;color:${pnlColor};font-weight:600">${pnl>=0?"+":""}$${pnl.toFixed(0)}</div>` : ""}
+        <div style="font-size:9px;color:${C.textSec};margin-top:2px">${t.entryDate || "?"}</div>
+      </div>
+    </div>
+
+    ${tp || sl ? `<div style="display:flex;gap:6px;margin-bottom:10px">
+      ${tp ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.posDim};border-radius:3px;padding:6px 8px">
+        <div style="font-size:8px;color:${C.pos};letter-spacing:0;margin-bottom:2px">🎯 TP RATE</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.pos};font-weight:600">${tp.toFixed(4)}</div>
+        ${tpDist !== null ? `<div style="font-size:9px;color:${C.textSec};margin-top:1px">${Math.abs(tpDist).toFixed(2)}% away</div>` : ""}
+      </div>` : ""}
+      ${sl ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:6px 8px">
+        <div style="font-size:8px;color:${C.neg};letter-spacing:0;margin-bottom:2px">🛑 SL RATE</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.neg};font-weight:600">${sl.toFixed(4)}</div>
+        ${slDist !== null ? `<div style="font-size:9px;color:${C.textSec};margin-top:1px">${Math.abs(slDist).toFixed(2)}% away</div>` : ""}
+      </div>` : ""}
+    </div>` : ""}
+
+    <!-- Quick actions -->
+    <div style="display:flex;gap:4px;justify-content:flex-end">
+      <button class="btn btn-g" onclick="openTradeModal(${t.id})" style="font-size:9px;padding:4px 10px">EDIT</button>
+    </div>
+  </div>`;
+}
+
 function renderPositions() {
   // Skip re-render if user is actively typing in a note input or textarea
   const activeEl = document.activeElement;
@@ -2947,7 +3036,9 @@ function renderPositions() {
 
   el.innerHTML = open.map(t => {
     const q = STATE.quotes[t.ticker];
-    const isStock = (t.tradeType||"").startsWith("Stock");
+    const isFX = t.assetClass === "FX" || isFXTicker(t.ticker);
+    const isStock = !isFX && (t.tradeType||"").startsWith("Stock");
+    if (isFX) return renderFXCard(t, q);
     const dl = isStock ? null : daysLeft(t.expiry);
     const maxLoss = isStock ? null : Math.abs(t.shortStrike - t.longStrike) * t.contracts * 100 - t.premiumCollected;
     const _ttype = (t.tradeType||"").toLowerCase();
@@ -3571,7 +3662,7 @@ function renderDiaryJournalView() {
   }
 
   document.getElementById("diary-list-panel").innerHTML = html;
-  document.getElementById("diary-detail-panel").innerHTML = '';
+  renderLearningsPanel();
 }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function saveJournalEntry(date) {
@@ -3611,6 +3702,78 @@ function editJournalEntry(date) {
       <button class="btn btn-g" onclick="saveJournalEntry('${date}')" style="font-size:10px">SAVE</button>
       <button class="btn btn-g" onclick="renderDiaryJournalView()" style="font-size:10px;opacity:.6">CANCEL</button>
     </div>`;
+}
+
+// ── Learnings Panel (right side of journal view) ─────────────────────────────
+function renderLearningsPanel() {
+  if (!STATE.dailyJournal) STATE.dailyJournal = {};
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const dayNames = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const monthNames = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+  // Collect all learnings across all dates, newest first
+  const allLearnings = [];
+  for (const [date, entry] of Object.entries(STATE.dailyJournal)) {
+    if (entry.learnings && entry.learnings.length) {
+      for (const l of entry.learnings) {
+        allLearnings.push({ ...l, date });
+      }
+    }
+  }
+  allLearnings.sort((a, b) => (b.timestamp || b.date).localeCompare(a.timestamp || a.date));
+
+  let html = `<div style="padding:0;border:1px solid ${C.border};border-radius:8px;padding:12px;background:${C.bgCard}">
+    <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.warn};letter-spacing:0.02em;margin-bottom:10px;font-weight:700">📝 LEARNINGS & RULES</div>
+    <div style="font-size:10px;color:${C.textMut};margin-bottom:10px">Daily takeaways, mistakes, rules to remember</div>
+    <div style="padding:10px;margin-bottom:12px;border:1px solid ${C.border};border-radius:6px">
+      <textarea id="learning-input" placeholder="e.g. ALWAYS set TP level before the trade is on..." style="width:100%;min-height:60px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:6px;padding:10px;font-variant-numeric:tabular-nums;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
+      <button class="btn btn-p" onclick="saveLearning()" style="margin-top:8px;font-size:10px;width:100%">+ ADD LEARNING</button>
+    </div>`;
+
+  if (allLearnings.length === 0) {
+    html += `<div style="font-size:11px;color:${C.textSec};opacity:.5;padding:12px 0;text-align:center">No learnings yet. Add your first insight above.</div>`;
+  } else {
+    for (const l of allLearnings) {
+      const d = new Date(l.date + 'T12:00:00');
+      const dayLabel = `${dayNames[d.getDay()]} ${monthNames[d.getMonth()]} ${d.getDate()}`;
+      html += `<div class="card" style="padding:10px;margin-bottom:6px;border:1px solid ${C.border}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1">
+            <div style="font-size:12px;color:${C.text};line-height:1.5;white-space:pre-wrap">${escHtml(l.text)}</div>
+            <div style="font-size:9px;color:${C.textSec};margin-top:4px">${dayLabel}${l.timestamp ? ' · ' + new Date(l.timestamp).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : ''}</div>
+          </div>
+          <button onclick="deleteLearning('${l.date}','${l.timestamp || ''}')" style="background:none;border:none;color:${C.textSec};cursor:pointer;font-size:12px;padding:2px 6px;opacity:.4" title="Delete">✕</button>
+        </div>
+      </div>`;
+    }
+  }
+
+  html += `<div style="font-size:9px;color:${C.textSec};opacity:.4;text-align:center;margin-top:12px">${allLearnings.length} learning${allLearnings.length!==1?'s':''} total</div>`;
+  html += `</div>`;
+  document.getElementById("diary-detail-panel").innerHTML = html;
+}
+
+function saveLearning() {
+  const el = document.getElementById("learning-input");
+  if (!el || !el.value.trim()) return;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  if (!STATE.dailyJournal) STATE.dailyJournal = {};
+  if (!STATE.dailyJournal[today]) STATE.dailyJournal[today] = {};
+  if (!STATE.dailyJournal[today].learnings) STATE.dailyJournal[today].learnings = [];
+  STATE.dailyJournal[today].learnings.push({
+    text: el.value.trim(),
+    timestamp: new Date().toISOString()
+  });
+  save();
+  renderLearningsPanel();
+}
+
+function deleteLearning(date, timestamp) {
+  if (!STATE.dailyJournal?.[date]?.learnings) return;
+  STATE.dailyJournal[date].learnings = STATE.dailyJournal[date].learnings.filter(l => (l.timestamp || '') !== timestamp);
+  if (STATE.dailyJournal[date].learnings.length === 0) delete STATE.dailyJournal[date].learnings;
+  save();
+  renderLearningsPanel();
 }
 
 // ── Morning Checklist (Alpha Trader / Donnelly framework) ────────────────────
@@ -4081,7 +4244,7 @@ function setStatsTab(tab, btn) {
 function renderStats() {
   const tabs = [
     ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
-    ["strategies","STRATEGIES"],["discipline","DISCIPLINE"],["ai","AI ANALYSIS"]
+    ["strategies","STRATEGIES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
   ];
   const dateFilters = [["1w","1W"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"]];
   document.getElementById("stats-content").innerHTML = `
@@ -4128,6 +4291,7 @@ function renderStatsContent(force) {
     case "maemfe":      el.innerHTML = renderStatsMAEMFE(closed); break;
     case "strategies":  el.innerHTML = renderStatsStrategies(closed); break;
     case "discipline":  el.innerHTML = renderStatsDiscipline(closed); break;
+    case "pretrade":    el.innerHTML = renderStatsPreTrade(); fetchPreTradeJournal(); break;
     case "ai":          el.innerHTML = renderStatsAI(closed); break;
   }
 }
@@ -4819,8 +4983,44 @@ function renderStatsDiscipline(closed) {
 }
 
 // ── 7. AI ANALYSIS ──────────────────────────────────────────────────────────
+function setAIDateRange(days) {
+  const fromEl = document.getElementById("ai-date-from");
+  const toEl = document.getElementById("ai-date-to");
+  const labelEl = document.getElementById("ai-date-label");
+  if (!fromEl || !toEl) return;
+  if (days === 0) {
+    fromEl.value = ""; toEl.value = "";
+    if (labelEl) labelEl.textContent = "All time";
+  } else {
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(from.getDate() - days);
+    fromEl.value = from.toISOString().split("T")[0];
+    toEl.value = now.toISOString().split("T")[0];
+    if (labelEl) labelEl.textContent = `Last ${days} days`;
+  }
+}
+
+function getAIDateFilter() {
+  const fromEl = document.getElementById("ai-date-from");
+  const toEl = document.getElementById("ai-date-to");
+  const from = fromEl ? fromEl.value : "";
+  const to = toEl ? toEl.value : "";
+  return { from, to };
+}
+
 function buildAIContext() {
-  const closed = STATE.trades.filter(t=>t.status!=="Open");
+  const dateFilter = getAIDateFilter();
+  const allClosed = STATE.trades.filter(t=>t.status!=="Open");
+  // Apply date filter to closed trades
+  const closed = allClosed.filter(t => {
+    if (!dateFilter.from && !dateFilter.to) return true;
+    const d = t.exitDate || t.closedDate || t.entryDate || t.openedDate || "";
+    if (!d) return true; // include trades with no date (legacy)
+    if (dateFilter.from && d < dateFilter.from) return false;
+    if (dateFilter.to && d > dateFilter.to) return false;
+    return true;
+  });
   const open = STATE.trades.filter(t=>t.status==="Open");
 
   // Closed trade stats
@@ -4865,7 +5065,9 @@ function buildAIContext() {
   const sectorText = Object.entries(sectorMap).sort((a,b)=>b[1].pnl-a[1].pnl)
     .map(([k,v])=>"  "+k+": "+v.count+" trades, "+Math.round(v.wins/v.count*100)+"% WR, $"+v.pnl.toFixed(0)+" P&L").join("\n") || "  No sector data";
 
-  let ctx = `Trading Performance Summary:
+  const dateLabel = dateFilter.from ? `Filtered: ${dateFilter.from} to ${dateFilter.to || "now"}` : "All time";
+
+  let ctx = `Trading Performance Summary (${dateLabel}, ${closed.length} of ${allClosed.length} total closed trades):
 - Total Closed Trades: ${closed.length}
 - Win Rate: ${wr}%
 - Total P&L: $${totalPnl.toFixed(0)}
@@ -4885,8 +5087,26 @@ ${sectorText}
 
 ${withAdh.length ? `Rule Adherence: ${adhYes.length}/${withAdh.length} followed (${Math.round(adhYes.length/withAdh.length*100)}%)` : "No rule adherence data."}
 
-Recent closed trades (last 5):
-${closed.slice(-5).map(t=>`  ${t.ticker} ${t.tradeType?.replace('⭐ ','')} [${t.assetClass||"Options"}] ${t.dteAtEntry||"?"}DTE → ${fmt$(t.realizedPnl||0)} (${t.exitReason||"?"})`).join("\n")}`;
+All closed trades (${closed.length} total, chronological):
+${closed.map(t=>`  ${t.entryDate||t.openedDate||"?"} → ${t.exitDate||t.closedDate||"?"} | ${t.ticker} ${t.tradeType?.replace('⭐ ','')} [${t.assetClass||"Options"}] ${t.dteAtEntry||"?"}DTE → ${fmt$(t.realizedPnl||0)} (${t.exitReason||"?"})`).join("\n")}`;
+
+  // Daily P&L breakdown (last 30 days)
+  const dailyPnl = {};
+  closed.forEach(t => {
+    const d = t.exitDate || t.closedDate;
+    if (!d) return;
+    if (!dailyPnl[d]) dailyPnl[d] = { pnl: 0, trades: 0, wins: 0 };
+    dailyPnl[d].pnl += (t.realizedPnl || 0);
+    dailyPnl[d].trades++;
+    if ((t.realizedPnl || 0) > 0) dailyPnl[d].wins++;
+  });
+  const sortedDays = Object.entries(dailyPnl).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 30);
+  if (sortedDays.length) {
+    ctx += `\n\nDaily P&L (last 30 days with activity):`;
+    sortedDays.forEach(([d, v]) => {
+      ctx += `\n  ${d}: ${fmt$(v.pnl)} (${v.trades} trades, ${v.wins} wins)`;
+    });
+  }
 
   // Open positions context
   if (open.length) {
@@ -4944,6 +5164,91 @@ function renderAIChatMessages() {
   }).join("");
 }
 
+// ── PRE-TRADE JOURNAL (Donnelly Framework) ──────────────────────────────────
+
+function renderStatsPreTrade() {
+  return `
+    <div class="card" style="padding:10px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.warn};letter-spacing:0.02em">PRE-TRADE JOURNAL</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">Brent Donnelly framework — logged via /trade on Telegram</div>
+        </div>
+        <button class="btn btn-g" style="padding:6px 10px;font-size:9px" onclick="fetchPreTradeJournal()">↻ REFRESH</button>
+      </div>
+      <div id="pretrade-list" style="font-size:11px;color:${C.textMut}">Loading...</div>
+    </div>`;
+}
+
+async function fetchPreTradeJournal() {
+  const el = document.getElementById("pretrade-list");
+  if (!el) return;
+  try {
+    const resp = await fetch(SUPABASE_URL + "/rest/v1/pre_trade_journal?select=*&order=created_at.desc&limit=20", {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    if (!resp.ok) { el.innerHTML = '<span style="color:' + C.neg + '">Failed to fetch. Run migration.sql in Supabase first.</span>'; return; }
+    const entries = await resp.json();
+    if (!entries.length) { el.innerHTML = '<span style="color:' + C.textMut + '">No entries yet. Use /trade in Telegram to start.</span>'; return; }
+    el.innerHTML = entries.map(e => renderPreTradeCard(e)).join("");
+  } catch (err) {
+    el.innerHTML = '<span style="color:' + C.neg + '">Error: ' + err.message + '</span>';
+  }
+}
+
+function renderPreTradeCard(e) {
+  const date = e.created_at ? new Date(e.created_at).toLocaleDateString() : "?";
+  const dir = e.direction || "?";
+  const dirColor = dir === "Long" ? C.pos : dir === "Short" ? C.neg : C.text;
+  const entry = e.entry_price != null ? "$" + Number(e.entry_price).toFixed(2) : "?";
+  const sl = e.stop_loss != null ? "$" + Number(e.stop_loss).toFixed(2) : "?";
+  const tp = e.take_profit != null ? "$" + Number(e.take_profit).toFixed(2) : "?";
+  const adr = e.adr_14day;
+  const gap = (e.entry_price != null && e.stop_loss != null) ? Math.abs(e.entry_price - e.stop_loss) : 0;
+  let adrCheck = "";
+  if (adr && gap) { const r = gap / adr; adrCheck = " (" + r.toFixed(1) + "× ADR " + (r >= 1 ? "✓" : "⚠") + ")"; }
+
+  const sections = [];
+  if (e.elevator_pitch) sections.push('<div style="margin-top:6px;color:' + C.text + '"><strong>Thesis:</strong> ' + esc(e.elevator_pitch) + '</div>');
+
+  const filters = [
+    e.narrative_cycle && "Narrative: " + e.narrative_cycle,
+    e.positioning_sentiment && "Positioning: " + e.positioning_sentiment,
+    e.catalysts && "Catalysts: " + e.catalysts,
+    e.correlated_markets && "Correlated: " + e.correlated_markets,
+    e.technicals && "Technicals: " + e.technicals,
+    e.alternative_hypothesis && "Alt hypothesis: " + e.alternative_hypothesis,
+  ].filter(Boolean);
+  if (filters.length) sections.push('<div style="margin-top:6px;border-left:2px solid ' + C.border + ';padding-left:8px">' + filters.map(f => '<div style="color:' + C.textSec + '">' + esc(f) + '</div>').join("") + '</div>');
+
+  if (e.psychology_notes) sections.push('<div style="margin-top:4px;color:' + C.warn + '">🧠 ' + esc(e.psychology_notes) + '</div>');
+  if (e.execution_notes) sections.push('<div style="margin-top:4px;color:' + C.textMut + '">⚡ ' + esc(e.execution_notes) + '</div>');
+
+  return `
+    <div style="background:${C.bgCard};border:1px solid ${C.border};border-radius:6px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <span style="font-size:12px;font-weight:700;color:${C.text}">${esc(e.idea_name || e.ticker)}</span>
+          <span style="font-size:10px;color:${dirColor};margin-left:6px">${esc(e.ticker)} ${esc(dir)}</span>
+          <span style="font-size:9px;color:${C.textMut};margin-left:6px">${esc(e.structure || "")}</span>
+        </div>
+        <span style="font-size:9px;color:${C.textMut}">${date}</span>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;flex-wrap:wrap">
+        <span>📋 <strong>${esc(e.conviction_type || "?")}</strong></span>
+        <span>💵 $${(e.dollars_at_risk || 0).toLocaleString()} risk</span>
+        <span>📐 ${e.position_size || "?"} units</span>
+        <span>Entry: ${entry}</span>
+        <span style="color:${C.neg}">SL: ${sl}${adrCheck}</span>
+        <span style="color:${C.pos}">TP: ${tp}</span>
+        ${e.vix_at_entry ? '<span>VIX: ' + e.vix_at_entry + ' → ' + esc(e.vol_regime || "?") + '</span>' : ''}
+      </div>
+      ${sections.join("")}
+    </div>`;
+}
+
+function esc(s) { return String(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
 function renderStatsAI(closed) {
   const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
 
@@ -4954,10 +5259,22 @@ function renderStatsAI(closed) {
           <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.pos};letter-spacing:0.02em">AI TRADE COACH</div>
           <div style="font-size:10px;color:${C.textSec};margin-top:2px">Conversational analysis of your stats + open positions</div>
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center">
           ${aiMessages.length?`<button class="btn btn-g" style="padding:6px 10px;font-size:9px;color:${C.textSec}" onclick="aiMessages=[];renderStatsContent(true)">CLEAR</button>`:""}
           <button class="btn btn-p" style="padding:8px 16px" onclick="aiSendMessage('analyze')">ANALYZE</button>
         </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:9px;color:${C.textMut}">DATE RANGE:</span>
+        <button class="btn btn-g" style="padding:3px 8px;font-size:9px" onclick="setAIDateRange(7)">7D</button>
+        <button class="btn btn-g" style="padding:3px 8px;font-size:9px" onclick="setAIDateRange(14)">14D</button>
+        <button class="btn btn-g" style="padding:3px 8px;font-size:9px" onclick="setAIDateRange(30)">30D</button>
+        <button class="btn btn-g" style="padding:3px 8px;font-size:9px" onclick="setAIDateRange(90)">90D</button>
+        <button class="btn btn-g" style="padding:3px 8px;font-size:9px" onclick="setAIDateRange(0)">ALL</button>
+        <input type="date" id="ai-date-from" style="padding:3px 6px;font-size:9px;background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:4px">
+        <span style="font-size:9px;color:${C.textMut}">to</span>
+        <input type="date" id="ai-date-to" style="padding:3px 6px;font-size:9px;background:${C.bgCard};color:${C.text};border:1px solid ${C.border};border-radius:4px">
+        <span id="ai-date-label" style="font-size:9px;color:${C.warn}"></span>
       </div>
 
       ${!ANTHROPIC_KEY ? `<div id="ai-key-setup">
@@ -5034,9 +5351,8 @@ async function aiSendMessage(preset) {
     userText = inp.value.trim();
     if (!userText) return;
     inp.value = "";
-    // Upgrade to Sonnet for complex follow-up questions
-    const lower = userText.toLowerCase();
-    if (lower.includes("analyze") || lower.includes("review all") || lower.includes("deep dive") || lower.includes("compare") || lower.includes("backtest") || lower.includes("strategy") || lower.includes("what should i")) useSonnet = true;
+    // Use Sonnet for all coaching — Haiku struggles with data analysis
+    useSonnet = true;
   }
 
   // Add user message to chat
@@ -5051,19 +5367,23 @@ async function aiSendMessage(preset) {
 
   // Build system + context
   const ctx = buildAIContext();
-  const systemPrompt = `You are an expert options trading coach. You have access to this trader's complete performance data, current open positions, and their personal trading rules. Be direct, specific, and data-driven. Reference specific numbers. Format your response with clear headers using ** for bold. Keep it concise but insightful.
+  const systemPrompt = `You are an expert options trading coach. You have access to this trader's performance data, current open positions, and their personal trading rules. Be direct, specific, and data-driven. Reference specific numbers and dates. Format your response with clear headers using ** for bold. Keep it concise but insightful.
 
-IMPORTANT: The trader has personal trading rules listed below. Always factor these into your analysis and recommendations. If you notice a position or pattern that violates their rules, call it out. When you give advice that could become a permanent rule, suggest it clearly with the prefix "SUGGESTED RULE:" so the trader can save it.
+IMPORTANT: The data below may be filtered to a specific date range — always note the date range in your analysis. The trader has personal trading rules listed below. Always factor these into your analysis and recommendations. If you notice a position or pattern that violates their rules, call it out. When you give advice that could become a permanent rule, suggest it clearly with the prefix "SUGGESTED RULE:" so the trader can save it.
 
 Here is the trader's current data:
 
 ${ctx}`;
 
-  // Build messages array for API — include system context as first user message if it's the first message
+  // Build messages array for API — always include fresh context with the latest user message
   const apiMessages = [];
+  const lastIdx = aiMessages.length - 1;
   aiMessages.forEach((m, i) => {
-    if (i === 0 && m.role === "user") {
-      // First user message gets the full context prepended
+    if (i === lastIdx && m.role === "user") {
+      // Latest user message gets fresh context so the AI always has current data
+      apiMessages.push({ role: "user", content: systemPrompt + "\n\nUser question: " + m.content });
+    } else if (i === 0 && m.role === "user") {
+      // First message also gets context for conversation coherence
       apiMessages.push({ role: "user", content: systemPrompt + "\n\nUser question: " + m.content });
     } else {
       apiMessages.push({ role: m.role, content: m.content });
@@ -5080,7 +5400,7 @@ ${ctx}`;
         "anthropic-dangerous-direct-browser-access": "true"
       },
       body: JSON.stringify({
-        model: useSonnet ? "claude-sonnet-4-20250514" : "claude-haiku-4-5-20251001",
+        model: useSonnet ? "claude-sonnet-4-6-20250620" : "claude-haiku-4-5-20251001",
         max_tokens: useSonnet ? 2000 : 1200,
         system: "You are an expert options trading coach. Be direct, specific, data-driven. Use ** for bold headers. Keep responses concise but insightful.",
         messages: apiMessages
@@ -6298,8 +6618,9 @@ function saveTrade() {
   const slPrice = document.getElementById("tf-slPrice").value;
   const status = document.getElementById("tf-status").value;
 
-  // Require exit rules for new open trades
-  if (status === "Open" && !editingTradeId) {
+  // Require exit rules for new open trades (skip for FX)
+  const assetClass = document.getElementById("tf-assetClass").value;
+  if (status === "Open" && !editingTradeId && assetClass !== "FX") {
     const missing = [];
     if (!tpPrice) missing.push("Resistance");
     if (!slPrice) missing.push("Support");
@@ -6331,6 +6652,11 @@ function saveTrade() {
     pop: document.getElementById("tf-pop").value,
     entryType: document.getElementById("tf-entryType").value,
     assetClass: document.getElementById("tf-assetClass").value,
+    // FX aliases
+    ...(document.getElementById("tf-assetClass").value === "FX" ? {
+      entryRate: parseFloat(document.getElementById("tf-shortStrike").value) || 0,
+      notional: parseInt(document.getElementById("tf-contracts").value) || 0,
+    } : {}),
     thesis: document.getElementById("tf-thesis").value,
     exitThesis: document.getElementById("tf-exitThesis").value,
     chartLink: pendingChartDataUrl === "CLEARED" ? '' : (pendingChartDataUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : '')),
@@ -6874,6 +7200,8 @@ function parseFlexXMLTrades(xmlText) {
   dbg("Found " + trades.length + " <" + matchedName + "> elements", "success");
 
   const optionTrades = [];
+  const stockTrades = []; // NEW: stock/ETF trades
+  const fxTrades = []; // NEW: FX trades
   trades.forEach(t => {
     // Get attributes — try multiple naming conventions
     const attr = (names) => {
@@ -6885,13 +7213,8 @@ function parseFlexXMLTrades(xmlText) {
     };
 
     const cat = attr(["assetCategory", "assetType", "secType"]);
-    if (cat && cat !== "OPT" && cat !== "FOP" && !cat.includes("Option")) return;
-
     const symbol = attr(["symbol", "description"]) || "";
     const ticker = attr(["underlyingSymbol", "underlying"]) || symbol.split(/\s/)[0];
-    const expiry = attr(["expiry", "expirationDate", "lastTradeDateOrContractMonth", "lastTradeDate"]);
-    const strike = parseFloat(attr(["strike", "strikePrice"]) || "NaN");
-    const side = attr(["putCall", "right", "putOrCall"]);
     const qty = parseInt((attr(["quantity", "filledQuantity", "tradeQuantity"]) || "0").replace(/,/g, ""));
     const price = parseFloat(attr(["tradePrice", "price", "avgPrice", "fillPrice"]) || "0");
     const proceeds = parseFloat(attr(["proceeds", "netCash"]) || "0");
@@ -6899,6 +7222,38 @@ function parseFlexXMLTrades(xmlText) {
     const realizedPnl = parseFloat(attr(["fifoPnlRealized", "realizedPnl", "mtmPnl"]) || "0");
     const code = attr(["openCloseIndicator", "openClose", "side"]) || "";
     const rawDt = attr(["dateTime", "tradeDate", "date", "orderTime"]) || "";
+    const dateOnly = rawDt.split(/[;T,]/)[0].trim().replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+    const datetime = rawDt.replace(";", ", ");
+
+    // Route by asset category
+    const catUp = (cat || "").toUpperCase();
+    if (catUp === "STK" || catUp === "STOCK" || catUp.includes("Equity")) {
+      if (!ticker || isNaN(qty) || qty === 0) return;
+      stockTrades.push({
+        ticker, qty, price, proceeds, commission, realizedPnl, code, datetime, dateOnly,
+        isOpen: code === "O" || code === "BUY" || code === "SELL",
+        isClose: code === "C" || code === "CLOSE",
+      });
+      return;
+    }
+    if (catUp === "CASH" || catUp === "FOREX" || catUp === "FX") {
+      if (!ticker || isNaN(qty) || qty === 0) return;
+      const fxPair = attr(["symbol", "description"]) || ticker;
+      fxTrades.push({
+        ticker: fxPair.replace(/\./g, "").replace(/\s/g, "").toUpperCase(),
+        qty, price, proceeds, commission, realizedPnl, code, datetime, dateOnly,
+        isOpen: code === "O" || code === "BUY" || code === "SELL",
+        isClose: code === "C" || code === "CLOSE",
+      });
+      return;
+    }
+
+    // Options (original logic)
+    if (cat && cat !== "OPT" && cat !== "FOP" && !cat.includes("Option")) return;
+
+    const expiry = attr(["expiry", "expirationDate", "lastTradeDateOrContractMonth", "lastTradeDate"]);
+    const strike = parseFloat(attr(["strike", "strikePrice"]) || "NaN");
+    const side = attr(["putCall", "right", "putOrCall"]);
 
     // If no assetCategory, try to detect options by presence of strike/expiry
     if (!cat && (isNaN(strike) || !expiry || !side)) return;
@@ -6908,10 +7263,6 @@ function parseFlexXMLTrades(xmlText) {
     if (expiry && !expiry.includes("-") && expiry.length === 8) {
       expiryFmt = expiry.slice(0,4) + "-" + expiry.slice(4,6) + "-" + expiry.slice(6,8);
     }
-
-    // Normalize datetime for grouping
-    const dateOnly = rawDt.split(/[;T,]/)[0].trim().replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
-    const datetime = rawDt.replace(";", ", ");
 
     if (!ticker || !expiryFmt || isNaN(strike) || isNaN(qty) || qty === 0) return;
 
@@ -6924,12 +7275,19 @@ function parseFlexXMLTrades(xmlText) {
     });
   });
 
-  // If we found Trade elements but no options, explain why
-  if (!optionTrades.length && trades.length > 0) {
+  if (stockTrades.length) dbg("Found " + stockTrades.length + " stock/ETF trade legs", "info");
+  if (fxTrades.length) dbg("Found " + fxTrades.length + " FX trade legs", "info");
+
+  // Attach non-option trades for downstream processing
+  optionTrades._stockTrades = stockTrades;
+  optionTrades._fxTrades = fxTrades;
+
+  // If we found Trade elements but no options/stocks/fx, explain why
+  if (!optionTrades.length && !stockTrades.length && !fxTrades.length && trades.length > 0) {
     const first = trades[0];
     const attrs = [...first.attributes].map(a => a.name + "=" + a.value).join(", ");
     dbg("First element attrs: " + attrs, "warn");
-    throw new Error("Found " + trades.length + " <" + matchedName + "> elements but none were options. First element: " + attrs.substring(0, 300));
+    throw new Error("Found " + trades.length + " <" + matchedName + "> elements but none matched. First element: " + attrs.substring(0, 300));
   }
 
   return optionTrades;
@@ -6983,17 +7341,14 @@ function parseFlexCSVTrades(csvText) {
   }
 
   const optionTrades = [];
+  const stockTrades = []; // NEW
+  const fxTrades = []; // NEW
   for (let i = 1; i < lines.length; i++) {
     const fields = parseCSVLine(lines[i]);
     if (fields.length < 5) continue;
 
-    // Filter for options only
     const cat = iCat >= 0 ? fields[iCat] : "";
-    if (cat && !cat.includes("OPT") && !cat.includes("Option") && cat !== "FOP") {
-      // If no category column, try to detect by presence of strike
-      if (iCat >= 0) continue;
-    }
-
+    const catUp = cat.toUpperCase();
     const symbol = iSymbol >= 0 ? fields[iSymbol] : "";
     const ticker = (iUnderlying >= 0 ? fields[iUnderlying] : "") || symbol.split(/\s/)[0];
     const rawExpiry = iExpiry >= 0 ? fields[iExpiry] : "";
@@ -7014,6 +7369,19 @@ function parseFlexCSVTrades(csvText) {
     // DateTime
     let rawDt = iDate >= 0 ? fields[iDate] : "";
     if (iTime >= 0 && fields[iTime]) rawDt += ", " + fields[iTime];
+    const dateOnly = rawDt.split(/[;T,]/)[0].trim().replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+
+    // Route stock/FX trades before options logic
+    if (catUp === "STK" || catUp === "STOCK" || catUp.includes("EQUITY")) {
+      if (ticker && qty !== 0) stockTrades.push({ ticker, qty, price, proceeds, commission, realizedPnl, code, datetime: rawDt, dateOnly, isOpen: code === "O", isClose: code === "C" });
+      continue;
+    }
+    if (catUp === "CASH" || catUp === "FOREX" || catUp === "FX") {
+      if (ticker && qty !== 0) fxTrades.push({ ticker: symbol.replace(/\./g,"").replace(/\s/g,"").toUpperCase(), qty, price, proceeds, commission, realizedPnl, code, datetime: rawDt, dateOnly, isOpen: code === "O", isClose: code === "C" });
+      continue;
+    }
+    // Skip non-option categories
+    if (cat && !catUp.includes("OPT") && !catUp.includes("OPTION") && catUp !== "FOP") continue;
 
     // Normalize expiry
     let expiryFmt = rawExpiry;
@@ -7040,6 +7408,10 @@ function parseFlexCSVTrades(csvText) {
   }
 
   dbg("Flex CSV: parsed " + optionTrades.length + " option trades", optionTrades.length ? "success" : "warn");
+  if (stockTrades.length) dbg("Flex CSV: " + stockTrades.length + " stock/ETF legs", "info");
+  if (fxTrades.length) dbg("Flex CSV: " + fxTrades.length + " FX legs", "info");
+  optionTrades._stockTrades = stockTrades;
+  optionTrades._fxTrades = fxTrades;
   return optionTrades;
 }
 
@@ -7107,10 +7479,14 @@ async function syncIBKR() {
       dbg("Detected CSV response", "info");
       optionTrades = parseFlexCSVTrades(data);
     }
-    if (!optionTrades.length) throw new Error("No option trades found in the Flex Query response. Enable debug mode for details.");
+    // Extract non-option trades
+    const stockLegs = optionTrades._stockTrades || [];
+    const fxLegs = optionTrades._fxTrades || [];
 
-    // Step 4: Pair into spreads (reuse existing logic)
-    const spreads = pairIntoSpreads(optionTrades);
+    if (!optionTrades.length && !stockLegs.length && !fxLegs.length) throw new Error("No trades found in the Flex Query response. Enable debug mode for details.");
+
+    // Step 4: Pair options into spreads (reuse existing logic)
+    const spreads = optionTrades.length ? pairIntoSpreads(optionTrades) : [];
     dbg("Paired " + spreads.length + " spreads (" + spreads.filter(s=>s.status==="Open").length + " open, " + spreads.filter(s=>s.status==="Closed").length + " closed)", "info");
 
     // Step 4b: Find orphaned closing legs that match existing OPEN trades
@@ -7173,15 +7549,86 @@ async function syncIBKR() {
       dbg("Updated " + closedExisting + " existing trades to Closed", "success");
     }
 
+    // Step 4c: Process stock/ETF trades — group buy/sell into trades
+    const stockDashTrades = [];
+    if (stockLegs.length) {
+      // Group by ticker + date
+      const stockGroups = {};
+      for (const leg of stockLegs) {
+        const key = leg.ticker + "|" + leg.dateOnly;
+        if (!stockGroups[key]) stockGroups[key] = [];
+        stockGroups[key].push(leg);
+      }
+      for (const [, legs] of Object.entries(stockGroups)) {
+        const totalQty = legs.reduce((s, l) => s + l.qty, 0);
+        const avgPrice = legs.reduce((s, l) => s + l.price * Math.abs(l.qty), 0) / legs.reduce((s, l) => s + Math.abs(l.qty), 0);
+        const totalComm = legs.reduce((s, l) => s + Math.abs(l.commission), 0);
+        const totalPnl = legs.reduce((s, l) => s + l.realizedPnl, 0);
+        const isClose = legs.some(l => l.isClose);
+        const t = legs[0];
+        stockDashTrades.push({
+          ticker: t.ticker,
+          tradeType: totalQty > 0 ? "Stock Long" : "Stock Short",
+          assetClass: "Stock",
+          contracts: Math.abs(totalQty),
+          shortStrike: avgPrice, // entry price stored in shortStrike
+          longStrike: 0,
+          entryDate: t.dateOnly,
+          premiumCollected: 0,
+          status: isClose ? "Closed" : "Open",
+          exitDate: isClose ? t.dateOnly : null,
+          realizedPnl: totalPnl ? Math.round(totalPnl * 100) / 100 : null,
+        });
+      }
+      dbg("Processed " + stockDashTrades.length + " stock/ETF trades", "info");
+    }
+
+    // Step 4d: Process FX trades
+    const fxDashTrades = [];
+    if (fxLegs.length) {
+      const fxGroups = {};
+      for (const leg of fxLegs) {
+        const key = leg.ticker + "|" + leg.dateOnly;
+        if (!fxGroups[key]) fxGroups[key] = [];
+        fxGroups[key].push(leg);
+      }
+      for (const [, legs] of Object.entries(fxGroups)) {
+        const totalQty = legs.reduce((s, l) => s + l.qty, 0);
+        const avgPrice = legs.reduce((s, l) => s + l.price * Math.abs(l.qty), 0) / legs.reduce((s, l) => s + Math.abs(l.qty), 0);
+        const totalPnl = legs.reduce((s, l) => s + l.realizedPnl, 0);
+        const isClose = legs.some(l => l.isClose);
+        const t = legs[0];
+        fxDashTrades.push({
+          ticker: t.ticker,
+          tradeType: totalQty > 0 ? "FX Long" : "FX Short",
+          assetClass: "FX",
+          contracts: Math.abs(totalQty),
+          notional: Math.abs(totalQty),
+          entryRate: avgPrice,
+          shortStrike: avgPrice, // backwards compat
+          longStrike: 0,
+          entryDate: t.dateOnly,
+          premiumCollected: 0,
+          status: isClose ? "Closed" : "Open",
+          exitDate: isClose ? t.dateOnly : null,
+          realizedPnl: totalPnl ? Math.round(totalPnl * 100) / 100 : null,
+        });
+      }
+      dbg("Processed " + fxDashTrades.length + " FX trades", "info");
+    }
+
+    // Combine all trade types for import
+    const allNewTrades = [...spreads, ...stockDashTrades, ...fxDashTrades];
+
     // Step 5: Dedup new spreads
-    const newSpreads = spreads.filter(s =>
+    const newSpreads = allNewTrades.filter(s =>
       !STATE.trades.some(t => isDuplicateTrade(t, s))
     );
 
     const dupes = spreads.length - newSpreads.length;
 
-    if (newSpreads.length === 0 && closedExisting === 0 && spreads.length === 0) {
-      showSyncStatus("Found " + optionTrades.length + " option legs but no spreads detected.", "error");
+    if (newSpreads.length === 0 && closedExisting === 0 && allNewTrades.length === 0) {
+      showSyncStatus("Found " + optionTrades.length + " option legs but no trades detected.", "error");
       return;
     }
 
@@ -7201,7 +7648,7 @@ async function syncIBKR() {
     preview.innerHTML = `
       <div class="card" style="padding:12px;margin-bottom:8px">
         <div style="font-variant-numeric:tabular-nums;font-size:11px;color:${C.text};margin-bottom:8px">
-          Flex Query: <span style="color:${C.pos};font-weight:600">${spreads.length}</span> spreads from ${optionTrades.length} legs
+          Flex Query: <span style="color:${C.pos};font-weight:600">${allNewTrades.length}</span> trades (${spreads.length} spreads${stockDashTrades.length ? ", " + stockDashTrades.length + " stocks" : ""}${fxDashTrades.length ? ", " + fxDashTrades.length + " FX" : ""})
           ${closedExisting ? '<span style="color:'+C.warn+'"> · ' + closedExisting + ' existing closed</span>' : ''}
         </div>
         <div style="font-size:11px;color:${C.textSec};margin-bottom:4px">
@@ -7209,7 +7656,9 @@ async function syncIBKR() {
         </div>
         <div style="max-height:200px;overflow-y:auto;margin-top:8px">
           ${newSpreads.map(s => '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;padding:4px 0;border-bottom:1px solid '+C.border+';color:' + (s.status==='Open'?C.pos:C.textSec) + '">' +
-            s.ticker + ' ' + s.longStrike + '/' + s.shortStrike + ' ' + s.expiry + ' · ' + s.contracts + 'x · $' + s.premiumCollected + ' · ' + s.status +
+            s.ticker + ' ' + (s.assetClass==="FX" ? s.tradeType + " · " + s.contracts + " units" :
+              s.assetClass==="Stock" ? s.tradeType + " · " + s.contracts + " shares · $" + (s.shortStrike||0).toFixed(2) :
+              s.longStrike + '/' + s.shortStrike + ' ' + s.expiry + ' · ' + s.contracts + 'x · $' + s.premiumCollected) + ' · ' + s.status +
           '</div>').join("")}
         </div>
         <div style="display:flex;gap:8px;margin-top:10px">
@@ -7391,6 +7840,13 @@ function pairIntoSpreads(optionTrades) {
 }
 
 function isDuplicateTrade(existing, newTrade) {
+  // For FX/Stock: match on ticker + type + date
+  if (newTrade.assetClass === "FX" || newTrade.assetClass === "Stock") {
+    return existing.ticker === newTrade.ticker &&
+      existing.assetClass === newTrade.assetClass &&
+      existing.entryDate === newTrade.entryDate &&
+      existing.tradeType === newTrade.tradeType;
+  }
   return existing.ticker === newTrade.ticker &&
     existing.expiry === newTrade.expiry &&
     existing.shortStrike === newTrade.shortStrike &&
