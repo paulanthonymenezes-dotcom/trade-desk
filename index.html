@@ -1293,6 +1293,15 @@ function _loadOrUpdateTVChart(ticker, interval) {
         'go_to_date',
       ],
       enabled_features: ['hide_left_toolbar_by_default'],
+      studies: [
+        { id: "MASimple@tv-basicstudies", inputs: { length: 50 } },
+        { id: "MASimple@tv-basicstudies", inputs: { length: 200 } },
+      ],
+      studies_overrides: {
+        "moving average.plot.color.0": "#f59e0b",   // 50 SMA — amber
+        "moving average.plot.color.1": "#3b82f6",   // 200 SMA — blue
+        "moving average.plot.linewidth": 1,
+      },
     });
   } catch(e) {
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--negative);font-size:11px">Chart error</div>';
@@ -10554,6 +10563,7 @@ const _lc = {
   page: 0,
   perPage: 6,
   sma: 200,
+  sma2: 50,
   cache: {},
   loading: false
 };
@@ -10566,9 +10576,49 @@ const LC_LOOKBACKS = [
   {k:'5D',l:'5D'},{k:'1M',l:'1M'},{k:'3M',l:'3M'},{k:'6M',l:'6M'},{k:'YTD',l:'YTD'},{k:'1Y',l:'1Y'},{k:'3Y',l:'3Y'},{k:'5Y',l:'5Y'}
 ];
 
+const FX_UNIVERSE = [
+  {t:'EURUSD=X',n:'EUR/USD',s:'Major'},{t:'USDJPY=X',n:'USD/JPY',s:'Major'},{t:'GBPUSD=X',n:'GBP/USD',s:'Major'},
+  {t:'AUDUSD=X',n:'AUD/USD',s:'Major'},{t:'USDCAD=X',n:'USD/CAD',s:'Major'},{t:'USDCHF=X',n:'USD/CHF',s:'Major'},
+  {t:'NZDUSD=X',n:'NZD/USD',s:'Major'},{t:'EURJPY=X',n:'EUR/JPY',s:'Cross'},{t:'GBPJPY=X',n:'GBP/JPY',s:'Cross'},
+  {t:'EURGBP=X',n:'EUR/GBP',s:'Cross'},{t:'AUDJPY=X',n:'AUD/JPY',s:'Cross'},{t:'CADJPY=X',n:'CAD/JPY',s:'Cross'},
+  {t:'EURAUD=X',n:'EUR/AUD',s:'Cross'},{t:'EURCHF=X',n:'EUR/CHF',s:'Cross'},{t:'GBPAUD=X',n:'GBP/AUD',s:'Cross'},
+  {t:'GBPCAD=X',n:'GBP/CAD',s:'Cross'},{t:'AUDNZD=X',n:'AUD/NZD',s:'Cross'},{t:'USDMXN=X',n:'USD/MXN',s:'EM'},
+  {t:'USDZAR=X',n:'USD/ZAR',s:'EM'},{t:'USDTRY=X',n:'USD/TRY',s:'EM'},
+];
+
+const COMMODITY_UNIVERSE = [
+  {t:'CL=F',n:'Crude Oil WTI',s:'Energy'},{t:'BZ=F',n:'Brent Crude',s:'Energy'},{t:'NG=F',n:'Natural Gas',s:'Energy'},
+  {t:'RB=F',n:'RBOB Gasoline',s:'Energy'},{t:'HO=F',n:'Heating Oil',s:'Energy'},
+  {t:'GC=F',n:'Gold',s:'Metals'},{t:'SI=F',n:'Silver',s:'Metals'},{t:'HG=F',n:'Copper',s:'Metals'},
+  {t:'PL=F',n:'Platinum',s:'Metals'},{t:'PA=F',n:'Palladium',s:'Metals'},
+  {t:'ZC=F',n:'Corn',s:'Agriculture'},{t:'ZW=F',n:'Wheat',s:'Agriculture'},{t:'ZS=F',n:'Soybeans',s:'Agriculture'},
+  {t:'KC=F',n:'Coffee',s:'Agriculture'},{t:'SB=F',n:'Sugar',s:'Agriculture'},{t:'CC=F',n:'Cocoa',s:'Agriculture'},
+  {t:'CT=F',n:'Cotton',s:'Agriculture'},{t:'LC=F',n:'Live Cattle',s:'Agriculture'},
+];
+
+const ETF_UNIVERSE = [
+  {t:'SPY',n:'S&P 500',s:'Broad Market'},{t:'QQQ',n:'Nasdaq 100',s:'Broad Market'},{t:'IWM',n:'Russell 2000',s:'Broad Market'},
+  {t:'DIA',n:'Dow Jones',s:'Broad Market'},{t:'VTI',n:'Total Stock Mkt',s:'Broad Market'},{t:'VOO',n:'Vanguard S&P',s:'Broad Market'},
+  {t:'XLK',n:'Tech Select',s:'Sector'},{t:'XLF',n:'Financial',s:'Sector'},{t:'XLE',n:'Energy',s:'Sector'},
+  {t:'XLV',n:'Health Care',s:'Sector'},{t:'XLI',n:'Industrial',s:'Sector'},{t:'XLY',n:'Cons Discretion',s:'Sector'},
+  {t:'XLP',n:'Cons Staples',s:'Sector'},{t:'XLU',n:'Utilities',s:'Sector'},{t:'XLRE',n:'Real Estate',s:'Sector'},
+  {t:'XLB',n:'Materials',s:'Sector'},{t:'XLC',n:'Communication',s:'Sector'},
+  {t:'ARKK',n:'ARK Innovation',s:'Thematic'},{t:'IBIT',n:'iShares Bitcoin',s:'Crypto'},
+  {t:'GLD',n:'Gold',s:'Commodity'},{t:'SLV',n:'Silver',s:'Commodity'},{t:'USO',n:'Oil Fund',s:'Commodity'},
+  {t:'UCO',n:'2x Crude Oil',s:'Leveraged'},{t:'TQQQ',n:'3x Nasdaq',s:'Leveraged'},{t:'SQQQ',n:'3x Short Nasdaq',s:'Leveraged'},
+  {t:'UPRO',n:'3x S&P 500',s:'Leveraged'},{t:'TLT',n:'20+ Yr Treasury',s:'Bonds'},
+  {t:'HYG',n:'High Yield Corp',s:'Bonds'},{t:'LQD',n:'Inv Grade Corp',s:'Bonds'},
+  {t:'EEM',n:'Emerging Mkts',s:'International'},{t:'EFA',n:'EAFE',s:'International'},{t:'FXI',n:'China Large Cap',s:'International'},
+  {t:'KWEB',n:'China Internet',s:'International'},{t:'EWJ',n:'Japan',s:'International'},{t:'EWZ',n:'Brazil',s:'International'},
+  {t:'YINN',n:'3x China Bull',s:'Leveraged'},{t:'VIX',n:'VIX Index',s:'Volatility'},{t:'UVXY',n:'1.5x VIX Short',s:'Volatility'},
+];
+
 function _lcGetUniverse() {
   if (_lc.universe === 'ndx100') return NDX_100;
   if (_lc.universe === 'sp500') return SP_500;
+  if (_lc.universe === 'fx') return FX_UNIVERSE;
+  if (_lc.universe === 'commodities') return COMMODITY_UNIVERSE;
+  if (_lc.universe === 'etfs') return ETF_UNIVERSE;
   if (_lc.universe === 'watchlist') {
     return (STATE.watchlist || []).map(w => ({t: w.ticker, s: w.sector || getSector(w.ticker) || 'Other'}));
   }
@@ -10593,8 +10643,8 @@ function _lcDateRange() {
   else if (lb === '3Y') from = ms(365*3);
   else if (lb === '5Y') from = ms(365*5);
   else from = ms(365);
-  // Extend back for SMA computation
-  const smaExtra = Math.ceil(_lc.sma * 1.5);
+  // Extend back for SMA computation (use larger of the two SMAs)
+  const smaExtra = Math.ceil(Math.max(_lc.sma, _lc.sma2 || 0) * 1.5);
   const extFrom = new Date(from);
   extFrom.setDate(extFrom.getDate() - smaExtra);
   return { from: extFrom.toISOString().slice(0,10), visibleFrom: from, to: today };
@@ -10689,6 +10739,7 @@ function _lcDrawChart(canvas, candles, ticker) {
   // Full data for SMA, visible slice for drawing
   const allC = candles.c;
   const sma = _lcComputeSMA(allC, _lc.sma);
+  const sma2 = _lc.sma2 ? _lcComputeSMA(allC, _lc.sma2) : null;
   const rsiAll = _lcComputeRSI(allC, 14);
 
   const n = allC.length - visStart;
@@ -10699,6 +10750,7 @@ function _lcDrawChart(canvas, candles, ticker) {
   const sliceC = candles.c.slice(visStart);
   const sliceV = candles.v.slice(visStart);
   const sliceSMA = sma.slice(visStart);
+  const sliceSMA2 = sma2 ? sma2.slice(visStart) : null;
   const sliceRSI = rsiAll.slice(visStart);
 
   // Background
@@ -10749,8 +10801,8 @@ function _lcDrawChart(canvas, candles, ticker) {
     ctx.fillRect(x - candleW/2, bTop, candleW, Math.max(1, bBot - bTop));
   }
 
-  // SMA line
-  ctx.strokeStyle = '#d29922';
+  // SMA1 line (amber)
+  ctx.strokeStyle = '#f59e0b';
   ctx.lineWidth = 1.2;
   ctx.beginPath();
   let started = false;
@@ -10760,6 +10812,20 @@ function _lcDrawChart(canvas, candles, ticker) {
     if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
   }
   ctx.stroke();
+
+  // SMA2 line (blue)
+  if (sliceSMA2) {
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    let started2 = false;
+    for (let i = 0; i < n; i++) {
+      if (sliceSMA2[i] == null) continue;
+      const x = xFor(i), y = yFor(sliceSMA2[i]);
+      if (!started2) { ctx.moveTo(x, y); started2 = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
 
   // Y-axis labels
   ctx.font = '9px "IBM Plex Mono",monospace';
@@ -10803,9 +10869,11 @@ function _lcDrawChart(canvas, candles, ticker) {
   ctx.textAlign = 'left';
   ctx.fillText('RSI ' + (lastRSI != null ? lastRSI.toFixed(1) : '--'), ML + 2, rsiTop + 9);
 
-  // Store last SMA value for header
+  // Store last SMA values for header
   const lastSMA = sliceSMA.filter(v => v != null).pop();
+  const lastSMA2 = sliceSMA2 ? sliceSMA2.filter(v => v != null).pop() : null;
   canvas._lastSMA = lastSMA;
+  canvas._lastSMA2 = lastSMA2;
   canvas._lastRSI = lastRSI;
 }
 
@@ -10828,12 +10896,20 @@ function renderLotsOfCharts() {
   html += '<select onchange="_lc.universe=this.value;_lc.page=0;_lc.sector=\'All\';renderLotsOfCharts()" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-size:11px">';
   html += `<option value="ndx100" ${_lc.universe==='ndx100'?'selected':''}>Nasdaq 100</option>`;
   html += `<option value="sp500" ${_lc.universe==='sp500'?'selected':''}>S&P 500</option>`;
+  html += `<option value="etfs" ${_lc.universe==='etfs'?'selected':''}>Top ETFs</option>`;
+  html += `<option value="fx" ${_lc.universe==='fx'?'selected':''}>FX Pairs</option>`;
+  html += `<option value="commodities" ${_lc.universe==='commodities'?'selected':''}>Commodities</option>`;
   html += `<option value="watchlist" ${_lc.universe==='watchlist'?'selected':''}>My Watchlist</option>`;
   html += `<option value="positions" ${_lc.universe==='positions'?'selected':''}>Current Positions</option>`;
   html += '</select>';
-  html += '<span style="color:var(--text-secondary);font-size:10px">SMA:</span>';
-  html += '<select onchange="_lc.sma=Number(this.value);_lc.cache={};renderLotsOfCharts()" style="background:var(--bg-card);color:#d29922;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 6px;font-size:10px">';
+  html += '<span style="color:var(--text-secondary);font-size:10px">SMA1:</span>';
+  html += '<select onchange="_lc.sma=Number(this.value);_lc.cache={};renderLotsOfCharts()" style="background:var(--bg-card);color:#f59e0b;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 6px;font-size:10px">';
   [20,50,100,200].forEach(v => { html += `<option value="${v}" ${_lc.sma===v?'selected':''}>${v}</option>`; });
+  html += '</select>';
+  html += '<span style="color:var(--text-secondary);font-size:10px">SMA2:</span>';
+  html += '<select onchange="_lc.sma2=Number(this.value);_lc.cache={};renderLotsOfCharts()" style="background:var(--bg-card);color:#3b82f6;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 6px;font-size:10px">';
+  html += `<option value="0" ${!_lc.sma2?'selected':''}>Off</option>`;
+  [20,50,100,200].forEach(v => { html += `<option value="${v}" ${_lc.sma2===v?'selected':''}>${v}</option>`; });
   html += '</select>';
   html += '<span style="color:var(--text-secondary);font-size:10px;margin-left:auto">' + filtered.length + ' stocks</span>';
   html += '</div>';
@@ -10872,7 +10948,7 @@ function renderLotsOfCharts() {
   pageItems.forEach((item, idx) => {
     const gIdx = start + idx;
     html += `<div class="mini-chart-cell" id="lc-cell-${gIdx}">`;
-    html += `<div class="mini-chart-hdr"><span><span class="tk">${item.t}</span> <span style="color:var(--text-secondary);font-size:9px">${item.n||''}</span> <span style="color:var(--text-secondary);font-size:9px" id="lc-price-${gIdx}">...</span> <span id="lc-chg-${gIdx}" style="font-size:9px">...</span></span><span class="sma-lbl" id="lc-sma-${gIdx}">SMA(${_lc.sma}) ...</span></div>`;
+    html += `<div class="mini-chart-hdr"><span><span class="tk">${item.t}</span> <span style="color:var(--text-secondary);font-size:9px">${item.n||''}</span> <span style="color:var(--text-secondary);font-size:9px" id="lc-price-${gIdx}">...</span> <span id="lc-chg-${gIdx}" style="font-size:9px">...</span></span><span><span class="sma-lbl" style="color:#f59e0b" id="lc-sma-${gIdx}">SMA(${_lc.sma}) ...</span>${_lc.sma2?` <span class="sma-lbl" style="color:#3b82f6" id="lc-sma2-${gIdx}">SMA(${_lc.sma2}) ...</span>`:''}</span></div>`;
     html += `<canvas id="lc-canvas-${gIdx}" style="width:100%;height:260px;cursor:pointer" onclick="_lcClickChart('${item.t}')"></canvas>`;
     html += '</div>';
   });
@@ -10948,6 +11024,9 @@ async function _lcLoadAndDraw(ticker, idx) {
   if (chgEl) { chgEl.textContent = (chgPct >= 0 ? '+' : '') + chgPct.toFixed(2) + '%'; chgEl.style.color = chgColor; }
   if (smaEl && canvas._lastSMA != null) smaEl.textContent = 'SMA(' + _lc.sma + ') ' + canvas._lastSMA.toFixed(2);
   else if (smaEl) smaEl.textContent = 'SMA(' + _lc.sma + ') --';
+  const sma2El = document.getElementById('lc-sma2-' + idx);
+  if (sma2El && canvas._lastSMA2 != null) sma2El.textContent = 'SMA(' + _lc.sma2 + ') ' + canvas._lastSMA2.toFixed(2);
+  else if (sma2El) sma2El.textContent = 'SMA(' + _lc.sma2 + ') --';
 }
 
 function _lcClickChart(ticker) {
