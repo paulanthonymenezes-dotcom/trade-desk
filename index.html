@@ -7493,14 +7493,22 @@ async function syncIBKR() {
     const stockLegs = optionTrades._stockTrades || [];
     const fxLegs = optionTrades._fxTrades || [];
 
-    // Always log parse results to sync status for visibility
-    showSyncStatus(`Parsed: ${optionTrades.length} option legs, ${stockLegs.length} stock legs, ${fxLegs.length} FX legs. Response: ${data.length} chars (${trimmed.startsWith("<?xml") || trimmed.startsWith("<") ? "XML" : "CSV"})`, "info");
-    dbg("Raw response first 500 chars: " + data.substring(0, 500), "info");
-    if (stockLegs.length) dbg("Stock trades: " + stockLegs.map(s => s.ticker + " " + s.qty + " @ " + s.price + " " + s.dateOnly).join(" | "), "info");
-    if (fxLegs.length) dbg("FX trades: " + fxLegs.map(s => s.ticker + " " + s.qty + " @ " + s.price + " " + s.dateOnly).join(" | "), "info");
-    if (!optionTrades.length) dbg("No option trades found — asset classes in response may not include options", "warn");
+    // Always log parse results — use alert so it's impossible to miss
+    const _syncSummary = `SYNC RESULTS:\n\n` +
+      `Response: ${data.length} chars (${trimmed.startsWith("<?xml") || trimmed.startsWith("<") ? "XML" : "CSV"})\n` +
+      `Option legs: ${optionTrades.length}\n` +
+      `Stock legs: ${stockLegs.length}\n` +
+      `FX legs: ${fxLegs.length}\n\n` +
+      (stockLegs.length ? `Stocks: ${stockLegs.map(s => s.ticker + " " + s.qty + "x @ $" + s.price + " " + s.dateOnly + " " + s.code).join("\n")}\n\n` : "") +
+      (fxLegs.length ? `FX: ${fxLegs.map(s => s.ticker + " " + s.qty + " @ " + s.price + " " + s.dateOnly + " " + s.code).join("\n")}\n\n` : "") +
+      `First 300 chars of response:\n${data.substring(0, 300)}`;
+    console.log("IBKR SYNC:", _syncSummary);
+    showSyncStatus(`Parsed: ${optionTrades.length} option legs, ${stockLegs.length} stock legs, ${fxLegs.length} FX legs`, "info");
 
-    if (!optionTrades.length && !stockLegs.length && !fxLegs.length) throw new Error("No trades found in the Flex Query response. Raw response starts with: " + data.substring(0, 200));
+    if (!optionTrades.length && !stockLegs.length && !fxLegs.length) {
+      alert("No trades found in IBKR response.\n\nResponse starts with:\n" + data.substring(0, 300));
+      throw new Error("No trades found.");
+    }
 
     // Step 4: Pair options into spreads (reuse existing logic)
     const spreads = optionTrades.length ? pairIntoSpreads(optionTrades) : [];
