@@ -7762,10 +7762,10 @@ function pairIntoSpreads(optionTrades) {
   const opens = optionTrades.filter(t => t.isOpen);
   const closes = optionTrades.filter(t => t.isClose);
 
-  // Group opens by key: ticker|expiry|datetime
+  // Group opens by key: ticker|expiry|dateOnly (not full timestamp — legs may fill seconds apart)
   const groups = {};
   for (const t of opens) {
-    const key = t.ticker + "|" + t.expiry + "|" + t.datetime;
+    const key = t.ticker + "|" + t.expiry + "|" + t.dateOnly;
     if (!groups[key]) groups[key] = [];
     groups[key].push(t);
   }
@@ -7773,12 +7773,19 @@ function pairIntoSpreads(optionTrades) {
   const spreads = [];
 
   for (const [key, legs] of Object.entries(groups)) {
-    if (legs.length !== 2) continue; // Only pair 2-leg spreads
-    const shortLeg = legs.find(l => l.qty < 0);
-    const longLeg = legs.find(l => l.qty > 0);
-    if (!shortLeg || !longLeg) continue;
-    if (shortLeg.side !== longLeg.side) continue; // Must be same type
-    if (Math.abs(shortLeg.qty) !== Math.abs(longLeg.qty)) continue;
+    // Sort legs so we can pair them: short (qty<0) with long (qty>0), same side (P/C), same qty
+    const shorts = legs.filter(l => l.qty < 0).sort((a,b) => a.strike - b.strike);
+    const longs = legs.filter(l => l.qty > 0).sort((a,b) => a.strike - b.strike);
+
+    // Try to pair each short with a matching long
+    const usedLongs = new Set();
+    for (const shortLeg of shorts) {
+      const matchIdx = longs.findIndex((l, i) =>
+        !usedLongs.has(i) && l.side === shortLeg.side && Math.abs(l.qty) === Math.abs(shortLeg.qty)
+      );
+      if (matchIdx === -1) continue;
+      usedLongs.add(matchIdx);
+      const longLeg = longs[matchIdx];
 
     const contracts = Math.abs(shortLeg.qty);
     const isPut = shortLeg.side === "P";
@@ -7841,7 +7848,8 @@ function pairIntoSpreads(optionTrades) {
       chartLink: "", tpPrice: "", slPrice: "",
       rolls: [], journal: []
     });
-  }
+    } // end inner for (shortLeg of shorts)
+  } // end outer for (groups)
 
   return spreads.sort((a, b) => a.entryDate.localeCompare(b.entryDate));
 }
