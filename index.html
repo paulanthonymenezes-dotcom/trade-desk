@@ -10885,11 +10885,15 @@ function _lcDrawChart(canvas, candles, ticker) {
   const mainH = H - MT - rsiH - 8;
   const chartW = W - ML - MR;
 
-  // Price range
-  let pMin = Math.min(...sliceL), pMax = Math.max(...sliceH);
-  const pad = (pMax - pMin) * 0.06;
+  // Price range — filter out null/NaN values from Yahoo Finance gaps
+  const validL = sliceL.filter(v => v != null && !isNaN(v));
+  const validH = sliceH.filter(v => v != null && !isNaN(v));
+  const validV = sliceV.filter(v => v != null && !isNaN(v));
+  if (!validL.length || !validH.length) return;
+  let pMin = Math.min(...validL), pMax = Math.max(...validH);
+  const pad = (pMax - pMin) * 0.06 || 0.001; // fallback for flat lines
   pMin -= pad; pMax += pad;
-  const vMax = Math.max(...sliceV) || 1;
+  const vMax = Math.max(...validV) || 1;
 
   const xFor = i => ML + (i + 0.5) * (chartW / n);
   const yFor = p => MT + (mainH - volH) - ((p - pMin) / (pMax - pMin)) * (mainH - volH);
@@ -10905,6 +10909,7 @@ function _lcDrawChart(canvas, candles, ticker) {
 
   // Volume bars
   for (let i = 0; i < n; i++) {
+    if (sliceV[i] == null || sliceO[i] == null || sliceC[i] == null) continue;
     const x = xFor(i);
     const vh = (sliceV[i] / vMax) * volH;
     ctx.fillStyle = sliceC[i] >= sliceO[i] ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.12)';
@@ -10913,6 +10918,7 @@ function _lcDrawChart(canvas, candles, ticker) {
 
   // Candlesticks
   for (let i = 0; i < n; i++) {
+    if (sliceO[i] == null || sliceC[i] == null || sliceH[i] == null || sliceL[i] == null) continue;
     const x = xFor(i);
     const up = sliceC[i] >= sliceO[i];
     const color = up ? '#3fb950' : '#f85149';
