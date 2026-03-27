@@ -7701,12 +7701,25 @@ async function syncIBKR() {
   }
 }
 
-function quickSync() {
+async function quickSync() {
   if (!STATE.ibkrToken || !STATE.ibkrQueryId) {
     alert("Set up IBKR Flex Query first:\n\n1. Open Settings (⚙)\n2. Enter your Flex Query Token and Query ID\n3. Then tap SYNC here or in Settings");
     return;
   }
-  syncIBKR();
+  const btn = document.querySelector('[onclick="quickSync()"]');
+  if (btn) { btn.textContent = "⏳"; btn.disabled = true; }
+  try {
+    await syncIBKR();
+    // Auto-import when triggered from main page (settings modal is closed)
+    if (window._ibkrPending && window._ibkrPending.length && document.getElementById("settings-modal").style.display === "none") {
+      const count = window._ibkrPending.length;
+      confirmIBKRImport();
+      alert("Imported " + count + " new trades from IBKR!");
+    }
+  } catch(e) {
+    alert("SYNC failed: " + e.message);
+  }
+  if (btn) { btn.textContent = "⚡ SYNC"; btn.disabled = false; }
 }
 
 // ── IBKR CSV Import ─────────────────────────────────────────────────────────
