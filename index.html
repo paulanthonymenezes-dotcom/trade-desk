@@ -7437,6 +7437,9 @@ async function syncIBKR() {
     STATE.ibkrToken = token; STATE.ibkrQueryId = queryId; save();
   }
 
+  // Auto-open debug panel during sync
+  const dbgPanel = document.getElementById("debug-panel");
+  if (dbgPanel) { dbgPanel.style.display = "block"; }
   showSyncStatus("Requesting Flex Query from IBKR...", "info");
 
   try {
@@ -7490,7 +7493,14 @@ async function syncIBKR() {
     const stockLegs = optionTrades._stockTrades || [];
     const fxLegs = optionTrades._fxTrades || [];
 
-    if (!optionTrades.length && !stockLegs.length && !fxLegs.length) throw new Error("No trades found in the Flex Query response. Enable debug mode for details.");
+    // Always log parse results to sync status for visibility
+    showSyncStatus(`Parsed: ${optionTrades.length} option legs, ${stockLegs.length} stock legs, ${fxLegs.length} FX legs. Response: ${data.length} chars (${trimmed.startsWith("<?xml") || trimmed.startsWith("<") ? "XML" : "CSV"})`, "info");
+    dbg("Raw response first 500 chars: " + data.substring(0, 500), "info");
+    if (stockLegs.length) dbg("Stock trades: " + stockLegs.map(s => s.ticker + " " + s.qty + " @ " + s.price + " " + s.dateOnly).join(" | "), "info");
+    if (fxLegs.length) dbg("FX trades: " + fxLegs.map(s => s.ticker + " " + s.qty + " @ " + s.price + " " + s.dateOnly).join(" | "), "info");
+    if (!optionTrades.length) dbg("No option trades found — asset classes in response may not include options", "warn");
+
+    if (!optionTrades.length && !stockLegs.length && !fxLegs.length) throw new Error("No trades found in the Flex Query response. Raw response starts with: " + data.substring(0, 200));
 
     // Step 4: Pair options into spreads (reuse existing logic)
     const spreads = optionTrades.length ? pairIntoSpreads(optionTrades) : [];
