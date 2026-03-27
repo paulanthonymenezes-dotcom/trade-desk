@@ -400,6 +400,7 @@ table{width:100%;border-collapse:collapse}
   <a href="https://www.financialjuice.com" target="_blank" rel="noopener" class="btn btn-g" style="padding:3px 6px;font-size:9px;text-decoration:none;margin-right:4px;letter-spacing:0;display:inline-flex;align-items:center;gap:3px"><img src="https://www.google.com/s2/favicons?domain=financialjuice.com&sz=16" width="14" height="14" style="border-radius:2px"> FJ</a>
   <a href="https://www.fxstreet.com/economic-calendar" target="_blank" rel="noopener" class="btn btn-g" style="padding:3px 6px;font-size:9px;text-decoration:none;margin-right:4px;letter-spacing:0;display:inline-flex;align-items:center;gap:3px"><img src="https://www.google.com/s2/favicons?domain=fxstreet.com&sz=16" width="14" height="14" style="border-radius:2px"> FX</a>
   <a href="https://www.earningswhispers.com/calendar" target="_blank" rel="noopener" class="btn btn-g" style="padding:3px 6px;font-size:9px;text-decoration:none;margin-right:6px;letter-spacing:0;display:inline-flex;align-items:center;gap:3px"><img src="https://www.google.com/s2/favicons?domain=earningswhispers.com&sz=16" width="14" height="14" style="border-radius:2px"> EW</a>
+  <button class="btn btn-p" onclick="quickSync()" id="quick-sync-btn" style="padding:6px 14px;font-size:11px;font-weight:700;margin-right:6px;letter-spacing:0.02em">⚡ SYNC</button>
   <button class="btn btn-g" onclick="refreshAll()" id="refresh-btn" style="padding:5px 10px;font-size:10px;margin-right:6px">↻</button>
   <button class="btn btn-g" onclick="toggleDebug()" id="debug-btn" style="padding:5px 8px;font-size:10px;margin-right:6px">🔍</button>
   <button class="btn btn-g" onclick="_toggleCBPanel()" id="cb-panel-btn" style="padding:5px 10px;font-size:10px;margin-right:6px;letter-spacing:0">🏦 RATES</button>
@@ -7706,8 +7707,8 @@ async function quickSync() {
     alert("Set up IBKR Flex Query first:\n\n1. Open Settings (⚙)\n2. Enter your Flex Query Token and Query ID\n3. Then tap SYNC here or in Settings");
     return;
   }
-  const btn = document.querySelector('[onclick="quickSync()"]');
-  if (btn) { btn.textContent = "⏳"; btn.disabled = true; }
+  const btns = document.querySelectorAll('[onclick="quickSync()"]');
+  btns.forEach(b => { b.dataset.origText = b.textContent; b.textContent = "⏳"; b.disabled = true; });
   try {
     await syncIBKR();
     // Auto-import when triggered from main page (settings modal is closed)
@@ -7719,7 +7720,7 @@ async function quickSync() {
   } catch(e) {
     alert("SYNC failed: " + e.message);
   }
-  if (btn) { btn.textContent = "⚡ SYNC"; btn.disabled = false; }
+  btns.forEach(b => { b.textContent = b.dataset.origText || "⚡ SYNC"; b.disabled = false; });
 }
 
 // ── IBKR CSV Import ─────────────────────────────────────────────────────────
@@ -7822,7 +7823,9 @@ function pairIntoSpreads(optionTrades) {
     const isPut = shortLeg.side === "P";
     const shortStrike = shortLeg.strike;
     const longStrike = longLeg.strike;
-    const premium = Math.round(Math.abs(shortLeg.price - longLeg.price) * contracts * 100);
+    // Use IBKR's Proceeds for accurate premium (positive = net credit received)
+    const netProceeds = shortLeg.proceeds + longLeg.proceeds; // IBKR: positive for credit, negative for debit
+    const premium = Math.round(Math.abs(netProceeds) * 100) / 100;
     const entryDate = shortLeg.dateOnly;
 
     // Determine trade type
@@ -7852,13 +7855,19 @@ function pairIntoSpreads(optionTrades) {
       status = "Closed";
       const lastClose = shortCloses[shortCloses.length - 1];
       exitDate = lastClose.dateOnly;
-      // Calculate realized PnL from close prices
-      const closeCost = Math.abs(shortCloses.reduce((s, c) => s + c.proceeds, 0) +
-                                  longCloses.reduce((s, c) => s + c.proceeds, 0));
+      // Use IBKR's realized PnL directly when available (most accurate)
+      const ibkrPnl = shortLeg.realizedPnl + longLeg.realizedPnl +
+        shortCloses.reduce((s, c) => s + c.realizedPnl, 0) +
+        longCloses.reduce((s, c) => s + c.realizedPnl, 0);
       const closeComm = shortCloses.reduce((s, c) => s + Math.abs(c.commission), 0) +
                         longCloses.reduce((s, c) => s + Math.abs(c.commission), 0);
       totalComm += closeComm;
-      realizedPnl = Math.round((premium - closeCost - totalComm) * 100) / 100;
+      // IBKR realizedPnl already includes open leg P&L, so use net proceeds approach as backup
+      const closeProceeds = shortCloses.reduce((s, c) => s + c.proceeds, 0) +
+                            longCloses.reduce((s, c) => s + c.proceeds, 0);
+      // Total P&L = open proceeds + close proceeds - total commissions
+      const totalProceeds = netProceeds + closeProceeds;
+      realizedPnl = Math.round((totalProceeds - totalComm) * 100) / 100;
     }
 
     // Calculate DTE at entry
