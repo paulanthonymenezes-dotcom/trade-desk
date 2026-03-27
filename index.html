@@ -7585,66 +7585,123 @@ async function syncIBKR() {
     // Step 4c: Process stock/ETF trades — group buy/sell into trades
     const stockDashTrades = [];
     if (stockLegs.length) {
-      // Group by ticker + date
-      const stockGroups = {};
+      // Group by ticker, then pair O legs with C legs chronologically
+      const stockByTicker = {};
       for (const leg of stockLegs) {
-        const key = leg.ticker + "|" + leg.dateOnly;
-        if (!stockGroups[key]) stockGroups[key] = [];
-        stockGroups[key].push(leg);
+        if (!stockByTicker[leg.ticker]) stockByTicker[leg.ticker] = [];
+        stockByTicker[leg.ticker].push(leg);
       }
-      for (const [, legs] of Object.entries(stockGroups)) {
-        const totalQty = legs.reduce((s, l) => s + l.qty, 0);
-        const avgPrice = legs.reduce((s, l) => s + l.price * Math.abs(l.qty), 0) / legs.reduce((s, l) => s + Math.abs(l.qty), 0);
-        const totalComm = legs.reduce((s, l) => s + Math.abs(l.commission), 0);
+      const stockGroups = {};
+      for (const [ticker, legs] of Object.entries(stockByTicker)) {
+        const opens = legs.filter(l => l.isOpen).sort((a,b) => a.dateOnly.localeCompare(b.dateOnly));
+        const closes = legs.filter(l => l.isClose).sort((a,b) => a.dateOnly.localeCompare(b.dateOnly));
+        const usedCloses = new Set();
+        for (const openLeg of opens) {
+          const closeIdx = closes.findIndex((c, i) => !usedCloses.has(i) && c.dateOnly >= openLeg.dateOnly);
+          if (closeIdx >= 0) {
+            usedCloses.add(closeIdx);
+            stockGroups[ticker + "|" + openLeg.dateOnly + "|closed"] = [openLeg, closes[closeIdx]];
+          } else {
+            stockGroups[ticker + "|" + openLeg.dateOnly + "|open"] = [openLeg];
+          }
+        }
+        // Orphan closes — skip (opened before flex query window)
+        closes.forEach((c, i) => {
+          if (!usedCloses.has(i)) {
+            dbg("Stock orphan close: " + ticker + " " + c.qty + "x @ $" + c.price + " " + c.dateOnly, "warn");
+          }
+        });
+      }
+      for (const [key, legs] of Object.entries(stockGroups)) {
+        const openLeg = legs.find(l => l.isOpen);
+        const closeLeg = legs.find(l => l.isClose);
+        const isClosed = !!openLeg && !!closeLeg;
+        const entryLeg = openLeg || legs[0];
+        const entryQty = openLeg ? openLeg.qty : legs[0].qty;
         const totalPnl = legs.reduce((s, l) => s + l.realizedPnl, 0);
-        const isClose = legs.some(l => l.isClose);
-        const t = legs[0];
+        const totalComm = legs.reduce((s, l) => s + Math.abs(l.commission), 0);
         stockDashTrades.push({
-          ticker: t.ticker,
-          tradeType: totalQty > 0 ? "Stock Long" : "Stock Short",
+          ticker: entryLeg.ticker,
+          tradeType: entryQty > 0 ? "Stock Long" : "Stock Short",
           assetClass: "Stock",
-          contracts: Math.abs(totalQty),
-          shortStrike: avgPrice, // entry price stored in shortStrike
+          contracts: Math.abs(entryQty),
+          shortStrike: entryLeg.price,
           longStrike: 0,
-          entryDate: t.dateOnly,
+          entryDate: entryLeg.dateOnly,
           premiumCollected: 0,
-          status: isClose ? "Closed" : "Open",
-          exitDate: isClose ? t.dateOnly : null,
-          realizedPnl: totalPnl ? Math.round(totalPnl * 100) / 100 : null,
+          status: isClosed ? "Closed" : "Open",
+          exitDate: isClosed ? closeLeg.dateOnly : null,
+          realizedPnl: isClosed ? Math.round((totalPnl - totalComm) * 100) / 100 : null,
         });
       }
       dbg("Processed " + stockDashTrades.length + " stock/ETF trades", "info");
     }
 
-    // Step 4d: Process FX trades
+    // Step 4d: Process FX trades — pair opens with closes across dates
     const fxDashTrades = [];
     if (fxLegs.length) {
-      const fxGroups = {};
+      // Group all FX legs by ticker, then pair O legs with C legs chronologically
+      const fxByTicker = {};
       for (const leg of fxLegs) {
-        const key = leg.ticker + "|" + leg.dateOnly;
-        if (!fxGroups[key]) fxGroups[key] = [];
-        fxGroups[key].push(leg);
+        if (!fxByTicker[leg.ticker]) fxByTicker[leg.ticker] = [];
+        fxByTicker[leg.ticker].push(leg);
       }
-      for (const [, legs] of Object.entries(fxGroups)) {
-        const totalQty = legs.reduce((s, l) => s + l.qty, 0);
-        const avgPrice = legs.reduce((s, l) => s + l.price * Math.abs(l.qty), 0) / legs.reduce((s, l) => s + Math.abs(l.qty), 0);
+      const fxGroups = {};
+      for (const [ticker, legs] of Object.entries(fxByTicker)) {
+        const opens = legs.filter(l => l.isOpen).sort((a,b) => a.dateOnly.localeCompare(b.dateOnly));
+        const closes = legs.filter(l => l.isClose).sort((a,b) => a.dateOnly.localeCompare(b.dateOnly));
+        // Pair each open with the next close
+        const usedCloses = new Set();
+        for (const openLeg of opens) {
+          const closeIdx = closes.findIndex((c, i) => !usedCloses.has(i) && c.dateOnly >= openLeg.dateOnly);
+          if (closeIdx >= 0) {
+            usedCloses.add(closeIdx);
+            const key = ticker + "|" + openLeg.dateOnly + "|closed";
+            fxGroups[key] = [openLeg, closes[closeIdx]];
+          } else {
+            // No matching close — genuinely open
+            const key = ticker + "|" + openLeg.dateOnly + "|open";
+            fxGroups[key] = [openLeg];
+          }
+        }
+        // Any unmatched closes (opened before flex query window)
+        closes.forEach((c, i) => {
+          if (!usedCloses.has(i)) {
+            const key = ticker + "|" + c.dateOnly + "|orphan-close";
+            fxGroups[key] = [c];
+          }
+        });
+      }
+      for (const [key, legs] of Object.entries(fxGroups)) {
+        const openLeg = legs.find(l => l.isOpen);
+        const closeLeg = legs.find(l => l.isClose);
+        const hasOpen = !!openLeg;
+        const hasClose = !!closeLeg;
+        const isClosed = hasOpen && hasClose;
+        const isOrphanClose = key.includes("orphan-close");
+        // Skip orphan closes — these are exits of trades opened before the flex query window
+        if (isOrphanClose) continue;
+        const entryLeg = openLeg || legs[0];
+        const entryQty = openLeg ? openLeg.qty : legs[0].qty;
+        const entryPrice = openLeg ? openLeg.price : legs[0].price;
+        const exitPrice = closeLeg ? closeLeg.price : null;
         const totalPnl = legs.reduce((s, l) => s + l.realizedPnl, 0);
-        const isClose = legs.some(l => l.isClose);
-        const t = legs[0];
+        const totalComm = legs.reduce((s, l) => s + Math.abs(l.commission), 0);
         fxDashTrades.push({
-          ticker: t.ticker,
-          tradeType: totalQty > 0 ? "FX Long" : "FX Short",
+          ticker: entryLeg.ticker,
+          tradeType: entryQty > 0 ? "FX Long" : "FX Short",
           assetClass: "FX",
-          contracts: Math.abs(totalQty),
-          notional: Math.abs(totalQty),
-          entryRate: avgPrice,
-          shortStrike: avgPrice, // backwards compat
+          contracts: Math.abs(entryQty),
+          notional: Math.abs(entryQty),
+          entryRate: entryPrice,
+          exitRate: exitPrice,
+          shortStrike: entryPrice, // backwards compat
           longStrike: 0,
-          entryDate: t.dateOnly,
+          entryDate: entryLeg.dateOnly,
           premiumCollected: 0,
-          status: isClose ? "Closed" : "Open",
-          exitDate: isClose ? t.dateOnly : null,
-          realizedPnl: totalPnl ? Math.round(totalPnl * 100) / 100 : null,
+          status: isClosed ? "Closed" : "Open",
+          exitDate: isClosed ? closeLeg.dateOnly : null,
+          realizedPnl: isClosed ? Math.round((totalPnl - totalComm) * 100) / 100 : null,
         });
       }
       dbg("Processed " + fxDashTrades.length + " FX trades", "info");
@@ -7717,6 +7774,19 @@ async function quickSync() {
   const btns = document.querySelectorAll('[onclick="quickSync()"]');
   btns.forEach(b => { b.dataset.origText = b.textContent; b.textContent = "⏳"; b.disabled = true; });
   try {
+    // Before sync, remove previously synced Stock/FX trades (they'll be re-imported fresh)
+    const beforeCount = STATE.trades.length;
+    STATE.trades = STATE.trades.filter(t => {
+      // Keep manually entered trades and option spreads
+      if (t.assetClass !== "Stock" && t.assetClass !== "FX") return true;
+      // Keep trades with journal entries, thesis, or manual edits (user touched these)
+      if (t.thesis || (t.journal && t.journal.length) || t.ideaSource || t.strategyType) return true;
+      return false;
+    });
+    if (STATE.trades.length < beforeCount) {
+      dbg("Cleared " + (beforeCount - STATE.trades.length) + " auto-imported Stock/FX trades for fresh re-import", "info");
+      save();
+    }
     await syncIBKR();
     // Auto-import when triggered from main page (settings modal is closed)
     if (window._ibkrPending && window._ibkrPending.length && document.getElementById("settings-modal").style.display === "none") {
