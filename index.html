@@ -7710,22 +7710,14 @@ async function syncIBKR() {
     // Combine all trade types for import
     const allNewTrades = [...spreads, ...stockDashTrades, ...fxDashTrades];
 
-    // Step 5: Clear old auto-imported Stock/FX trades before dedup
-    // (these will be re-imported fresh with correct pairing)
-    if (stockDashTrades.length || fxDashTrades.length) {
-      const beforeClear = STATE.trades.length;
-      STATE.trades = STATE.trades.filter(t => {
-        if (t.assetClass !== "Stock" && t.assetClass !== "FX") return true;
-        // Keep trades user has manually edited
-        if (t.thesis || (t.journal && t.journal.length) || t.ideaSource || t.strategyType) return true;
-        return false;
-      });
-      const cleared = beforeClear - STATE.trades.length;
-      if (cleared) dbg("Cleared " + cleared + " auto-imported Stock/FX trades for fresh re-import", "info");
-    }
+    // Step 5: Only import option spreads for now — Stock/FX pairing needs more work
+    // TODO: re-enable stock/FX import after fixing pairing logic
+    if (stockDashTrades.length) dbg("Skipping " + stockDashTrades.length + " stock trades (manual entry for now)", "warn");
+    if (fxDashTrades.length) dbg("Skipping " + fxDashTrades.length + " FX trades (manual entry for now)", "warn");
+    const allNewTradesToImport = [...spreads]; // options only
 
-    // Dedup new trades against remaining STATE
-    const newSpreads = allNewTrades.filter(s =>
+    // Dedup new trades against STATE
+    const newSpreads = allNewTradesToImport.filter(s =>
       !STATE.trades.some(t => isDuplicateTrade(t, s))
     );
 
@@ -7903,9 +7895,8 @@ function pairIntoSpreads(optionTrades) {
     const isPut = shortLeg.side === "P";
     const shortStrike = shortLeg.strike;
     const longStrike = longLeg.strike;
-    // Use IBKR's Proceeds for accurate premium (positive = net credit received)
-    const netProceeds = shortLeg.proceeds + longLeg.proceeds; // IBKR: positive for credit, negative for debit
-    const premium = Math.round(Math.abs(netProceeds) * 100) / 100;
+    // Premium = net credit received (short price - long price) × contracts × 100
+    const premium = Math.round(Math.abs(shortLeg.price - longLeg.price) * contracts * 100);
     const entryDate = shortLeg.dateOnly;
 
     // Determine trade type
@@ -7935,19 +7926,15 @@ function pairIntoSpreads(optionTrades) {
       status = "Closed";
       const lastClose = shortCloses[shortCloses.length - 1];
       exitDate = lastClose.dateOnly;
-      // Use IBKR's realized PnL directly when available (most accurate)
-      const ibkrPnl = shortLeg.realizedPnl + longLeg.realizedPnl +
-        shortCloses.reduce((s, c) => s + c.realizedPnl, 0) +
-        longCloses.reduce((s, c) => s + c.realizedPnl, 0);
+      // Use IBKR's FifoPnlRealized directly — most accurate source
+      // Sum realized P&L from close legs only (open legs have 0 realized P&L)
+      const ibkrRealizedPnl = shortCloses.reduce((s, c) => s + c.realizedPnl, 0) +
+                               longCloses.reduce((s, c) => s + c.realizedPnl, 0);
       const closeComm = shortCloses.reduce((s, c) => s + Math.abs(c.commission), 0) +
                         longCloses.reduce((s, c) => s + Math.abs(c.commission), 0);
       totalComm += closeComm;
-      // IBKR realizedPnl already includes open leg P&L, so use net proceeds approach as backup
-      const closeProceeds = shortCloses.reduce((s, c) => s + c.proceeds, 0) +
-                            longCloses.reduce((s, c) => s + c.proceeds, 0);
-      // Total P&L = open proceeds + close proceeds - total commissions
-      const totalProceeds = netProceeds + closeProceeds;
-      realizedPnl = Math.round((totalProceeds - totalComm) * 100) / 100;
+      // IBKR realized PnL already includes commissions, so just use it directly
+      realizedPnl = Math.round(ibkrRealizedPnl * 100) / 100;
     }
 
     // Calculate DTE at entry
