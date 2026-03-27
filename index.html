@@ -7710,7 +7710,21 @@ async function syncIBKR() {
     // Combine all trade types for import
     const allNewTrades = [...spreads, ...stockDashTrades, ...fxDashTrades];
 
-    // Step 5: Dedup new spreads
+    // Step 5: Clear old auto-imported Stock/FX trades before dedup
+    // (these will be re-imported fresh with correct pairing)
+    if (stockDashTrades.length || fxDashTrades.length) {
+      const beforeClear = STATE.trades.length;
+      STATE.trades = STATE.trades.filter(t => {
+        if (t.assetClass !== "Stock" && t.assetClass !== "FX") return true;
+        // Keep trades user has manually edited
+        if (t.thesis || (t.journal && t.journal.length) || t.ideaSource || t.strategyType) return true;
+        return false;
+      });
+      const cleared = beforeClear - STATE.trades.length;
+      if (cleared) dbg("Cleared " + cleared + " auto-imported Stock/FX trades for fresh re-import", "info");
+    }
+
+    // Dedup new trades against remaining STATE
     const newSpreads = allNewTrades.filter(s =>
       !STATE.trades.some(t => isDuplicateTrade(t, s))
     );
@@ -7723,9 +7737,11 @@ async function syncIBKR() {
     }
 
     if (newSpreads.length === 0) {
+      // Even if no new trades, save if we cleared old stock/FX
+      save(); renderAll();
       const msg = closedExisting > 0
         ? "Updated " + closedExisting + " trade(s) to Closed. " + dupes + " existing trades unchanged."
-        : "All " + spreads.length + " trades already exist — nothing new.";
+        : "All " + allNewTrades.length + " trades already exist — nothing new.";
       showSyncStatus(msg, closedExisting > 0 ? "success" : "info");
       return;
     }
@@ -7774,19 +7790,6 @@ async function quickSync() {
   const btns = document.querySelectorAll('[onclick="quickSync()"]');
   btns.forEach(b => { b.dataset.origText = b.textContent; b.textContent = "⏳"; b.disabled = true; });
   try {
-    // Before sync, remove previously synced Stock/FX trades (they'll be re-imported fresh)
-    const beforeCount = STATE.trades.length;
-    STATE.trades = STATE.trades.filter(t => {
-      // Keep manually entered trades and option spreads
-      if (t.assetClass !== "Stock" && t.assetClass !== "FX") return true;
-      // Keep trades with journal entries, thesis, or manual edits (user touched these)
-      if (t.thesis || (t.journal && t.journal.length) || t.ideaSource || t.strategyType) return true;
-      return false;
-    });
-    if (STATE.trades.length < beforeCount) {
-      dbg("Cleared " + (beforeCount - STATE.trades.length) + " auto-imported Stock/FX trades for fresh re-import", "info");
-      save();
-    }
     await syncIBKR();
     // Auto-import when triggered from main page (settings modal is closed)
     if (window._ibkrPending && window._ibkrPending.length && document.getElementById("settings-modal").style.display === "none") {
