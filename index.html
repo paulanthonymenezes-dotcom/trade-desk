@@ -591,7 +591,8 @@ table{width:100%;border-collapse:collapse}
       <div style="display:flex;gap:6px">
         <button class="btn btn-g" style="padding:7px 10px;font-size:10px" onclick="quickSync()" title="Sync from IBKR">⚡ SYNC</button>
         <button class="btn btn-p" style="padding:7px 14px;background:var(--accent, #2f81f7);border-color:var(--accent, #2f81f7)" onclick="openFuturesModal()" title="Quick log NQ/ES/MNQ/MES">⚡ FUTURES</button>
-        <button class="btn btn-p" style="padding:7px 14px" onclick="openTradeModal()">+ NEW TRADE</button>
+        <button class="btn btn-p" style="padding:7px 14px;background:var(--positive);border-color:var(--positive);color:#0d1117;font-weight:700" onclick="openQuickLog()" title="Fast trade log with source + pre-entry checklist">⚡ QUICK LOG</button>
+        <button class="btn btn-g" style="padding:7px 14px" onclick="openTradeModal()" title="Full trade entry">+ FULL FORM</button>
       </div>
     </div>
     <div id="positions-snapshot"></div>
@@ -937,6 +938,74 @@ table{width:100%;border-collapse:collapse}
     <div style="display:flex;gap:10px">
       <button class="btn btn-g" onclick="closeFuturesExitModal()" style="flex:1">CANCEL</button>
       <button class="btn btn-warn" onclick="saveFuturesExit()" style="flex:1">CLOSE TRADE</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK LOG MODAL (v2) — fast trade entry w/ source pills + pre-entry checklist -->
+<div id="quicklog-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:560px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--positive);letter-spacing:0.02em">⚡ QUICK LOG</div>
+      <button onclick="closeQuickLog()" style="background:none;border:none;color:var(--text-secondary);font-size:22px">×</button>
+    </div>
+
+    <!-- Source pills (drives whether checklist is required) -->
+    <div style="margin-bottom:14px">
+      <div style="font-size:10px;color:var(--text-secondary);letter-spacing:0.02em;margin-bottom:6px">WHERE'S THIS TRADE FROM?</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" class="ql-src-pill" data-src="TOS" onclick="setQuickSource('TOS')" style="flex:1;min-width:90px;padding:10px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🎯 TOS<br><span style="font-size:9px;font-weight:400;opacity:.7">blind follow</span></button>
+        <button type="button" class="ql-src-pill" data-src="Seasonax" onclick="setQuickSource('Seasonax')" style="flex:1;min-width:90px;padding:10px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">📈 Seasonax<br><span style="font-size:9px;font-weight:400;opacity:.7">checklist req</span></button>
+        <button type="button" class="ql-src-pill" data-src="Finviz" onclick="setQuickSource('Finviz')" style="flex:1;min-width:90px;padding:10px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🔍 Finviz<br><span style="font-size:9px;font-weight:400;opacity:.7">checklist req</span></button>
+        <button type="button" class="ql-src-pill" data-src="Own DD" onclick="setQuickSource('Own DD')" style="flex:1;min-width:90px;padding:10px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🧠 Own DD<br><span style="font-size:9px;font-weight:400;opacity:.7">checklist req</span></button>
+      </div>
+    </div>
+
+    <!-- The trade — minimal fields -->
+    <div class="g2">
+      <div class="frow"><label>Ticker</label><input id="ql-ticker" placeholder="NVDA, /NQ, /ES" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="frow"><label>Strategy</label><select id="ql-tradeType">
+        <option>Bull Put Spread</option><option>Bear Call Spread</option><option>Bear Put Spread</option><option>Bull Call Spread</option>
+        <option>Iron Condor</option><option>Strangle</option><option>Short Put</option><option>Short Call</option>
+        <option>Long Put</option><option>Long Call</option><option>Multi-leg</option><option>Stock Long</option><option>Stock Short</option>
+      </select></div>
+    </div>
+    <div class="g3">
+      <div class="frow"><label>Short Strike</label><input id="ql-shortStrike" type="number" step="0.01"></div>
+      <div class="frow"><label>Long Strike <span style="color:var(--text-muted);font-size:9px">(blank if single)</span></label><input id="ql-longStrike" type="number" step="0.01"></div>
+      <div class="frow"><label>Contracts</label><input id="ql-contracts" type="number" min="1" value="1"></div>
+    </div>
+    <div class="g3">
+      <div class="frow"><label>Premium ($)</label><input id="ql-premium" type="number" step="0.01" placeholder="e.g. 200"></div>
+      <div class="frow"><label>Expiry</label><input id="ql-expiry" type="date"></div>
+      <div class="frow"><label>Entry Time <span style="color:var(--text-muted);font-size:9px">ET</span></label><input id="ql-entryTime" type="time"></div>
+    </div>
+
+    <!-- Pre-entry checklist (shown unless TOS) -->
+    <div id="ql-checklist" style="display:none;background:var(--bg-primary);border:1px solid var(--warning-dim, rgba(210,153,34,0.3));border-radius:4px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--warning);letter-spacing:0.02em">PRE-ENTRY CHECKLIST</div>
+        <span id="ql-checklist-count" style="font-size:10px;color:var(--text-muted);font-variant-numeric:tabular-nums">0 / 6</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-primary);cursor:pointer;padding:4px 0"><input type="checkbox" class="ql-chk" data-k="seasonax" onchange="_updateQLCount()" style="accent-color:var(--positive)"> Seasonax — positive trend</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-primary);cursor:pointer;padding:4px 0"><input type="checkbox" class="ql-chk" data-k="gex" onchange="_updateQLCount()" style="accent-color:var(--positive)"> GEX levels checked</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-primary);cursor:pointer;padding:4px 0"><input type="checkbox" class="ql-chk" data-k="news" onchange="_updateQLCount()" style="accent-color:var(--positive)"> No negative news</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-primary);cursor:pointer;padding:4px 0"><input type="checkbox" class="ql-chk" data-k="priceAction" onchange="_updateQLCount()" style="accent-color:var(--positive)"> Price action / chart confirms</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-primary);cursor:pointer;padding:4px 0"><input type="checkbox" class="ql-chk" data-k="earnings" onchange="_updateQLCount()" style="accent-color:var(--positive)"> No earnings before expiry</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-primary);cursor:pointer;padding:4px 0"><input type="checkbox" class="ql-chk" data-k="ewPositive" onchange="_updateQLCount()" style="accent-color:var(--positive)"> Prev earnings positive (EW)</label>
+      </div>
+      <div class="frow" style="margin-top:8px;margin-bottom:0"><label style="font-size:10px">Note (optional)</label><input id="ql-checklist-note" placeholder="anything else worth flagging?" style="font-size:11px"></div>
+    </div>
+
+    <!-- TOS notice (shown when source=TOS) -->
+    <div id="ql-tos-notice" style="display:none;background:var(--accent-dim, rgba(47,129,247,0.12));border:1px solid var(--accent, #2f81f7);border-radius:4px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text-primary)">
+      🎯 <b>TOS blind follow</b> — checklist skipped. You're trusting the source.
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-g" onclick="closeQuickLog()" style="flex:1">CANCEL</button>
+      <button class="btn btn-p" id="ql-save-btn" onclick="saveQuickLog()" style="flex:1">SAVE TRADE</button>
     </div>
   </div>
 </div>
@@ -3987,6 +4056,28 @@ function renderDiary() {
         <button class="btn btn-p" style="width:100%" onclick="addJournal()">ADD NOTE</button>
       </div>
     </div>
+
+    <!-- Pre-entry checklist (v2 quick-log trades) -->
+    ${t.checklist ? (() => {
+      const items = [
+        ['seasonax','Seasonax positive trend'],['gex','GEX levels checked'],['news','No negative news'],
+        ['priceAction','Price action confirms'],['earnings','No earnings before expiry'],['ewPositive','Prev earnings positive (EW)']
+      ];
+      const done = items.filter(([k])=>t.checklist[k]).length;
+      const wrColor = done===6?C.pos:done>=4?C.text:C.warn;
+      return `<div class="card" style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em">PRE-ENTRY CHECKLIST</div>
+          <span style="font-size:11px;color:${wrColor};font-weight:600;font-variant-numeric:tabular-nums">${done} / 6</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px">
+          ${items.map(([k,lbl])=>`<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:${t.checklist[k]?C.text:C.textMut}"><span style="color:${t.checklist[k]?C.pos:C.textMut}">${t.checklist[k]?'✓':'·'}</span> ${lbl}</div>`).join('')}
+        </div>
+        ${t.checklist.notes ? `<div style="margin-top:8px;font-size:11px;color:${C.textSec};font-style:italic;border-left:2px solid ${C.borderVis};padding-left:8px">${escapeHtml(t.checklist.notes)}</div>` : ''}
+      </div>`;
+    })() : (t.src === 'manual' && t.source === 'TOS' ? `<div class="card" style="margin-bottom:10px;background:${C.accentDim||'rgba(47,129,247,0.08)'};border:1px solid ${C.accent||'#2f81f7'}">
+        <div style="font-size:11px;color:${C.accent||'#2f81f7'}">🎯 TOS blind follow — no pre-entry checklist</div>
+      </div>` : '')}
 
     <!-- Screenshots (multiple, ad-hoc, with captions + kind tags) -->
     <div class="card" style="margin-bottom:10px">
@@ -7302,6 +7393,102 @@ function openTradeModal(id=null) {
 function closeTradeModal() { document.getElementById("trade-modal").style.display="none"; }
 
 // ── Quick Futures modal ──────────────────────────────────────────────────────
+// ── Quick Log (v2): fast trade entry with source pills + pre-entry checklist ───
+function openQuickLog() {
+  // Reset
+  ["ql-ticker","ql-shortStrike","ql-longStrike","ql-premium","ql-checklist-note"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  document.getElementById("ql-contracts").value = 1;
+  document.getElementById("ql-tradeType").value = "Bull Put Spread";
+  document.getElementById("ql-expiry").value = "";
+  document.getElementById("ql-entryTime").value = _nowET();
+  document.querySelectorAll(".ql-chk").forEach(c => c.checked = false);
+  _updateQLCount();
+  // Default source: Own DD (so checklist shows)
+  setQuickSource("Own DD");
+  document.getElementById("quicklog-modal").style.display = "flex";
+}
+function closeQuickLog() { document.getElementById("quicklog-modal").style.display = "none"; }
+
+function setQuickSource(src) {
+  document.getElementById("quicklog-modal").dataset.source = src;
+  // Style the pills
+  document.querySelectorAll(".ql-src-pill").forEach(b => {
+    const active = b.dataset.src === src;
+    const color = src === "TOS" ? "var(--accent, #2f81f7)" : "var(--positive)";
+    b.style.borderColor = active ? color : "var(--border-visible)";
+    b.style.color = active ? color : "var(--text-secondary)";
+    b.style.background = active ? (src === "TOS" ? "var(--accent-dim, rgba(47,129,247,0.12))" : "var(--positive-dim, rgba(63,185,80,0.12))") : "transparent";
+    b.style.fontWeight = active ? "700" : "600";
+  });
+  // Show checklist for non-TOS sources
+  const isTOS = src === "TOS";
+  document.getElementById("ql-checklist").style.display = isTOS ? "none" : "block";
+  document.getElementById("ql-tos-notice").style.display = isTOS ? "block" : "none";
+}
+
+function _updateQLCount() {
+  const checked = document.querySelectorAll(".ql-chk:checked").length;
+  const total = document.querySelectorAll(".ql-chk").length;
+  const el = document.getElementById("ql-checklist-count");
+  if (el) {
+    el.textContent = checked + " / " + total;
+    el.style.color = checked === total ? "var(--positive)" : (checked >= 4 ? "var(--text-primary)" : "var(--warning)");
+  }
+}
+
+async function saveQuickLog() {
+  const src = document.getElementById("quicklog-modal").dataset.source || "Own DD";
+  const ticker = document.getElementById("ql-ticker").value.trim().toUpperCase();
+  if (!ticker) { alert("Ticker required"); return; }
+  const tradeType = document.getElementById("ql-tradeType").value;
+  const shortStrike = parseFloat(document.getElementById("ql-shortStrike").value) || 0;
+  const longStrike = parseFloat(document.getElementById("ql-longStrike").value) || 0;
+  const contracts = parseInt(document.getElementById("ql-contracts").value) || 1;
+  const premium = parseFloat(document.getElementById("ql-premium").value) || 0;
+  const expiry = document.getElementById("ql-expiry").value;
+  const entryTime = document.getElementById("ql-entryTime").value || _nowET();
+  const entryDate = new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'}); // today ET
+  // Checklist (skipped for TOS)
+  let checklist = null;
+  if (src !== "TOS") {
+    checklist = { notes: document.getElementById("ql-checklist-note").value.trim() };
+    document.querySelectorAll(".ql-chk").forEach(c => { checklist[c.dataset.k] = c.checked; });
+    const done = Object.keys(checklist).filter(k => k !== "notes" && checklist[k]).length;
+    if (done < 4) {
+      if (!confirm(`Only ${done} of 6 checklist items confirmed. Save anyway?`)) return;
+    }
+  }
+  // DTE
+  let dte = null;
+  if (expiry) { const ms = Date.parse(expiry+"T00:00:00") - Date.parse(entryDate+"T00:00:00"); if (!isNaN(ms)) dte = Math.round(ms/86400000); }
+  // Asset class detection (matches the existing convention)
+  const isFutOpt = isFuturesOptionTicker(ticker);
+  const assetClass = isFutOpt ? "Futures Options" : (tradeType.startsWith("Stock") ? "Stock" : "Options");
+  const entryMode = src === "Own DD" ? "dd" : "follow";
+
+  const t = {
+    id: STATE.nextId++,
+    ticker, assetClass, tradeType, status: "Open",
+    entryDate, entryTime, expiry,
+    shortStrike, longStrike, contracts, premiumCollected: premium,
+    realizedPnl: null, exitDate: null, dteAtEntry: dte,
+    src: "manual",              // never wiped by Flex auto-sync
+    entryMode, source: src, sourcePostUrl: "",
+    checklist,
+    rolls: [], journal: [], screenshots: [], thesis: "", exitReason: "", lessonLearned: "", tpPrice: "", slPrice: "", chartLink: "",
+    createdAt: new Date().toISOString().slice(0,10),
+  };
+  STATE.trades.push(t);
+  // Add the source to followSources if not already there (so SOURCES stats aggregate cleanly)
+  STATE.followSources = STATE.followSources || [];
+  if (src !== "Own DD" && !STATE.followSources.some(s => s.name === src)) {
+    STATE.followSources.push({ name: src, url: "", addedAt: new Date().toISOString().slice(0,10) });
+  }
+  save();
+  closeQuickLog();
+  renderAll();
+}
+
 function openFuturesModal() {
   // Populate ticker dropdown (full-size first since user trades NQ/ES primarily)
   const tickerSel = document.getElementById("ff-ticker");
