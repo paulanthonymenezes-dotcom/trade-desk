@@ -2839,15 +2839,16 @@ function renderWatchlist() {
         ${q?`<span style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${C.text}">$${q.price.toFixed(2)}</span>
         <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</span>`:`<span style="font-size:11px;color:${C.textSec}">Loading...</span>`}
         ${ivr!==null?`<span style="font-size:9px;color:${ivrColor};background:${ivrBg};padding:1px 6px;border-radius:3px">IV${Math.round(ivr)}</span>`:""}
-        <span style="display:flex;gap:0px;margin-left:4px" onclick="event.stopPropagation()">
+        <span style="display:flex;gap:0px;margin-left:4px;align-items:center" onclick="event.stopPropagation()">
+          <span style="font-size:8px;color:${C.textTri};margin-right:2px">BIAS</span>
           <button title="Bias: bullish" onclick="setWatchlistBias('${ticker}','bullish')" style="background:none;border:none;color:${bias==='bullish'?C.pos:C.textMut};font-size:11px;cursor:pointer;padding:2px 3px">▲</button>
           <button title="Bias: bearish" onclick="setWatchlistBias('${ticker}','bearish')" style="background:none;border:none;color:${bias==='bearish'?C.neg:C.textMut};font-size:11px;cursor:pointer;padding:2px 3px">▼</button>
           <button title="Bias: neutral" onclick="setWatchlistBias('${ticker}','neutral')" style="background:none;border:none;color:${bias==='neutral'?C.text:C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">—</button>
-          <span style="width:1px;background:${C.borderVis};margin:2px 4px"></span>
-          <button onclick="moveWatcherToTop('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:8px;cursor:pointer;padding:2px 3px">TOP</button>
-          <button onclick="moveWatcher('${ticker}',-1)" style="background:none;border:none;color:${C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">▲</button>
-          <button onclick="moveWatcher('${ticker}',1)" style="background:none;border:none;color:${C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">▼</button>
-          <button onclick="removeWatcher('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:14px;cursor:pointer;padding:2px 3px">×</button>
+          <span style="width:1px;height:14px;background:${C.borderVis};margin:0 6px"></span>
+          <button title="Move up" onclick="moveWatcher('${ticker}',-1)" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:2px 2px">↑</button>
+          <button title="Move down" onclick="moveWatcher('${ticker}',1)" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:2px 2px">↓</button>
+          <span style="width:1px;height:14px;background:${C.borderVis};margin:0 6px"></span>
+          <button title="Remove from watchlist" onclick="removeWatcher('${ticker}')" style="background:${C.negDim};border:1px solid ${C.neg}55;color:${C.neg};font-size:11px;font-weight:600;cursor:pointer;padding:3px 9px;border-radius:3px">✕ DELETE</button>
         </span>
       </div>
       <!-- Row 2: EM, target, S/R, distances -->
@@ -6969,6 +6970,7 @@ document.addEventListener("click", e => {
 });
 
 function removeWatcher(ticker) {
+  if (!confirm("Remove " + ticker + " from your watchlist?")) return;
   STATE.watchlist = STATE.watchlist.filter(t=>t!==ticker);
   save(); renderWatchlist();
 }
