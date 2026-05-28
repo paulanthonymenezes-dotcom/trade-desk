@@ -770,8 +770,9 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Long Strike</label><input id="tf-longStrike" type="number"></div>
       <div class="frow"><label>Contracts</label><input id="tf-contracts" type="number" value="1"></div>
     </div>
-    <div class="g2">
+    <div class="g3">
       <div class="frow"><label>Entry Date</label><input id="tf-entryDate" type="date"></div>
+      <div class="frow"><label>Entry Time <span style="color:var(--text-muted);font-size:9px">ET</span></label><input id="tf-entryTime" type="time"></div>
       <div class="frow"><label>Expiry</label><input id="tf-expiry" type="date"></div>
     </div>
     <div class="g2">
@@ -897,9 +898,10 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Target</label><input id="ff-target" type="number" step="0.25" placeholder="21500" oninput="updateFuturesCalc()"></div>
     </div>
 
-    <div class="g2">
+    <div class="g3">
       <div class="frow"><label>Contracts</label><input id="ff-contracts" type="number" min="1" value="1" oninput="updateFuturesCalc()"></div>
       <div class="frow"><label>Entry Date</label><input id="ff-entryDate" type="date"></div>
+      <div class="frow"><label>Entry Time <span style="color:var(--text-muted);font-size:9px">ET</span></label><input id="ff-entryTime" type="time"></div>
     </div>
 
     <!-- Live risk/reward calc -->
@@ -2101,6 +2103,32 @@ function dteColor(d) { return d<=3?'rgba(239,83,80,0.6)':d<=7?'rgba(255,255,255,
 function dteBucket(d) { return d<=1?"0–1 DTE":d<=7?"2–7 DTE":d<=15?"8–15 DTE":d<=30?"16–30 DTE":d<=45?"31–45 DTE":"45+ DTE"; }
 function fmt$(n) { return (n>=0?"+$":"-$")+Math.abs(n).toFixed(0); }
 function pct(n) { return (n>=0?"+":"")+n.toFixed(1)+"%"; }
+
+// ── Session time-of-day helpers (all in US Eastern, the market clock) ─────────
+// Current ET time as "HH:MM" (24h), regardless of the browser's own timezone.
+function _nowET() {
+  const s = new Date().toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" });
+  return s.replace(/^24:/, "00:"); // guard against 24:00 edge from some engines
+}
+// Bucket an entry time ("HH:MM", ET) into a trading session.
+//   RTH      = 9:30am–4:00pm
+//   Evening  = 4:01pm–12:00am (midnight)
+//   Overnight= 12:01am–9:29am
+function sessionBucket(entryTime) {
+  if (!entryTime) return null;
+  const parts = String(entryTime).split(":");
+  const h = parseInt(parts[0], 10), m = parseInt(parts[1] || "0", 10);
+  if (isNaN(h)) return null;
+  const mins = h * 60 + m;
+  if (mins >= 570 && mins <= 960) return "RTH";        // 9:30–16:00
+  if (mins === 0 || mins >= 961) return "Evening";     // 16:01–24:00 (incl midnight)
+  return "Overnight";                                   // 00:01–09:29
+}
+const SESSION_LABELS = {
+  RTH: "Regular Hours (9:30a–4p)",
+  Evening: "Evening (4:01p–12a)",
+  Overnight: "Overnight (12:01a–9:29a)",
+};
 
 // ── Stats Helpers ────────────────────────────────────────────────────────────
 function maxRisk(t) {
@@ -4877,7 +4905,7 @@ function setStatsTab(tab, btn) {
 function renderStats() {
   const tabs = [
     ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
-    ["strategies","STRATEGIES"],["sources","SOURCES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
+    ["strategies","STRATEGIES"],["sessions","SESSIONS"],["sources","SOURCES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
   ];
   const dateFilters = [["1w","1W"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"]];
   document.getElementById("stats-content").innerHTML = `
@@ -4923,6 +4951,7 @@ function renderStatsContent(force) {
     case "rr":          el.innerHTML = renderStatsRR(closed); break;
     case "maemfe":      el.innerHTML = renderStatsMAEMFE(closed); break;
     case "strategies":  el.innerHTML = renderStatsStrategies(closed); break;
+    case "sessions":    el.innerHTML = renderStatsSessions(closed); break;
     case "sources":     el.innerHTML = renderStatsSources(closed); break;
     case "discipline":  el.innerHTML = renderStatsDiscipline(closed); break;
     case "pretrade":    el.innerHTML = renderStatsPreTrade(); fetchPreTradeJournal(); break;
@@ -5481,6 +5510,47 @@ function renderStatsStrategies(closed) {
 }
 
 // ── SOURCES (Follow-trade attribution) ──────────────────────────────────────
+// ── SESSIONS (win rate / P&L by time-of-day the trade was ENTERED) ──────────
+function renderStatsSessions(closed) {
+  const withTime = closed.filter(t => t.entryTime && sessionBucket(t.entryTime));
+  const noTime = closed.length - withTime.length;
+  const order = ["RTH", "Evening", "Overnight"];
+  const groups = {};
+  order.forEach(k => groups[k] = []);
+  withTime.forEach(t => { const b = sessionBucket(t.entryTime); if (groups[b]) groups[b].push(t); });
+
+  const card = (k) => {
+    const c = groups[k];
+    const pnl = c.reduce((s,t)=>s+(t.realizedPnl||0),0);
+    const wins = c.filter(t=>(t.realizedPnl||0)>0).length;
+    const wr = c.length ? Math.round(wins/c.length*100) : null;
+    const avg = c.length ? pnl/c.length : 0;
+    const wrColor = wr===null?C.textMut:wr>=60?C.pos:wr<40?C.neg:C.text;
+    return `<div class="card" style="flex:1;min-width:160px">
+      <div style="font-size:11px;color:${C.text};font-weight:600;margin-bottom:2px">${SESSION_LABELS[k]}</div>
+      <div style="font-size:9px;color:${C.textMut};margin-bottom:10px">${c.length} trade${c.length!==1?'s':''}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><div class="lbl">Win Rate</div><div class="val" style="color:${wrColor}">${wr===null?'—':wr+'%'}</div></div>
+        <div><div class="lbl">Total P&L</div><div class="val" style="color:${pnl>=0?C.pos:C.neg}">${c.length?(pnl>=0?'+$':'-$')+Math.abs(pnl).toFixed(0):'—'}</div></div>
+        <div><div class="lbl">Avg / Trade</div><div class="val" style="color:${avg>=0?C.pos:C.neg}">${c.length?(avg>=0?'+$':'-$')+Math.abs(avg).toFixed(0):'—'}</div></div>
+        <div><div class="lbl">Wins / Losses</div><div class="val">${wins} / ${c.length-wins}</div></div>
+      </div>
+    </div>`;
+  };
+
+  if (!withTime.length) {
+    return emptyState("SESSIONS", "No closed trades have an entry time yet. New trades capture entry time automatically; once you close some, win-rate by session shows here.");
+  }
+
+  return `
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">WIN RATE BY ENTRY SESSION (US Eastern)</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      ${order.map(card).join("")}
+    </div>
+    ${noTime ? `<div style="font-size:10px;color:${C.textMut}">${noTime} older closed trade${noTime!==1?'s':''} have no entry time recorded and aren't counted here.</div>` : ""}
+  `;
+}
+
 function renderStatsSources(closed) {
   const followClosed = closed.filter(t => t.entryMode === "follow" && t.source);
   const followOpen = STATE.trades.filter(t => t.status === "Open" && t.entryMode === "follow" && t.source);
@@ -7191,6 +7261,7 @@ function openTradeModal(id=null) {
   document.getElementById("tf-longStrike").value = t?.longStrike||"";
   document.getElementById("tf-contracts").value = t?.contracts||1;
   document.getElementById("tf-entryDate").value = t?.entryDate||today;
+  document.getElementById("tf-entryTime").value = t ? (t.entryTime || "") : _nowET();
   document.getElementById("tf-expiry").value = t?.expiry||"";
   document.getElementById("tf-premium").value = t?.premiumCollected||"";
   document.getElementById("tf-status").value = t?.status||"Open";
@@ -7241,6 +7312,7 @@ function openFuturesModal() {
   document.getElementById("ff-target").value = "";
   document.getElementById("ff-contracts").value = 1;
   document.getElementById("ff-entryDate").value = new Date().toISOString().slice(0,10);
+  document.getElementById("ff-entryTime").value = _nowET();
   document.getElementById("ff-thesis").value = "";
   document.getElementById("ff-sourceUrl").value = "";
   setFuturesDir("long");
@@ -7365,6 +7437,7 @@ function saveFuturesTrade() {
   const target = parseFloat(document.getElementById("ff-target").value);
   const contracts = parseInt(document.getElementById("ff-contracts").value) || 1;
   const entryDate = document.getElementById("ff-entryDate").value || new Date().toISOString().slice(0,10);
+  const entryTime = document.getElementById("ff-entryTime").value || "";
   const dir = document.getElementById("futures-modal").dataset.direction || "long";
   const mode = document.getElementById("futures-modal").dataset.entryMode || "dd";
 
@@ -7418,6 +7491,7 @@ function saveFuturesTrade() {
     contracts,
     pointMultiplier: spec.multiplier,
     entryDate,
+    entryTime,
     expiry: null, // futures: no expiry tracking for day-trading
     status: "Open",
     realizedPnl: null,
@@ -7699,6 +7773,7 @@ function saveTrade() {
     longStrike: parseFloat(document.getElementById("tf-longStrike").value)||0,
     contracts: parseInt(document.getElementById("tf-contracts").value)||1,
     entryDate: document.getElementById("tf-entryDate").value,
+    entryTime: document.getElementById("tf-entryTime").value || "",
     expiry: document.getElementById("tf-expiry").value,
     premiumCollected: parseFloat(document.getElementById("tf-premium").value)||0,
     status,
