@@ -568,7 +568,6 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">Diary</span></button>
   <button class="side-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">Statistics</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
-  <button class="side-btn" onclick="switchTab('scanner',this)"><span class="nav-icon">◇</span><span class="side-label">Scanner</span></button>
   <button class="side-btn" onclick="switchTab('charts',this)"><span class="nav-icon">▦</span><span class="side-label">Charts</span></button>
 </nav>
 
@@ -683,9 +682,6 @@ table{width:100%;border-collapse:collapse}
   </div>
 
   <!-- EDGE SCANNER TAB -->
-  <div id="tab-scanner" class="section">
-    <div id="scanner-content"></div>
-  </div>
 
   <!-- LOTS OF CHARTS TAB -->
   <div id="tab-charts" class="section">
@@ -734,7 +730,6 @@ table{width:100%;border-collapse:collapse}
   <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
   <button class="nav-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
   <button class="nav-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span>CAST</button>
-  <button class="nav-btn" onclick="switchTab('scanner',this)"><span class="nav-icon">◇</span>SCAN</button>
   <button class="nav-btn" onclick="switchTab('charts',this)"><span class="nav-icon">▦</span>CHARTS</button>
 </nav>
 
@@ -11686,7 +11681,7 @@ mktLoadAll();
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'scanner', 'charts'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'charts'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -11749,8 +11744,6 @@ function switchTab(tab, btn) {
     if (typeof renderStats === 'function') renderStats();
   } else if (tab === 'forecast') {
     if (typeof renderForecast === 'function') renderForecast();
-  } else if (tab === 'scanner') {
-    if (typeof renderScanner === 'function') renderScanner();
   } else if (tab === 'charts') {
     if (typeof renderLotsOfCharts === 'function') renderLotsOfCharts();
   } else if (tab === 'premarket') {
