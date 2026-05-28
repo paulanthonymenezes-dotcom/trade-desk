@@ -391,8 +391,22 @@ table{width:100%;border-collapse:collapse}
 </style>
 <script src="https://s3.tradingview.com/tv.js" async></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 </head>
 <body>
+
+<!-- LOGIN GATE — shown until authenticated; blocks access to the journal -->
+<div id="login-gate" style="display:flex;position:fixed;inset:0;z-index:9999;background:#0d1117;align-items:center;justify-content:center;flex-direction:column;font-family:'Inter',sans-serif">
+  <div style="width:100%;max-width:340px;padding:28px 24px;background:#161b22;border:1px solid #21262d;border-radius:8px">
+    <div style="font-size:15px;color:#fff;font-weight:600;letter-spacing:0.02em;margin-bottom:4px">◈ TRADE DESK</div>
+    <div style="font-size:11px;color:#8b949e;margin-bottom:20px">Sign in to access your journal</div>
+    <input id="login-email" type="email" placeholder="Email" autocomplete="username" style="width:100%;box-sizing:border-box;background:#0d1117;border:1px solid #21262d;color:#fff;font-size:13px;padding:9px 11px;border-radius:5px;margin-bottom:8px;outline:none">
+    <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;box-sizing:border-box;background:#0d1117;border:1px solid #21262d;color:#fff;font-size:13px;padding:9px 11px;border-radius:5px;margin-bottom:12px;outline:none" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()" id="login-btn" style="width:100%;background:#2f81f7;border:none;color:#fff;font-size:13px;font-weight:600;padding:10px;border-radius:5px;cursor:pointer">Sign In</button>
+    <div id="login-error" style="font-size:11px;color:#f85149;margin-top:10px;min-height:14px"></div>
+  </div>
+</div>
 
 <div id="topbar">
   <div style="font-size:13px;color:var(--text-primary);font-weight:600;letter-spacing:0.02em;margin-right:auto">◈ TRADE DESK</div>
@@ -547,9 +561,8 @@ table{width:100%;border-collapse:collapse}
 
 
 <nav id="left-sidebar">
-  <button class="side-btn active" onclick="switchTab('mkts',this)"><span class="nav-icon">◫</span><span class="side-label">Markets</span></button>
   <button class="side-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span><span class="side-label">Pre-Market</span></button>
-  <button class="side-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">Positions</span></button>
+  <button class="side-btn active" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">Positions</span></button>
   <button class="side-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span><span class="side-label">Watchlist</span></button>
   <div style="height:1px;background:var(--border-subtle);margin:6px 14px"></div>
   <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">Diary</span></button>
@@ -560,71 +573,7 @@ table{width:100%;border-collapse:collapse}
 </nav>
 
 <div id="app-layout">
-<div id="main" class="dashboard-mode">
-
-  <!-- MARKETS TAB (from markets.html) -->
-  <div id="tab-mkts" class="section active" style="display:contents">
-
-    <!-- Open Positions (TOP) -->
-    <div class="section-box full-width" id="sec-positions">
-      <div class="section-header">
-        <span class="section-title">Open Positions</span>
-        <span class="section-subtitle" id="pos-count"></span>
-      </div>
-      <div id="positions-body"><div class="loading">Loading...</div></div>
-    </div>
-
-    <!-- US Equity Markets -->
-    <div class="section-box" id="sec-indices">
-      <div class="section-header"><span class="section-title">US Equity Markets & VIX</span></div>
-      <div id="indices-body"><div class="loading">Loading...</div></div>
-    </div>
-
-
-    <!-- US Equity Sectors -->
-    <div class="section-box" id="sec-sectors">
-      <div class="section-header"><span class="section-title">US Equity Sectors</span></div>
-      <div id="sectors-body"><div class="loading">Loading...</div></div>
-    </div>
-
-    <!-- Global Yields -->
-    <div class="section-box" id="sec-yields">
-      <div class="section-header"><span class="section-title">Government Bond Yields</span></div>
-      <div id="yields-body"><div class="loading">Loading...</div></div>
-    </div>
-
-    <!-- Global Broad -->
-    <div class="section-box" id="sec-global-broad">
-      <div class="section-header"><span class="section-title">Global Indices</span></div>
-      <div id="global-broad-body"><div class="loading">Loading...</div></div>
-    </div>
-
-    <!-- Developed Markets -->
-    <div class="section-box" id="sec-global-dev">
-      <div class="section-header"><span class="section-title">Developed Markets</span></div>
-      <div id="global-dev-body"><div class="loading">Loading...</div></div>
-    </div>
-
-    <!-- Emerging Markets -->
-    <div class="section-box" id="sec-global-em">
-      <div class="section-header"><span class="section-title">Emerging Markets</span></div>
-      <div id="global-em-body"><div class="loading">Loading...</div></div>
-    </div>
-
-    <!-- Currencies & Crypto -->
-    <div class="section-box" id="sec-currencies">
-      <div class="section-header"><span class="section-title">Currencies & Crypto</span></div>
-      <div id="currencies-body"><div class="loading">Loading...</div></div>
-    </div>
-
-    <!-- Commodities -->
-    <div class="section-box" id="sec-commodities">
-      <div class="section-header"><span class="section-title">Commodities</span></div>
-      <div id="commodities-body"><div class="loading">Loading...</div></div>
-    </div>
-
-  </div>
-
+<div id="main" class="chart-mode">
 
   <!-- PRE-MARKET CHECKLIST TAB -->
   <div id="tab-premarket" class="section">
@@ -635,11 +584,15 @@ table{width:100%;border-collapse:collapse}
   </div>
 
   <!-- POSITIONS TAB -->
-  <div id="tab-positions" class="section">
+  <div id="tab-positions" class="section active" style="display:block">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-secondary);letter-spacing:0.02em">OPEN POSITIONS</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-secondary);letter-spacing:0.02em">OPEN POSITIONS</div>
+        <span class="autosync-status" style="font-size:9px;color:var(--text-muted);font-variant-numeric:tabular-nums"></span>
+      </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-g" style="padding:7px 10px;font-size:10px" onclick="quickSync()" title="Sync from IBKR">⚡ SYNC</button>
+        <button class="btn btn-p" style="padding:7px 14px;background:var(--accent, #2f81f7);border-color:var(--accent, #2f81f7)" onclick="openFuturesModal()" title="Quick log NQ/ES/MNQ/MES">⚡ FUTURES</button>
         <button class="btn btn-p" style="padding:7px 14px" onclick="openTradeModal()">+ NEW TRADE</button>
       </div>
     </div>
@@ -666,8 +619,27 @@ table{width:100%;border-collapse:collapse}
       <input id="watch-input" placeholder="Search ticker or company..." style="width:100%;font-size:13px" oninput="onWatchInput()" onkeydown="onWatchKeydown(event)">
       <div id="watch-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border-visible);border-top:none;border-radius:0 0 4px 4px;z-index:60;max-height:320px;overflow-y:auto"></div>
     </div>
-    <div id="watchlist-sector-filter" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+    <div id="watchlist-sector-filter" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
       <button class="btn btn-g stats-pill active" onclick="filterWatchBySector('All',this)" style="font-size:9px;padding:3px 8px">ALL</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-size:9px;color:var(--text-secondary);letter-spacing:0.02em">SORT</span>
+      <select id="watchlist-sort" onchange="setWatchlistSort(this.value)" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-size:10px">
+        <option value="manual">Manual order (drag/up/down)</option>
+        <option value="earnings">Earnings proximity (closest first)</option>
+        <option value="ivr">IV Rank (highest first)</option>
+        <option value="changeUp">% Change today (top gainers)</option>
+        <option value="changeDown">% Change today (top losers)</option>
+        <option value="alpha">Alphabetical</option>
+        <option value="bias-bull">Bias: bullish first</option>
+        <option value="bias-bear">Bias: bearish first</option>
+        <option value="thesis">Has "why" note first</option>
+      </select>
+      <span style="font-size:9px;color:var(--text-secondary);letter-spacing:0.02em;margin-left:6px">BIAS</span>
+      <button class="btn btn-g stats-pill" id="bias-filter-all" onclick="setWatchlistBiasFilter('all',this)" style="font-size:9px;padding:3px 8px">ALL</button>
+      <button class="btn btn-g stats-pill" onclick="setWatchlistBiasFilter('bullish',this)" style="font-size:9px;padding:3px 8px;color:var(--positive)">▲ BULL</button>
+      <button class="btn btn-g stats-pill" onclick="setWatchlistBiasFilter('bearish',this)" style="font-size:9px;padding:3px 8px;color:var(--negative)">▼ BEAR</button>
+      <button class="btn btn-g stats-pill" onclick="setWatchlistBiasFilter('neutral',this)" style="font-size:9px;padding:3px 8px;color:var(--text-secondary)">— NEUT</button>
     </div>
     <div id="watchlist-cards" style="display:flex;flex-direction:column;gap:4px"></div>
   </div>
@@ -756,9 +728,8 @@ table{width:100%;border-collapse:collapse}
 
 <!-- Bottom Nav -->
 <nav id="bottom-nav">
-  <button class="nav-btn active" onclick="switchTab('mkts',this)"><span class="nav-icon">◫</span>MKTS</button>
   <button class="nav-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span>PRE</button>
-  <button class="nav-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POS</button>
+  <button class="nav-btn active" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POS</button>
   <button class="nav-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>WATCH</button>
   <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
   <button class="nav-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
@@ -780,8 +751,24 @@ table{width:100%;border-collapse:collapse}
       <div id="trade-modal-title" style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--positive);letter-spacing:0.02em">NEW TRADE</div>
       <button onclick="closeTradeModal()" style="background:none;border:none;color:var(--text-secondary);font-size:22px">×</button>
     </div>
+    <!-- Entry Mode toggle: DD vs Follow -->
+    <div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border-visible);border-radius:4px;overflow:hidden">
+      <button type="button" id="tf-mode-dd" class="tf-mode-btn" onclick="setEntryMode('dd')" style="flex:1;padding:10px;background:transparent;border:none;color:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:0.04em;cursor:pointer">🧠 MY DD</button>
+      <button type="button" id="tf-mode-follow" class="tf-mode-btn" onclick="setEntryMode('follow')" style="flex:1;padding:10px;background:transparent;border:none;color:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:0.04em;cursor:pointer;border-left:1px solid var(--border-visible)">📋 FOLLOW</button>
+    </div>
+
+    <!-- Source attribution (Follow mode only) -->
+    <div id="tf-source-block" style="display:none;background:var(--bg-primary);border:1px solid var(--accent-dim, rgba(47,129,247,0.2));border-radius:4px;padding:10px;margin-bottom:12px">
+      <div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--accent, #2f81f7);letter-spacing:0.02em;margin-bottom:8px">SOURCE</div>
+      <div class="g2">
+        <div class="frow"><label>Who are you copying?</label><select id="tf-source"></select></div>
+        <div class="frow"><label>Post URL (optional)</label><input id="tf-sourceUrl" placeholder="https://..."></div>
+      </div>
+      <div class="frow" style="margin-bottom:0"><label>Their thesis / call (paste or summarize)</label><textarea id="tf-sourceThesis" style="height:55px" placeholder="What did they say? Entry, target, stop, timeframe..."></textarea></div>
+    </div>
+
     <div class="g2">
-      <div class="frow"><label>Ticker</label><input id="tf-ticker" placeholder="NVDA" oninput="this.value=this.value.toUpperCase();updateSRPicks(this.value)"></div>
+      <div class="frow"><label>Ticker <span id="tf-ticker-mult" style="float:right;font-size:9px;color:var(--accent, #2f81f7);font-variant-numeric:tabular-nums"></span></label><input id="tf-ticker" placeholder="NVDA or /ES, /NQ" oninput="this.value=this.value.toUpperCase();updateSRPicks(this.value);updateTickerMultLabel(this.value)"></div>
       <div class="frow"><label>Trade Type</label><select id="tf-tradeType"></select></div>
     </div>
     <div class="g3">
@@ -803,6 +790,7 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Entry Type</label><select id="tf-entryType"><option value="">Select...</option></select></div>
       <div class="frow"><label>Asset Class</label><select id="tf-assetClass">
         <option value="Options">Options</option>
+        <option value="Futures Options">Futures Options</option>
         <option value="FX">FX</option>
         <option value="Stock">Stock</option>
         <option value="Futures">Futures</option>
@@ -854,8 +842,8 @@ table{width:100%;border-collapse:collapse}
       </div>
     </div>
 
-    <div class="frow"><label>Thesis to Enter — why are you in this trade?</label><textarea id="tf-thesis" style="height:60px" placeholder=""></textarea></div>
-    <div class="frow"><label>Thesis to Exit — when do you get out?</label><textarea id="tf-exitThesis" style="height:45px" placeholder=""></textarea></div>
+    <div class="frow"><label id="tf-thesis-label">Thesis to Enter — why are you in this trade?</label><textarea id="tf-thesis" style="height:60px" placeholder=""></textarea></div>
+    <div class="frow"><label>Your Exit Plan — when do YOU get out (your rules, not theirs)?</label><textarea id="tf-exitThesis" style="height:45px" placeholder=""></textarea></div>
     <div class="frow">
       <label>Entry Chart</label>
       <div style="display:flex;gap:8px;align-items:center">
@@ -871,6 +859,88 @@ table{width:100%;border-collapse:collapse}
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-g" onclick="closeTradeModal()" style="flex:1">CANCEL</button>
       <button class="btn btn-p" onclick="handleSaveTrade()" style="flex:1">SAVE TRADE</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK FUTURES MODAL -->
+<div id="futures-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--accent, #2f81f7);letter-spacing:0.02em">⚡ QUICK FUTURES</div>
+      <button onclick="closeFuturesModal()" style="background:none;border:none;color:var(--text-secondary);font-size:22px">×</button>
+    </div>
+
+    <!-- Entry Mode toggle: DD vs Follow -->
+    <div style="display:flex;gap:0;margin-bottom:12px;border:1px solid var(--border-visible);border-radius:4px;overflow:hidden">
+      <button type="button" id="ff-mode-dd" onclick="setFuturesEntryMode('dd')" style="flex:1;padding:8px;background:transparent;border:none;color:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:0.04em;cursor:pointer">🧠 MY DD</button>
+      <button type="button" id="ff-mode-follow" onclick="setFuturesEntryMode('follow')" style="flex:1;padding:8px;background:transparent;border:none;color:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:0.04em;cursor:pointer;border-left:1px solid var(--border-visible)">📋 FOLLOW</button>
+    </div>
+
+    <!-- Source attribution (Follow mode only) -->
+    <div id="ff-source-block" style="display:none;background:var(--bg-primary);border:1px solid var(--accent-dim, rgba(47,129,247,0.2));border-radius:4px;padding:10px;margin-bottom:12px">
+      <div class="g2">
+        <div class="frow"><label>Source</label><select id="ff-source"></select></div>
+        <div class="frow"><label>Post URL (optional)</label><input id="ff-sourceUrl" placeholder="https://..."></div>
+      </div>
+    </div>
+
+    <!-- Ticker + direction -->
+    <div class="g2">
+      <div class="frow"><label>Contract</label><select id="ff-ticker" onchange="onFuturesTickerChange()"></select></div>
+      <div class="frow"><label>Direction</label>
+        <div style="display:flex;gap:0;border:1px solid var(--border-visible);border-radius:4px;overflow:hidden">
+          <button type="button" id="ff-dir-long" onclick="setFuturesDir('long')" style="flex:1;padding:8px;background:transparent;border:none;color:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums;cursor:pointer">▲ LONG</button>
+          <button type="button" id="ff-dir-short" onclick="setFuturesDir('short')" style="flex:1;padding:8px;background:transparent;border:none;color:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums;cursor:pointer;border-left:1px solid var(--border-visible)">▼ SHORT</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prices -->
+    <div class="g3">
+      <div class="frow"><label>Entry Price</label><input id="ff-entry" type="number" step="0.25" placeholder="21450" oninput="updateFuturesCalc()"></div>
+      <div class="frow"><label>Stop <span style="color:var(--negative)">*</span></label><input id="ff-stop" type="number" step="0.25" placeholder="21430" oninput="updateFuturesCalc()"></div>
+      <div class="frow"><label>Target</label><input id="ff-target" type="number" step="0.25" placeholder="21500" oninput="updateFuturesCalc()"></div>
+    </div>
+
+    <div class="g2">
+      <div class="frow"><label>Contracts</label><input id="ff-contracts" type="number" min="1" value="1" oninput="updateFuturesCalc()"></div>
+      <div class="frow"><label>Entry Date</label><input id="ff-entryDate" type="date"></div>
+    </div>
+
+    <!-- Live risk/reward calc -->
+    <div id="ff-calc" style="background:var(--bg-primary);border:1px solid var(--border-visible);border-radius:4px;padding:10px;margin-bottom:12px;font-variant-numeric:tabular-nums;font-size:11px">
+      <div style="font-size:10px;color:var(--text-secondary);letter-spacing:0.02em;margin-bottom:6px">RISK / REWARD</div>
+      <div id="ff-calc-body" style="color:var(--text-secondary)">Enter prices to see calc.</div>
+    </div>
+
+    <div class="frow"><label>Note (optional)</label><textarea id="ff-thesis" style="height:45px" placeholder="Setup, why now, what invalidates..."></textarea></div>
+
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-g" onclick="closeFuturesModal()" style="flex:1">CANCEL</button>
+      <button class="btn btn-p" onclick="saveFuturesTrade()" style="flex:1">SAVE TRADE</button>
+    </div>
+  </div>
+</div>
+
+<!-- FUTURES EXIT MODAL -->
+<div id="futures-exit-modal" class="overlay" style="display:none">
+  <div class="modal" style="max-width:440px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div id="futures-exit-title" style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--warning);letter-spacing:0.02em">CLOSE FUTURES</div>
+      <button onclick="closeFuturesExitModal()" style="background:none;border:none;color:var(--text-secondary);font-size:22px">×</button>
+    </div>
+    <div id="futures-exit-summary" style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;padding:10px;background:var(--bg-primary);border-radius:4px;font-variant-numeric:tabular-nums"></div>
+    <div class="g2">
+      <div class="frow"><label>Exit Price</label><input id="fe-exitPrice" type="number" step="0.25" oninput="updateFuturesExitCalc()"></div>
+      <div class="frow"><label>Exit Date</label><input id="fe-exitDate" type="date"></div>
+    </div>
+    <div id="fe-pnl-preview" style="background:var(--bg-primary);border:1px solid var(--border-visible);border-radius:4px;padding:10px;margin-bottom:12px;font-variant-numeric:tabular-nums;font-size:12px;text-align:center;color:var(--text-secondary)">Enter exit price to see P&L</div>
+    <div class="frow"><label>Why did you exit?</label><select id="fe-reason"><option value="">Select...</option><option>Target hit</option><option>Stop hit</option><option>Time stop</option><option>Source said exit</option><option>Discretionary</option><option>Other</option></select></div>
+    <div class="frow"><label>Notes (optional)</label><textarea id="fe-notes" style="height:45px" placeholder="What happened? What did you learn?"></textarea></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-g" onclick="closeFuturesExitModal()" style="flex:1">CANCEL</button>
+      <button class="btn btn-warn" onclick="saveFuturesExit()" style="flex:1">CLOSE TRADE</button>
     </div>
   </div>
 </div>
@@ -1010,6 +1080,35 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>YTD Deposits ($)</label><input id="s-deposits" type="number" placeholder="0"></div>
     </div>
     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">% return = Realized P&L ÷ (Starting + Deposits). Simple approximation.</div>
+    <div class="st">Standing Rules</div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Set once. Every trade is checked against these — violations show in the pre-trade checklist and on the trade card.</div>
+    <div class="g2">
+      <div class="frow"><label>Max Risk per Trade (% of account)</label><input id="s-rule-maxpos" type="number" step="0.1" placeholder="5"></div>
+      <div class="frow"><label>Max $ Loss per Trade (% of account)</label><input id="s-rule-maxloss" type="number" step="0.1" placeholder="2"></div>
+    </div>
+    <div class="g2">
+      <div class="frow"><label>Default Spread SL %</label><input id="s-rule-spreadsl" type="number" placeholder="100"></div>
+      <div class="frow" style="display:flex;align-items:flex-end;gap:14px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
+          <input type="checkbox" id="s-rule-requirestop" style="accent-color:var(--positive)">
+          <span style="font-size:12px;color:var(--text-primary)">Require stop on every trade</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
+          <input type="checkbox" id="s-rule-requiresrc" style="accent-color:var(--positive)">
+          <span style="font-size:12px;color:var(--text-primary)">Require source on Follow trades</span>
+        </label>
+      </div>
+    </div>
+    <div class="st">Follow Sources</div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">People you copy trades from (Substack, Twitter, etc). These appear in the Follow trade dropdown and group P&L in stats.</div>
+    <div id="s-sources-list" style="margin-bottom:8px"></div>
+    <div class="g2" style="margin-bottom:16px">
+      <div class="frow" style="margin-bottom:0"><input id="s-source-name" placeholder="Author name (e.g. Smart Trader)"></div>
+      <div class="frow" style="margin-bottom:0;display:flex;gap:6px">
+        <input id="s-source-url" placeholder="Substack URL (optional)" style="flex:1">
+        <button class="btn btn-p" style="padding:8px 12px;font-size:11px;white-space:nowrap" onclick="addFollowSource()">+ ADD</button>
+      </div>
+    </div>
     <div class="st">Telegram Alerts</div>
     <div class="frow"><label>Bot Token</label><input id="s-tgbot" placeholder="123456789:ABC..."></div>
     <div class="frow"><label>Chat ID</label><input id="s-tgchat" placeholder="-100..."></div>
@@ -1029,6 +1128,19 @@ table{width:100%;border-collapse:collapse}
       <input type="file" id="ibkr-file" accept=".csv" style="display:none" onchange="handleIBKRImport(this)">
       <button class="btn btn-g" style="flex:1" onclick="document.getElementById('ibkr-file').click()">📂 CSV IMPORT</button>
     </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
+        <input type="checkbox" id="s-autosync-enabled" style="accent-color:var(--positive)">
+        <span style="font-size:12px;color:var(--text-primary);font-weight:500">Auto-sync in background</span>
+      </label>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:11px;color:var(--text-secondary)">every</span>
+        <input id="s-autosync-interval" type="number" min="5" step="5" placeholder="15" style="width:56px;font-size:11px">
+        <span style="font-size:11px;color:var(--text-secondary)">min</span>
+      </div>
+      <span class="autosync-status" style="font-size:10px;color:var(--text-muted);margin-left:auto;font-variant-numeric:tabular-nums"></span>
+    </div>
+    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Pulls new fills automatically while the app is open. Minimum 5 min (IBKR rate limit). Skips when the tab is hidden.</div>
     <div id="ibkr-sync-status" style="display:none;margin-bottom:8px"></div>
     <div id="ibkr-preview" style="display:none;margin-bottom:16px"></div>
     <div class="st">Auto-Exit (IBKR Gateway)</div>
@@ -1061,6 +1173,9 @@ table{width:100%;border-collapse:collapse}
     <div style="display:flex;gap:10px">
       <button class="btn btn-g" onclick="closeSettings()" style="flex:1">CANCEL</button>
       <button class="btn btn-p" onclick="saveSettings()" style="flex:1">SAVE</button>
+    </div>
+    <div style="margin-top:10px;text-align:center">
+      <button onclick="doLogout()" style="background:none;border:none;color:var(--negative);font-size:11px;cursor:pointer;text-decoration:underline">Sign out</button>
     </div>
   </div>
 </div>
@@ -1201,6 +1316,15 @@ let STATE = {
   autoExitPaper: true, // paper trading mode (safety default)
   autoExitLog: [], // { tradeId, ticker, reason, price, timestamp, result }
   tradingRules: [], // { id, text, source, date } — persistent rules for AI memory
+  // Standing rules — set once, applied to every trade
+  standingRules: {
+    maxPositionPct: 5,    // max risk per trade as % of account
+    maxTradeLossPct: 2,   // max $ loss per trade as % of account (hard stop sizing)
+    defaultSpreadSLPct: 100, // default spread SL when none set on a trade
+    requireStop: true,    // every trade must have an SL
+    requireSourceForFollow: true, // follow trades must name a source
+  },
+  followSources: [], // [{ name, url, addedAt }] — Substack/etc authors you copy from
   dailyJournal: {}, // { 'YYYY-MM-DD': { morningBrief, reflection, timestamp, checklist: { energy, mood, maxLoss, plan, perPosition: [{ticker,thesisValid,invalidation}], catalysts, willClose, willNotTrade, savedAt } } }
   watchlistNotes: {}, // { TICKER: [{ date, text, bias:'bullish'|'bearish'|'neutral' }] }
   theme: "koyfin"
@@ -1521,6 +1645,34 @@ function _syncChartToVisibleCard() {
 const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyanBzd3JpcnN6ZXJocGJvamdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzMzgyOTQsImV4cCI6MjA4NzkxNDI5NH0.aLCb5xP8WbeQuMpLJ3uoGFYebENCWQ-WBbtQZLvtYuA";
 
+// ── Supabase Auth client (handles login + session persistence + token refresh) ──
+let _sb = null;
+function _sbClient() {
+  if (!_sb && window.supabase?.createClient) {
+    _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: "td_auth" }
+    });
+  }
+  return _sb;
+}
+// Current access token for REST calls (falls back to anon key only if not logged in)
+async function _accessToken() {
+  try {
+    const c = _sbClient();
+    const { data } = await c.auth.getSession();
+    return data?.session?.access_token || null;
+  } catch (e) { return null; }
+}
+// Auth headers for direct PostgREST calls: apikey is always the anon key (routing),
+// Authorization is the logged-in user's JWT (what RLS checks).
+async function _authHeaders() {
+  const tok = await _accessToken();
+  return {
+    "apikey": SUPABASE_KEY,
+    "Authorization": "Bearer " + (tok || SUPABASE_KEY),
+  };
+}
+
 async function save() {
   // ── RACE CONDITION FIX ──
   // Re-read fresh state from Supabase before saving.
@@ -1529,7 +1681,7 @@ async function save() {
   // Merge alerter changes into STATE before writing to prevent data loss.
   try {
     const fr = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+      headers: await _authHeaders()
     });
     if (fr.ok) {
       const rows = await fr.json();
@@ -1613,8 +1765,7 @@ async function save() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY,
+        ...(await _authHeaders()),
         "Prefer": "resolution=merge-duplicates,return=minimal"
       },
       body
@@ -1634,7 +1785,7 @@ async function save() {
 async function load() {
   try {
     const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+      headers: await _authHeaders()
     });
     if (!r.ok) throw new Error("load failed");
     const rows = await r.json();
@@ -1897,6 +2048,59 @@ function calcHighDist(candles, days) {
 
 function daysLeft(expiry) { return Math.ceil((_toDate(expiry)-new Date())/86400000); }
 const FX_PAIRS = ["EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","NZDUSD","EURJPY","GBPJPY","EURGBP"];
+
+// Futures contract specs — point multiplier ($) per 1.00 price move per contract.
+// Tick size shown for reference; entry/stop/target prices are entered as raw price.
+const FUTURES_SPECS = {
+  NQ:  { name: "E-mini Nasdaq 100",   multiplier: 20, tick: 0.25 },
+  ES:  { name: "E-mini S&P 500",       multiplier: 50, tick: 0.25 },
+  MNQ: { name: "Micro E-mini Nasdaq",  multiplier: 2,  tick: 0.25 },
+  MES: { name: "Micro E-mini S&P",     multiplier: 5,  tick: 0.25 },
+};
+function isFutures(t) { return t?.assetClass === "Futures" || (t?.ticker && FUTURES_SPECS[(t.ticker||"").toUpperCase()]); }
+
+// Strip leading "/" and contract-month suffix (e.g. "ESM5" → "ES", "/NQU5" → "NQ")
+function _futOptRoot(ticker) {
+  if (!ticker) return "";
+  let r = String(ticker).toUpperCase().replace(/^\//, "");
+  // Strip a contract month code: 1 letter + 1-2 digits at the end (e.g. M5, U25, Z24)
+  r = r.replace(/[FGHJKMNQUVXZ]\d{1,2}$/, "");
+  return r;
+}
+
+// Returns $/pt multiplier for an option contract on this underlying.
+// Equity options = $100, /ES = $50, /NQ = $20, /MES = $5, /MNQ = $2.
+function getOptionMultiplier(ticker) {
+  const root = _futOptRoot(ticker);
+  if (root in FUTURES_SPECS) return FUTURES_SPECS[root].multiplier;
+  return 100; // default: equity options
+}
+
+// True if this ticker is a futures-option underlying (so multiplier ≠ 100)
+function isFuturesOptionTicker(ticker) {
+  return _futOptRoot(ticker) in FUTURES_SPECS;
+}
+function futuresPnl(t, exitPrice) {
+  if (!t || exitPrice == null || t.entryPrice == null) return null;
+  const spec = FUTURES_SPECS[(t.ticker||"").toUpperCase()];
+  const mult = t.pointMultiplier || spec?.multiplier || 0;
+  const sign = (t.direction || "long").toLowerCase() === "short" ? -1 : 1;
+  return (exitPrice - t.entryPrice) * mult * (t.contracts || 1) * sign;
+}
+function futuresRisk(t) {
+  if (!t || t.entryPrice == null || t.stopPrice == null) return null;
+  const spec = FUTURES_SPECS[(t.ticker||"").toUpperCase()];
+  const mult = t.pointMultiplier || spec?.multiplier || 0;
+  const points = Math.abs(t.entryPrice - t.stopPrice);
+  return points * mult * (t.contracts || 1); // always positive, $ at risk
+}
+function futuresReward(t) {
+  if (!t || t.entryPrice == null || t.targetPrice == null) return null;
+  const spec = FUTURES_SPECS[(t.ticker||"").toUpperCase()];
+  const mult = t.pointMultiplier || spec?.multiplier || 0;
+  const points = Math.abs(t.targetPrice - t.entryPrice);
+  return points * mult * (t.contracts || 1);
+}
 function isFXTicker(t) { return FX_PAIRS.includes((t||"").replace(/[=/]/g,"").toUpperCase()); }
 function _toDate(v) { return typeof v==='number'&&v<1e12 ? new Date(v*1000) : new Date(v); }
 function dteColor(d) { return d<=3?'rgba(239,83,80,0.6)':d<=7?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.4)'; }
@@ -1907,7 +2111,7 @@ function pct(n) { return (n>=0?"+":"")+n.toFixed(1)+"%"; }
 // ── Stats Helpers ────────────────────────────────────────────────────────────
 function maxRisk(t) {
   if (!t.shortStrike || !t.longStrike || !t.contracts || !t.premiumCollected) return null;
-  return Math.abs(t.longStrike - t.shortStrike) * t.contracts * 100 - t.premiumCollected;
+  return Math.abs(t.longStrike - t.shortStrike) * t.contracts * getOptionMultiplier(t.ticker) - t.premiumCollected;
 }
 function kpiCard(label, value, color, subtitle) {
   return `<div class="card" style="padding:8px 10px">
@@ -2463,11 +2667,74 @@ function renderKPIs() {
 }
 
 let _watchSectorFilter = 'All';
+let _watchSort = 'manual';
+let _watchBiasFilter = 'all';
 function filterWatchBySector(sector, btn) {
   _watchSectorFilter = sector;
   document.querySelectorAll('#watchlist-sector-filter .stats-pill').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   renderWatchlist();
+}
+function setWatchlistSort(s) { _watchSort = s; renderWatchlist(); }
+function setWatchlistBiasFilter(b, btn) {
+  _watchBiasFilter = b;
+  document.querySelectorAll('#watchlist-sort').forEach(()=>{}); // noop, just for clarity
+  document.querySelectorAll('#tab-market .stats-pill').forEach(el => {
+    if (el.getAttribute('onclick')?.startsWith('setWatchlistBiasFilter')) el.classList.remove('active');
+  });
+  if (btn) btn.classList.add('active');
+  renderWatchlist();
+}
+// Bias is stored on the most-recent note for that ticker (existing schema)
+function getWatchlistBias(ticker) {
+  const notes = STATE.watchlistNotes?.[ticker] || [];
+  if (!notes.length) return '';
+  const latest = notes.slice().sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+  return latest.bias || '';
+}
+function setWatchlistBias(ticker, bias) {
+  STATE.watchlistNotes = STATE.watchlistNotes || {};
+  const arr = STATE.watchlistNotes[ticker] = STATE.watchlistNotes[ticker] || [];
+  // Update most recent or add a new lightweight bias-only note
+  const latest = arr.slice().sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+  const today = new Date().toISOString().slice(0,10);
+  if (latest && latest.date === today) {
+    latest.bias = bias;
+  } else {
+    arr.push({ date: today, text: '', bias });
+  }
+  save();
+  renderWatchlist();
+}
+// Sort comparator factory
+function _watchSorter(sortKey) {
+  if (sortKey === 'manual') return null;
+  return (a, b) => {
+    const qa = STATE.quotes[a], qb = STATE.quotes[b];
+    const ea = STATE.earnings[a], eb = STATE.earnings[b];
+    switch (sortKey) {
+      case 'earnings': {
+        const da = ea ? daysLeft(ea) : 9999;
+        const db = eb ? daysLeft(eb) : 9999;
+        // Past earnings (negative days) go to end
+        const aa = da < 0 ? 9999 : da;
+        const bb = db < 0 ? 9999 : db;
+        return aa - bb;
+      }
+      case 'ivr': {
+        const ia = calcIVRankFromHistory(a).ivr ?? -1;
+        const ib = calcIVRankFromHistory(b).ivr ?? -1;
+        return ib - ia;
+      }
+      case 'changeUp':   return (qb?.changePct ?? -999) - (qa?.changePct ?? -999);
+      case 'changeDown': return (qa?.changePct ?? 999) - (qb?.changePct ?? 999);
+      case 'alpha':      return a.localeCompare(b);
+      case 'bias-bull':  return (getWatchlistBias(b) === 'bullish' ? 1 : 0) - (getWatchlistBias(a) === 'bullish' ? 1 : 0);
+      case 'bias-bear':  return (getWatchlistBias(b) === 'bearish' ? 1 : 0) - (getWatchlistBias(a) === 'bearish' ? 1 : 0);
+      case 'thesis':     return (STATE.watchlistThesis?.[b] ? 1 : 0) - (STATE.watchlistThesis?.[a] ? 1 : 0);
+      default: return 0;
+    }
+  };
 }
 
 function renderWatchlist() {
@@ -2488,8 +2755,14 @@ function renderWatchlist() {
       sectors.map(s => `<button class="btn btn-g stats-pill${_watchSectorFilter===s?' active':''}" onclick="filterWatchBySector('${s}',this)" style="font-size:9px;padding:3px 8px">${s.toUpperCase()}</button>`).join('');
   }
 
-  // Filter by sector
-  const filteredWatchlist = _watchSectorFilter === 'All' ? STATE.watchlist : STATE.watchlist.filter(t => getSector(t) === _watchSectorFilter);
+  // Filter by sector + bias
+  let filteredWatchlist = _watchSectorFilter === 'All' ? STATE.watchlist : STATE.watchlist.filter(t => getSector(t) === _watchSectorFilter);
+  if (_watchBiasFilter !== 'all') {
+    filteredWatchlist = filteredWatchlist.filter(t => getWatchlistBias(t) === _watchBiasFilter);
+  }
+  // Sort
+  const sorter = _watchSorter(_watchSort);
+  if (sorter) filteredWatchlist = [...filteredWatchlist].sort(sorter);
   el.innerHTML = filteredWatchlist.map(ticker => {
     const q = STATE.quotes[ticker];
     const c = STATE.candles[ticker];
@@ -2528,8 +2801,12 @@ function renderWatchlist() {
     const hasPos = openPos.length > 0;
     const tgt = STATE.watchlistTargets?.[ticker];
     const notes = STATE.watchNotes?.[ticker] || [];
+    const bias = getWatchlistBias(ticker);
+    const biasColor = bias === 'bullish' ? C.pos : bias === 'bearish' ? C.neg : 'rgba(255,255,255,0.15)';
+    const biasIcon = bias === 'bullish' ? '▲' : bias === 'bearish' ? '▼' : '—';
+    const why = (STATE.watchlistThesis?.[ticker] || '').trim();
 
-    return `<div class="card" data-chart-ticker="${ticker}" style="padding:8px 12px;cursor:pointer" onclick="selectChartTicker('${ticker}')">
+    return `<div class="card" data-chart-ticker="${ticker}" style="padding:8px 12px;cursor:pointer;border-left:3px solid ${biasColor}" onclick="selectChartTicker('${ticker}')">
       <!-- Row 1: Ticker, price, change, IV, actions -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         <span style="font-size:14px;font-weight:600;color:${hasPos?C.pos:C.text};min-width:50px">${ticker}</span>
@@ -2541,6 +2818,10 @@ function renderWatchlist() {
         <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${q.changePct>=0?C.pos:C.neg}">${q.changePct>=0?"+":""}${q.changePct.toFixed(2)}%</span>`:`<span style="font-size:11px;color:${C.textSec}">Loading...</span>`}
         ${ivr!==null?`<span style="font-size:9px;color:${ivrColor};background:${ivrBg};padding:1px 6px;border-radius:3px">IV${Math.round(ivr)}</span>`:""}
         <span style="display:flex;gap:0px;margin-left:4px" onclick="event.stopPropagation()">
+          <button title="Bias: bullish" onclick="setWatchlistBias('${ticker}','bullish')" style="background:none;border:none;color:${bias==='bullish'?C.pos:C.textMut};font-size:11px;cursor:pointer;padding:2px 3px">▲</button>
+          <button title="Bias: bearish" onclick="setWatchlistBias('${ticker}','bearish')" style="background:none;border:none;color:${bias==='bearish'?C.neg:C.textMut};font-size:11px;cursor:pointer;padding:2px 3px">▼</button>
+          <button title="Bias: neutral" onclick="setWatchlistBias('${ticker}','neutral')" style="background:none;border:none;color:${bias==='neutral'?C.text:C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">—</button>
+          <span style="width:1px;background:${C.borderVis};margin:2px 4px"></span>
           <button onclick="moveWatcherToTop('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:8px;cursor:pointer;padding:2px 3px">TOP</button>
           <button onclick="moveWatcher('${ticker}',-1)" style="background:none;border:none;color:${C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">▲</button>
           <button onclick="moveWatcher('${ticker}',1)" style="background:none;border:none;color:${C.textMut};font-size:10px;cursor:pointer;padding:2px 3px">▼</button>
@@ -2561,6 +2842,7 @@ function renderWatchlist() {
           <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">LEVELS</button>
         </span>
       </div>` : ""}
+      ${why ? `<div style="font-size:10px;color:${C.textSec};margin-top:4px;font-style:italic;line-height:1.4" title="Click LEVELS to edit">📝 ${escapeHtml(why)}</div>` : ""}
     </div>`;
   }).join("");
   requestAnimationFrame(() => _initCardScrollSync());
@@ -2751,11 +3033,12 @@ function liveUnrealizedPnl(trade, stockPrice) {
   const premium = trade.premiumCollected || 0;
   const contracts = trade.contracts || 1;
 
+  const mult = getOptionMultiplier(trade.ticker);
   // Prefer real spread price from MarketData.app (if fresh — under 30 min old)
   if (trade._liveSpread?.mid != null && trade._liveSpread?._fetchedAt) {
     const age = Date.now() - trade._liveSpread._fetchedAt;
     if (age < 30 * 60 * 1000) { // only use if under 30 min old
-      const costToClose = trade._liveSpread.mid * 100 * contracts;
+      const costToClose = trade._liveSpread.mid * mult * contracts;
       return premium - costToClose;
     }
   }
@@ -2763,7 +3046,7 @@ function liveUnrealizedPnl(trade, stockPrice) {
   // Fallback: intrinsic value from real-time stock price
   const itm = intrinsicSpreadValue(trade, stockPrice);
   if (itm === null) return null;
-  return premium - (itm * 100 * contracts);
+  return premium - (itm * mult * contracts);
 }
 
 // Is the P&L based on real option prices or fallback?
@@ -2828,6 +3111,128 @@ function handleQuickChart(input, tradeId) {
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+// ── Screenshots (multiple per trade) ────────────────────────────────────────
+// Each: { id, dataUrl, caption, kind, addedAt }. Stored at t.screenshots.
+const SCREENSHOT_KINDS = ["Setup", "Entry", "Mid-Trade", "Exit", "Source", "Other"];
+
+function _compressImageBlob(blob, maxW = 1000, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function addTradeScreenshot(tradeId, blob, opts = {}) {
+  if (!blob) return;
+  const t = STATE.trades.find(x => x.id === tradeId);
+  if (!t) return;
+  try {
+    const dataUrl = await _compressImageBlob(blob);
+    const sc = {
+      id: 's' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      dataUrl,
+      caption: opts.caption || '',
+      kind: opts.kind || '',
+      addedAt: new Date().toISOString(),
+    };
+    t.screenshots = t.screenshots || [];
+    t.screenshots.push(sc);
+    save();
+    if (typeof renderDiary === 'function' && currentDiaryId === tradeId) renderDiary();
+    if (typeof dbg === 'function') dbg('Screenshot added to trade ' + tradeId, 'success');
+  } catch (e) {
+    alert('Failed to add screenshot: ' + (e?.message || e));
+  }
+}
+
+function deleteTradeScreenshot(tradeId, screenshotId) {
+  const t = STATE.trades.find(x => x.id === tradeId);
+  if (!t || !t.screenshots) return;
+  if (!confirm('Delete this screenshot? Cannot be undone.')) return;
+  t.screenshots = t.screenshots.filter(s => s.id !== screenshotId);
+  save();
+  if (currentDiaryId === tradeId) renderDiary();
+}
+
+function editScreenshotCaption(tradeId, screenshotId, caption) {
+  const t = STATE.trades.find(x => x.id === tradeId);
+  if (!t || !t.screenshots) return;
+  const s = t.screenshots.find(s => s.id === screenshotId);
+  if (!s) return;
+  s.caption = caption;
+  save();
+}
+
+function setScreenshotKind(tradeId, screenshotId, kind) {
+  const t = STATE.trades.find(x => x.id === tradeId);
+  if (!t || !t.screenshots) return;
+  const s = t.screenshots.find(s => s.id === screenshotId);
+  if (!s) return;
+  s.kind = kind;
+  save();
+  if (currentDiaryId === tradeId) renderDiary();
+}
+
+// Triggered by the file-input on the SCREENSHOTS card
+async function handleScreenshotUpload(input, tradeId) {
+  const files = Array.from(input.files || []);
+  for (const f of files) await addTradeScreenshot(tradeId, f);
+  input.value = '';
+}
+
+// Drag-and-drop onto the screenshots area
+function onScreenshotDrop(ev, tradeId) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  ev.currentTarget.style.borderColor = '';
+  const files = Array.from(ev.dataTransfer?.files || []).filter(f => f.type.startsWith('image/'));
+  files.forEach(f => addTradeScreenshot(tradeId, f));
+}
+function onScreenshotDragOver(ev) {
+  ev.preventDefault();
+  ev.currentTarget.style.borderColor = 'var(--accent, #2f81f7)';
+}
+function onScreenshotDragLeave(ev) {
+  ev.currentTarget.style.borderColor = '';
+}
+
+// One-time paste handler: pasting an image while DIARY tab is active and a trade
+// is open adds the image to that trade. Skipped when typing in inputs.
+let _screenshotPasteInstalled = false;
+function _installScreenshotPaste() {
+  if (_screenshotPasteInstalled) return;
+  _screenshotPasteInstalled = true;
+  document.addEventListener('paste', (e) => {
+    if (currentDiaryId == null) return;
+    const diaryTab = document.getElementById('tab-diary');
+    if (!diaryTab || !diaryTab.classList.contains('active')) return;
+    const ae = document.activeElement;
+    // Allow pasting into a caption input — let it pass through normally
+    if (ae && ae.dataset && ae.dataset.captionFor) return;
+    const items = Array.from(e.clipboardData?.items || []);
+    const imgItem = items.find(it => it.type.startsWith('image/'));
+    if (!imgItem) return;
+    const blob = imgItem.getAsFile();
+    if (!blob) return;
+    e.preventDefault();
+    addTradeScreenshot(currentDiaryId, blob, { kind: 'Other' });
+  });
 }
 
 function scrollToTrade(id) {
@@ -2959,6 +3364,69 @@ function renderSnapshot() {
   </div>`;
 }
 
+function renderFuturesCard(t, q) {
+  const spec = FUTURES_SPECS[(t.ticker||"").toUpperCase()] || {};
+  const mult = t.pointMultiplier || spec.multiplier || 0;
+  const dir = (t.direction || "long").toLowerCase();
+  const dirColor = dir === "long" ? C.pos : C.neg;
+  const price = q ? q.price : null;
+  // Live unrealized P&L (if quote available)
+  const livePnl = price != null ? futuresPnl(t, price) : null;
+  const livePnlColor = livePnl == null ? C.textMut : livePnl >= 0 ? C.pos : C.neg;
+  // Risk / reward
+  const risk$ = futuresRisk(t);
+  const reward$ = futuresReward(t);
+  const rr = risk$ && reward$ ? (reward$ / risk$) : null;
+  // Distance to stop / target as %
+  const stopDistPts = price != null && t.stopPrice != null ? Math.abs(price - t.stopPrice) : null;
+  const tgtDistPts = price != null && t.targetPrice != null ? Math.abs(t.targetPrice - price) : null;
+
+  return `<div class="card" id="trade-${t.id}" data-chart-ticker="${t.ticker}" style="border:1px solid ${C.accentDim||'rgba(47,129,247,0.2)'}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:${C.text}">${t.ticker}</div>
+          <span style="font-size:9px;padding:2px 6px;border-radius:3px;background:${C.accentDim||'rgba(47,129,247,0.18)'};color:${C.accent||'#2f81f7'};font-weight:600">FUT</span>
+          <span style="font-size:9px;padding:2px 6px;border-radius:3px;background:${dir==='long'?C.posDim:C.negDim};color:${dirColor};font-weight:600">${dir.toUpperCase()}</span>
+          ${price != null ? `<div style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:rgba(255,255,255,0.7)">${price.toFixed(2)}</div>` : `<div style="font-size:10px;color:${C.textSec}">no quote</div>`}
+        </div>
+        <div style="font-size:10px;color:${C.text};margin-top:3px">
+          ${t.contracts}x · entry ${t.entryPrice} · $${mult}/pt${t.thesis ? " · " + escapeHtml(t.thesis.slice(0,40)) : ""}
+        </div>
+        ${t.entryMode==="follow" && t.source ? `<div style="display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:2px 6px;background:${C.accentDim};border:1px solid ${C.accentDim};border-radius:3px;font-size:9px;color:${C.accent};font-variant-numeric:tabular-nums">📋 ${escapeHtml(t.source)}${t.sourcePostUrl?` · <a href="${escapeHtml(t.sourcePostUrl)}" target="_blank" rel="noopener" style="color:${C.accent};text-decoration:underline" onclick="event.stopPropagation()">post ↗</a>`:""}</div>` : ""}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        ${livePnl != null ? `<div style="font-variant-numeric:tabular-nums;font-size:14px;color:${livePnlColor};font-weight:700">${livePnl>=0?"+$":"-$"}${Math.abs(livePnl).toFixed(0)}</div>` : ""}
+        <div style="font-size:9px;color:${C.textSec};margin-top:2px;font-variant-numeric:tabular-nums">${t.entryDate || "?"}</div>
+      </div>
+    </div>
+
+    <!-- Stop / Target -->
+    ${(t.stopPrice || t.targetPrice) ? `<div style="display:flex;gap:6px;margin-bottom:10px">
+      ${t.stopPrice ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.negDim};border-radius:3px;padding:6px 8px">
+        <div style="font-size:8px;color:${C.neg};letter-spacing:0;margin-bottom:2px">🛑 STOP</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.neg};font-weight:600">${t.stopPrice}</div>
+        <div style="font-size:9px;color:${C.textSec};margin-top:1px">risk -$${(risk$||0).toFixed(0)}${stopDistPts != null ? ` · ${stopDistPts.toFixed(2)}pts away` : ""}</div>
+      </div>` : `<div style="flex:1;background:${C.bg};border:1px dashed rgba(255,255,255,0.1);border-radius:3px;padding:6px 8px;color:${C.textMut};font-size:10px">no stop set</div>`}
+      ${t.targetPrice ? `<div style="flex:1;background:${C.bg};border:1px solid ${C.posDim};border-radius:3px;padding:6px 8px">
+        <div style="font-size:8px;color:${C.pos};letter-spacing:0;margin-bottom:2px">🎯 TARGET</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.pos};font-weight:600">${t.targetPrice}</div>
+        <div style="font-size:9px;color:${C.textSec};margin-top:1px">reward +$${(reward$||0).toFixed(0)}${tgtDistPts != null ? ` · ${tgtDistPts.toFixed(2)}pts away` : ""}${rr?` · RR ${rr.toFixed(2)}:1`:""}</div>
+      </div>` : `<div style="flex:1;background:${C.bg};border:1px dashed rgba(255,255,255,0.1);border-radius:3px;padding:6px 8px;color:${C.textMut};font-size:10px">no target set</div>`}
+    </div>` : ""}
+
+    <!-- Rule violations badge -->
+    ${(t.ruleViolations||[]).length ? `<div style="background:${C.warnDim||'rgba(210,153,34,0.12)'};border:1px solid ${C.warn};border-radius:3px;padding:6px 10px;margin-bottom:8px;font-size:10px;color:${C.warn}">⚠ ${t.ruleViolations.length} rule violation${t.ruleViolations.length>1?"s":""} at entry — open DIARY</div>` : ""}
+
+    <!-- Actions -->
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <button class="btn btn-warn" style="flex:1;padding:5px 8px;font-size:10px" onclick="openFuturesExit(${t.id})">EXIT</button>
+      <button class="btn btn-g" style="flex:1;padding:5px 8px;font-size:10px;color:${C.textSec};border-color:${C.borderVis}" onclick="openDiary(${t.id})">DIARY</button>
+      <button class="btn btn-g" style="padding:5px 8px;color:${C.textSec};border-color:${C.borderVis}" onclick="selectChartTicker('${t.ticker}')" title="View chart">📊</button>
+    </div>
+  </div>`;
+}
+
 function renderFXCard(t, q) {
   const rate = q ? q.price : null;
   const entryRate = t.entryRate || t.shortStrike; // shortStrike used as entry rate for FX
@@ -3046,11 +3514,13 @@ function renderPositions() {
 
   el.innerHTML = open.map(t => {
     const q = STATE.quotes[t.ticker];
-    const isFX = t.assetClass === "FX" || isFXTicker(t.ticker);
-    const isStock = !isFX && (t.tradeType||"").startsWith("Stock");
+    const isFut = isFutures(t);
+    const isFX = !isFut && (t.assetClass === "FX" || isFXTicker(t.ticker));
+    const isStock = !isFut && !isFX && (t.tradeType||"").startsWith("Stock");
+    if (isFut) return renderFuturesCard(t, q);
     if (isFX) return renderFXCard(t, q);
     const dl = isStock ? null : daysLeft(t.expiry);
-    const maxLoss = isStock ? null : Math.abs(t.shortStrike - t.longStrike) * t.contracts * 100 - t.premiumCollected;
+    const maxLoss = isStock ? null : Math.abs(t.shortStrike - t.longStrike) * t.contracts * getOptionMultiplier(t.ticker) - t.premiumCollected;
     const _ttype = (t.tradeType||"").toLowerCase();
     const _isBull = _ttype.includes("bull") || _ttype.includes("put");
     // For bull spreads: positive = price above short strike = SAFE
@@ -3093,6 +3563,7 @@ function renderPositions() {
             ? t.tradeType + " · " + t.contracts + " shares · entry $" + t.shortStrike + (t.thesis ? " · " + t.thesis.slice(0,40) : "")
             : (t.tradeType||"Spread") + " · " + t.longStrike + "/" + t.shortStrike + " · " + t.contracts + "x" + (closedContracts ? " (" + closedContracts + " closed)" : "") + " · exp " + t.expiry + (getSector(t.ticker)?" · "+getSector(t.ticker):"")
           }</div>
+          ${t.entryMode==="follow" && t.source ? `<div style="display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:2px 6px;background:${C.accentDim};border:1px solid ${C.accentDim};border-radius:3px;font-size:9px;color:${C.accent};font-variant-numeric:tabular-nums">📋 ${escapeHtml(t.source)}${t.sourcePostUrl?` · <a href="${escapeHtml(t.sourcePostUrl)}" target="_blank" rel="noopener" style="color:${C.accent};text-decoration:underline" onclick="event.stopPropagation()">post ↗</a>`:""}</div>` : ""}
         </div>
         <div style="text-align:right;flex-shrink:0">
           ${isStock ? "" : `<div style="font-variant-numeric:tabular-nums;font-size:13px;color:rgba(255,255,255,0.6);font-weight:600">+$${(t.premiumCollected||0).toFixed(0)}</div>`}
@@ -3369,6 +3840,25 @@ function renderDiary() {
       </div>`:""}
     </div>
 
+    <!-- Follow source (Follow trades only) -->
+    ${t.entryMode==="follow" ? `<div class="card" style="margin-bottom:10px;border-left:3px solid ${C.accent}">
+      <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.accent};letter-spacing:0.02em;margin-bottom:10px">📋 FOLLOW TRADE</div>
+      <div class="g2" style="margin-bottom:8px">
+        <div><div class="lbl">Source</div><div class="val">${t.source ? escapeHtml(t.source) : `<span style="color:${C.warn}">— missing —</span>`}</div></div>
+        ${t.sourcePostUrl?`<div><div class="lbl">Post</div><div class="val"><a href="${escapeHtml(t.sourcePostUrl)}" target="_blank" rel="noopener" style="color:${C.accent};text-decoration:underline;font-size:11px">open ↗</a></div></div>`:""}
+      </div>
+      ${t.sourceThesis?`<div class="frow" style="margin-bottom:0">
+        <label>Their Thesis / Call</label>
+        <div style="font-size:11px;color:${C.text};background:${C.bg};border:1px solid ${C.borderVis};border-radius:3px;padding:8px;line-height:1.5;white-space:pre-wrap">${escapeHtml(t.sourceThesis)}</div>
+      </div>`:""}
+    </div>` : ""}
+
+    <!-- Rule violations (if any) -->
+    ${(t.ruleViolations||[]).length ? `<div class="card" style="margin-bottom:10px;border-left:3px solid ${C.warn}">
+      <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.warn};letter-spacing:0.02em;margin-bottom:8px">⚠ STANDING-RULE VIOLATIONS AT ENTRY</div>
+      ${t.ruleViolations.map(v => `<div style="font-size:11px;color:${C.warn};padding:4px 0;border-left:2px solid ${C.warn};padding-left:10px;margin-bottom:4px">${escapeHtml(v)}</div>`).join("")}
+    </div>` : ""}
+
     <!-- Strategy & Sentiment -->
     <div class="card" style="margin-bottom:10px">
       <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">STRATEGY & CONTEXT</div>
@@ -3475,13 +3965,45 @@ function renderDiary() {
       </div>
     </div>
 
+    <!-- Screenshots (multiple, ad-hoc, with captions + kind tags) -->
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em">SCREENSHOTS (${(t.screenshots||[]).length})</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:9px;color:${C.textMut}" title="Paste with Cmd/Ctrl+V while a trade is open">⌘V to paste</span>
+          <label class="btn btn-g" style="font-size:10px;padding:4px 10px;cursor:pointer">📎 ADD<input type="file" accept="image/*" multiple style="display:none" onchange="handleScreenshotUpload(this,${t.id})"></label>
+        </div>
+      </div>
+      <div ondragover="onScreenshotDragOver(event)" ondragleave="onScreenshotDragLeave(event)" ondrop="onScreenshotDrop(event,${t.id})" style="border:1px dashed ${C.border};border-radius:4px;padding:10px;min-height:90px;transition:border-color .15s">
+        ${(t.screenshots||[]).length===0 ? `<div style="font-size:11px;color:${C.textMut};text-align:center;padding:20px">No screenshots yet — drop images here, click ADD, or paste with ⌘V/Ctrl+V</div>`
+          : `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+            ${(t.screenshots||[]).slice().sort((a,b)=>(a.addedAt||'').localeCompare(b.addedAt||'')).map(s=>`
+              <div style="position:relative;background:${C.bg};border:1px solid ${C.borderVis};border-radius:4px;overflow:hidden">
+                <img src="${s.dataUrl}" style="width:100%;display:block;max-height:200px;object-fit:contain;background:${C.bg};cursor:pointer" onclick="openLightbox(this.src)">
+                <div style="position:absolute;top:4px;left:4px;display:flex;gap:4px;align-items:center">
+                  <select onchange="setScreenshotKind(${t.id},'${s.id}',this.value)" onclick="event.stopPropagation()" style="font-size:9px;padding:1px 4px;background:${C.bgOverlay};border:1px solid ${C.borderVis};color:${C.text};border-radius:2px">
+                    <option value="">— kind —</option>
+                    ${SCREENSHOT_KINDS.map(k=>`<option value="${k}"${s.kind===k?' selected':''}>${k}</option>`).join('')}
+                  </select>
+                </div>
+                <button title="Delete screenshot" onclick="deleteTradeScreenshot(${t.id},'${s.id}')" style="position:absolute;top:4px;right:4px;background:${C.bgOverlay};border:1px solid ${C.borderVis};color:${C.neg};font-size:11px;padding:2px 6px;border-radius:2px;cursor:pointer;font-family:'Inter',sans-serif">×</button>
+                <div style="padding:6px 8px;border-top:1px solid ${C.borderVis}">
+                  <input data-caption-for="${s.id}" placeholder="Caption..." value="${(s.caption||'').replace(/"/g,'&quot;')}" onblur="editScreenshotCaption(${t.id},'${s.id}',this.value)" style="width:100%;font-size:10px;background:transparent;border:none;color:${C.text};padding:0;font-family:'Inter',sans-serif">
+                  <div style="font-size:8px;color:${C.textMut};margin-top:2px;font-variant-numeric:tabular-nums">${new Date(s.addedAt||Date.now()).toLocaleString()}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>`}
+      </div>
+    </div>
+
     <!-- TradingView Chart -->
     <div class="card" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em">TRADINGVIEW CHART</div>
         <button class="btn btn-g" style="font-size:10px;padding:4px 10px" onclick="openTVChartForTrade(${t.id})">OPEN IN TRADINGVIEW</button>
       </div>
-      <div id="diary-tv-chart-${t.id}" style="height:350px;background:${C.bg};border:1px solid ${C.border};border-radius:4px;overflow:hidden"></div>
+      <div id="diary-tv-chart-${t.id}" style="background:${C.bg};border:1px solid ${C.border};border-radius:4px;overflow:hidden"></div>
     </div>
 
     <div style="display:flex;gap:8px">
@@ -3492,6 +4014,8 @@ function renderDiary() {
   document.getElementById("diary-detail-panel").innerHTML = html;
   // Render embedded TradingView chart
   setTimeout(() => renderDiaryTVChart(currentDiaryId), 100);
+  // Idempotent: install document-level paste handler so ⌘V/Ctrl+V on an open trade adds a screenshot
+  _installScreenshotPaste();
 }
 
 function openTVChartForTrade(tradeId) {
@@ -3500,29 +4024,127 @@ function openTVChartForTrade(tradeId) {
   window.open(`https://www.tradingview.com/chart/?symbol=${t.ticker}`, '_blank');
 }
 
-function renderDiaryTVChart(tradeId) {
+// Map a trade ticker (raw user input) to a Yahoo-compatible candle symbol
+function _yahooSymbolForChart(ticker) {
+  if (!ticker) return ticker;
+  const root = _futOptRoot(ticker);
+  if (root in FUTURES_SPECS) return root + '=F'; // /ES → ES=F (Yahoo continuous front-month)
+  return ticker;
+}
+
+async function renderDiaryTVChart(tradeId) {
   const t = STATE.trades.find(x => x.id === tradeId);
   if (!t) return;
   const container = document.getElementById('diary-tv-chart-' + tradeId);
   if (!container) return;
 
-  const entryDate = new Date(t.entryDate);
-  const exitDate = t.exitDate ? new Date(t.exitDate) : null;
-  const expiryDate = t.expiry ? new Date(t.expiry) : null;
-  const endDate = exitDate || expiryDate || new Date();
+  // Date window: 14 days before entry → 14 days after exit (or today)
+  const entryD = t.entryDate ? new Date(t.entryDate) : new Date();
+  const endRef = t.exitDate ? new Date(t.exitDate) : (t.expiry ? new Date(t.expiry) : new Date());
+  const fromD = new Date(entryD); fromD.setDate(fromD.getDate() - 14);
+  const toD = new Date(endRef); toD.setDate(toD.getDate() + 14);
+  const today = new Date();
+  if (toD > today) toD.setTime(today.getTime());
+  const isoFrom = fromD.toISOString().slice(0,10);
+  const isoTo = toD.toISOString().slice(0,10);
 
-  const markers = [];
-  if (t.entryDate) markers.push({date: t.entryDate, label: 'ENTRY', color: C.pos});
-  if (t.exitDate) markers.push({date: t.exitDate, label: 'EXIT', color: t.realizedPnl >= 0 ? C.pos : C.neg});
-  if (t.expiry) markers.push({date: t.expiry, label: 'EXPIRY', color: C.warn});
+  // Map ticker for Yahoo candle fetch (handles /ES → ES=F)
+  const yahooTicker = _yahooSymbolForChart(t.ticker);
+  const tvSymbol = _lcTVSymbol(t.ticker);
 
+  // Header with title + "open in TradingView" link
   container.innerHTML = `
-    <div style="position:relative;width:100%;height:100%">
-      <iframe src="https://s.tradingview.com/widgetembed/?frameElementId=diary-tv-chart-${tradeId}&symbol=${t.ticker}&interval=D&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=0d1117&studies=[]&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=0&hideideas=1&overrides=%7B%7D&enabled_features=[]&disabled_features=[]&locale=en" style="width:100%;height:100%;border:none"></iframe>
-      <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;z-index:10">
-        ${markers.map(m => `<span style="font-size:9px;color:${m.color};background:${C.bg};border:1px solid ${m.color}44;padding:2px 6px;border-radius:3px;font-weight:600">${m.label} ${m.date}</span>`).join('')}
-      </div>
-    </div>`;
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;font-size:10px;color:${C.textSec};border-bottom:1px solid ${C.borderVis};background:${C.bg}">
+      <span><span style="color:${C.text};font-weight:600">${t.ticker}</span> · ${isoFrom} → ${isoTo}</span>
+      <a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}" target="_blank" rel="noopener" style="color:${C.accent};text-decoration:none">open in TradingView ↗</a>
+    </div>
+    <div id="diary-lwc-${tradeId}" style="width:100%;height:340px;background:${C.bg}"></div>
+    <div id="diary-lwc-status-${tradeId}" style="padding:6px 10px;font-size:9px;color:${C.textMut};font-variant-numeric:tabular-nums"></div>`;
+
+  const statusEl = document.getElementById('diary-lwc-status-' + tradeId);
+  const chartEl = document.getElementById('diary-lwc-' + tradeId);
+  if (typeof LightweightCharts === 'undefined') {
+    statusEl.textContent = 'Loading chart library...';
+    setTimeout(() => renderDiaryTVChart(tradeId), 600);
+    return;
+  }
+  statusEl.textContent = 'Fetching candles for ' + yahooTicker + '...';
+
+  let candles = null;
+  try {
+    const r = await fetch('/api/candles?ticker=' + encodeURIComponent(yahooTicker) + '&start=' + isoFrom + '&end=' + isoTo);
+    if (r.ok) { const d = await r.json(); if (d.s === 'ok') candles = d; }
+  } catch (e) { /* fall through */ }
+
+  if (!candles || !candles.t || !candles.t.length) {
+    statusEl.innerHTML = `<span style="color:${C.warn}">No candle data for ${yahooTicker}</span> — open in TradingView via link above.`;
+    return;
+  }
+
+  // Build candle series
+  const data = candles.t.map((ts, i) => ({
+    time: ts, // unix seconds (UTC); Lightweight Charts accepts this directly
+    open: candles.o[i], high: candles.h[i], low: candles.l[i], close: candles.c[i],
+  })).filter(d => d.open != null && d.close != null);
+
+  const chart = LightweightCharts.createChart(chartEl, {
+    width: chartEl.clientWidth || 600, height: 340,
+    layout: { background: { color: C.bg }, textColor: C.textSec, fontFamily: "'IBM Plex Mono', monospace" },
+    grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+    timeScale: { borderColor: C.borderVis, timeVisible: false, secondsVisible: false },
+    rightPriceScale: { borderColor: C.borderVis },
+    crosshair: { mode: 1 },
+  });
+  const series = chart.addCandlestickSeries({
+    upColor: C.pos, downColor: C.neg, borderUpColor: C.pos, borderDownColor: C.neg,
+    wickUpColor: C.pos, wickDownColor: C.neg,
+  });
+  series.setData(data);
+
+  // Markers at entry / exit / expiry on the time axis
+  const dateToTime = (iso) => Math.floor(new Date(iso + 'T00:00:00').getTime() / 1000);
+  const markers = [];
+  if (t.entryDate) {
+    markers.push({ time: dateToTime(t.entryDate), position: 'belowBar', color: C.pos, shape: 'arrowUp', text: 'ENTRY' });
+  }
+  if (t.exitDate) {
+    const isWin = (t.realizedPnl || 0) >= 0;
+    markers.push({ time: dateToTime(t.exitDate), position: 'aboveBar', color: isWin ? C.pos : C.neg, shape: isWin ? 'arrowDown' : 'arrowDown', text: 'EXIT ' + ((t.realizedPnl||0)>=0?'+$':'-$') + Math.abs(t.realizedPnl||0).toFixed(0) });
+  }
+  if (t.expiry && !t.exitDate) {
+    markers.push({ time: dateToTime(t.expiry), position: 'aboveBar', color: C.warn, shape: 'circle', text: 'EXP' });
+  }
+  if (markers.length) markers.sort((a,b) => a.time - b.time);
+  if (markers.length) series.setMarkers(markers);
+
+  // Price lines: for options, show short/long strike. For stock/futures, show entry price.
+  const priceLines = [];
+  const isStockTrade = (t.tradeType||'').startsWith('Stock');
+  const isFuturesTrade = isFutures(t);
+  if (isStockTrade && t.shortStrike) {
+    priceLines.push({ price: parseFloat(t.shortStrike), color: C.accent, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'ENTRY $' + parseFloat(t.shortStrike).toFixed(2) });
+  } else if (isFuturesTrade && t.entryPrice) {
+    priceLines.push({ price: t.entryPrice, color: C.accent, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'ENTRY ' + t.entryPrice });
+    if (t.stopPrice) priceLines.push({ price: t.stopPrice, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'STOP' });
+    if (t.targetPrice) priceLines.push({ price: t.targetPrice, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TARGET' });
+    if (t.exitPrice != null) priceLines.push({ price: t.exitPrice, color: t.realizedPnl>=0?C.pos:C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'EXIT ' + t.exitPrice });
+  } else if (t.shortStrike && t.longStrike) {
+    // Options spread — show strikes + TP/SL
+    priceLines.push({ price: parseFloat(t.shortStrike), color: 'rgba(255,255,255,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SHORT ' + t.shortStrike });
+    priceLines.push({ price: parseFloat(t.longStrike), color: 'rgba(255,255,255,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'LONG ' + t.longStrike });
+    if (t.tpPrice) priceLines.push({ price: parseFloat(t.tpPrice), color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP' });
+    if (t.slPrice) priceLines.push({ price: parseFloat(t.slPrice), color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SL' });
+  }
+  priceLines.forEach(p => series.createPriceLine(p));
+
+  chart.timeScale().fitContent();
+  statusEl.textContent = data.length + ' bars · entry ▲ exit ▼ markers on time axis · strikes/stop/target as price lines';
+
+  // Resize on window changes
+  const resizeObs = new ResizeObserver(() => {
+    chart.applyOptions({ width: chartEl.clientWidth });
+  });
+  resizeObs.observe(chartEl);
 }
 
 function diarySubTabs() {
@@ -4261,7 +4883,7 @@ function setStatsTab(tab, btn) {
 function renderStats() {
   const tabs = [
     ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
-    ["strategies","STRATEGIES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
+    ["strategies","STRATEGIES"],["sources","SOURCES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
   ];
   const dateFilters = [["1w","1W"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"]];
   document.getElementById("stats-content").innerHTML = `
@@ -4307,6 +4929,7 @@ function renderStatsContent(force) {
     case "rr":          el.innerHTML = renderStatsRR(closed); break;
     case "maemfe":      el.innerHTML = renderStatsMAEMFE(closed); break;
     case "strategies":  el.innerHTML = renderStatsStrategies(closed); break;
+    case "sources":     el.innerHTML = renderStatsSources(closed); break;
     case "discipline":  el.innerHTML = renderStatsDiscipline(closed); break;
     case "pretrade":    el.innerHTML = renderStatsPreTrade(); fetchPreTradeJournal(); break;
     case "ai":          el.innerHTML = renderStatsAI(closed); break;
@@ -4860,6 +5483,79 @@ function renderStatsStrategies(closed) {
     </div>
 
     ${insightText("The strategy × DTE matrix reveals which setups perform best at specific time horizons. Focus on cells with high win rates and positive P&L. Time decay efficiency shows your dollar capture per calendar day — higher is better.")}
+  `;
+}
+
+// ── SOURCES (Follow-trade attribution) ──────────────────────────────────────
+function renderStatsSources(closed) {
+  const followClosed = closed.filter(t => t.entryMode === "follow" && t.source);
+  const followOpen = STATE.trades.filter(t => t.status === "Open" && t.entryMode === "follow" && t.source);
+  if (!followClosed.length && !followOpen.length) {
+    return emptyState("SOURCES","No follow trades yet. Tag a trade as 📋 FOLLOW with a source to see per-author P&L here.");
+  }
+
+  // Group by source name
+  const groups = {};
+  const ensure = (name) => { if (!groups[name]) groups[name] = { open: [], closed: [] }; return groups[name]; };
+  followOpen.forEach(t => ensure(t.source).open.push(t));
+  followClosed.forEach(t => ensure(t.source).closed.push(t));
+
+  const rows = Object.entries(groups).map(([name, g]) => {
+    const c = g.closed;
+    const pnl = c.reduce((s,t) => s + (t.realizedPnl||0), 0);
+    const wins = c.filter(t => (t.realizedPnl||0) > 0).length;
+    const wr = c.length ? Math.round(wins / c.length * 100) : null;
+    const avg = c.length ? pnl / c.length : 0;
+    const last = c.length ? c.slice().sort((a,b) => (b.exitDate||"").localeCompare(a.exitDate||""))[0] : null;
+    const srcMeta = (STATE.followSources||[]).find(s => s.name === name) || {};
+    return { name, srcMeta, openCount: g.open.length, closedCount: c.length, pnl, wr, avg, last };
+  }).sort((a,b) => b.pnl - a.pnl);
+
+  const totalPnl = followClosed.reduce((s,t) => s + (t.realizedPnl||0), 0);
+  const totalWins = followClosed.filter(t => (t.realizedPnl||0) > 0).length;
+  const totalWR = followClosed.length ? Math.round(totalWins / followClosed.length * 100) : null;
+
+  return `
+    <div class="card" style="margin-bottom:10px">
+      <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">FOLLOW TRADES — TOTAL</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <div><div class="lbl">Closed</div><div class="val">${followClosed.length}</div></div>
+        <div><div class="lbl">Open</div><div class="val">${followOpen.length}</div></div>
+        <div><div class="lbl">Total P&L</div><div class="val" style="color:${totalPnl>=0?C.pos:C.neg}">${totalPnl>=0?"+$":"-$"}${Math.abs(totalPnl).toFixed(0)}</div></div>
+        <div><div class="lbl">Win Rate</div><div class="val">${totalWR===null?"—":totalWR+"%"}</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">BY SOURCE</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr style="border-bottom:1px solid ${C.borderVis};color:${C.textSec};font-size:10px;text-align:left">
+            <th style="padding:6px 4px">Source</th>
+            <th style="padding:6px 4px;text-align:right">Open</th>
+            <th style="padding:6px 4px;text-align:right">Closed</th>
+            <th style="padding:6px 4px;text-align:right">Win %</th>
+            <th style="padding:6px 4px;text-align:right">Avg $</th>
+            <th style="padding:6px 4px;text-align:right">Total $</th>
+            <th style="padding:6px 4px">Last Trade</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `<tr style="border-bottom:1px solid ${C.bgHover}">
+            <td style="padding:8px 4px;color:${C.text}">
+              ${escapeHtml(r.name)}${r.srcMeta.url?` <a href="${escapeHtml(r.srcMeta.url)}" target="_blank" rel="noopener" style="color:${C.accent};font-size:9px;text-decoration:none">↗</a>`:""}
+            </td>
+            <td style="padding:8px 4px;text-align:right;color:${C.textSec}">${r.openCount||"—"}</td>
+            <td style="padding:8px 4px;text-align:right;color:${C.textSec}">${r.closedCount||"—"}</td>
+            <td style="padding:8px 4px;text-align:right;color:${r.wr===null?C.textMut:r.wr>=60?C.pos:r.wr<40?C.neg:C.text}">${r.wr===null?"—":r.wr+"%"}</td>
+            <td style="padding:8px 4px;text-align:right;color:${r.avg>=0?C.pos:C.neg}">${r.closedCount?(r.avg>=0?"+$":"-$")+Math.abs(r.avg).toFixed(0):"—"}</td>
+            <td style="padding:8px 4px;text-align:right;color:${r.pnl>=0?C.pos:C.neg};font-weight:600">${r.closedCount?(r.pnl>=0?"+$":"-$")+Math.abs(r.pnl).toFixed(0):"—"}</td>
+            <td style="padding:8px 4px;color:${C.textSec};font-size:10px">${r.last?`${r.last.ticker} · ${r.last.exitDate||"—"}`:"—"}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      <div style="font-size:10px;color:${C.textMut};margin-top:10px;line-height:1.5">Counts only trades tagged 📋 FOLLOW with a source. DD trades show under STRATEGIES.</div>
+    </div>
   `;
 }
 
@@ -6411,6 +7107,16 @@ function updateSRPicks(ticker) {
   resistances.forEach(([lbl,val]) => slBox.appendChild(mkBtn(lbl, val, "tf-slPrice", C.textSec)));
 }
 
+function updateTickerMultLabel(ticker) {
+  const el = document.getElementById("tf-ticker-mult");
+  if (!el) return;
+  const mult = getOptionMultiplier(ticker);
+  if (mult === 100) { el.textContent = ""; return; }
+  const root = _futOptRoot(ticker);
+  const spec = FUTURES_SPECS[root];
+  el.textContent = `⚡ ${spec?.name || root} · $${mult}/pt`;
+}
+
 function getSRLabel(ticker, price) {
   if (!price || !ticker) return null;
   const sr = STATE.srLevels?.[ticker] || {};
@@ -6425,6 +7131,49 @@ function getSRLabel(ticker, price) {
 }
 
 // ── Trade modal ───────────────────────────────────────────────────────────────
+function setEntryMode(mode) {
+  const ddBtn = document.getElementById("tf-mode-dd");
+  const flBtn = document.getElementById("tf-mode-follow");
+  const block = document.getElementById("tf-source-block");
+  const thesisLbl = document.getElementById("tf-thesis-label");
+  const isFollow = mode === "follow";
+  ddBtn.style.background = isFollow ? "transparent" : "var(--positive-dim, rgba(63,185,80,0.12))";
+  ddBtn.style.color = isFollow ? "var(--text-secondary)" : "var(--positive)";
+  flBtn.style.background = isFollow ? "var(--accent-dim, rgba(47,129,247,0.12))" : "transparent";
+  flBtn.style.color = isFollow ? "var(--accent, #2f81f7)" : "var(--text-secondary)";
+  block.style.display = isFollow ? "block" : "none";
+  if (thesisLbl) thesisLbl.textContent = isFollow
+    ? "Your take — do you actually agree, or just following?"
+    : "Thesis to Enter — why are you in this trade?";
+  document.getElementById("trade-modal").dataset.entryMode = mode;
+  // Refresh source dropdown each time
+  if (isFollow) populateSourceDropdown();
+}
+
+function populateSourceDropdown() {
+  const sel = document.getElementById("tf-source");
+  if (!sel) return;
+  const cur = sel.value;
+  const list = STATE.followSources || [];
+  sel.innerHTML = `<option value="">Select source...</option>` +
+    list.map(s => `<option value="${escapeHtml(s.name)}"${cur===s.name?" selected":""}>${escapeHtml(s.name)}</option>`).join("") +
+    `<option value="__add__">+ Add new source...</option>`;
+  sel.onchange = function() {
+    if (this.value === "__add__") {
+      const name = prompt("New source name (Substack author, Twitter handle, etc):");
+      if (!name) { this.value = ""; return; }
+      const url = prompt("Source URL (optional):") || "";
+      STATE.followSources = STATE.followSources || [];
+      if (!STATE.followSources.some(s => s.name.toLowerCase() === name.trim().toLowerCase())) {
+        STATE.followSources.push({ name: name.trim(), url: url.trim(), addedAt: new Date().toISOString().slice(0,10) });
+        save();
+      }
+      populateSourceDropdown();
+      this.value = name.trim();
+    }
+  };
+}
+
 function openTradeModal(id=null) {
   editingTradeId = id;
   const t = id ? STATE.trades.find(x=>x.id===id) : null;
@@ -6443,6 +7192,7 @@ function openTradeModal(id=null) {
   const today = new Date().toISOString().slice(0,10);
   document.getElementById("trade-modal-title").textContent = t ? "EDIT — "+t.ticker : "NEW TRADE";
   document.getElementById("tf-ticker").value = t?.ticker||"";
+  updateTickerMultLabel(t?.ticker || "");
   document.getElementById("tf-shortStrike").value = t?.shortStrike||"";
   document.getElementById("tf-longStrike").value = t?.longStrike||"";
   document.getElementById("tf-contracts").value = t?.contracts||1;
@@ -6462,6 +7212,13 @@ function openTradeModal(id=null) {
   document.getElementById("tf-assetClass").value = t?.assetClass||"Options";
   document.getElementById("tf-thesis").value = t?.thesis||"";
   document.getElementById("tf-exitThesis").value = t?.exitThesis||"";
+  // Entry mode + source attribution
+  const mode = t?.entryMode || "dd";
+  setEntryMode(mode);
+  document.getElementById("tf-sourceUrl").value = t?.sourcePostUrl || "";
+  document.getElementById("tf-sourceThesis").value = t?.sourceThesis || "";
+  populateSourceDropdown();
+  if (t?.source) document.getElementById("tf-source").value = t.source;
   // Show existing chart if any
   pendingChartDataUrl = null;
   const existingChart = t?.chartLink||'';
@@ -6477,14 +7234,281 @@ function openTradeModal(id=null) {
 }
 function closeTradeModal() { document.getElementById("trade-modal").style.display="none"; }
 
+// ── Quick Futures modal ──────────────────────────────────────────────────────
+function openFuturesModal() {
+  // Populate ticker dropdown (full-size first since user trades NQ/ES primarily)
+  const tickerSel = document.getElementById("ff-ticker");
+  tickerSel.innerHTML = Object.entries(FUTURES_SPECS)
+    .map(([k, s]) => `<option value="${k}">${k} — ${s.name} ($${s.multiplier}/pt)</option>`)
+    .join("");
+  // Reset fields
+  document.getElementById("ff-entry").value = "";
+  document.getElementById("ff-stop").value = "";
+  document.getElementById("ff-target").value = "";
+  document.getElementById("ff-contracts").value = 1;
+  document.getElementById("ff-entryDate").value = new Date().toISOString().slice(0,10);
+  document.getElementById("ff-thesis").value = "";
+  document.getElementById("ff-sourceUrl").value = "";
+  setFuturesDir("long");
+  setFuturesEntryMode("dd");
+  populateFuturesSourceDropdown();
+  updateFuturesCalc();
+  document.getElementById("futures-modal").style.display = "flex";
+}
+
+function closeFuturesModal() { document.getElementById("futures-modal").style.display = "none"; }
+
+function setFuturesDir(dir) {
+  const longBtn = document.getElementById("ff-dir-long");
+  const shortBtn = document.getElementById("ff-dir-short");
+  const isLong = dir === "long";
+  longBtn.style.background = isLong ? "var(--positive-dim, rgba(63,185,80,0.12))" : "transparent";
+  longBtn.style.color = isLong ? "var(--positive)" : "var(--text-secondary)";
+  shortBtn.style.background = !isLong ? "var(--negative-dim, rgba(248,81,73,0.18))" : "transparent";
+  shortBtn.style.color = !isLong ? "var(--negative)" : "var(--text-secondary)";
+  document.getElementById("futures-modal").dataset.direction = dir;
+  updateFuturesCalc();
+}
+
+function setFuturesEntryMode(mode) {
+  const ddBtn = document.getElementById("ff-mode-dd");
+  const flBtn = document.getElementById("ff-mode-follow");
+  const block = document.getElementById("ff-source-block");
+  const isFollow = mode === "follow";
+  ddBtn.style.background = isFollow ? "transparent" : "var(--positive-dim, rgba(63,185,80,0.12))";
+  ddBtn.style.color = isFollow ? "var(--text-secondary)" : "var(--positive)";
+  flBtn.style.background = isFollow ? "var(--accent-dim, rgba(47,129,247,0.12))" : "transparent";
+  flBtn.style.color = isFollow ? "var(--accent, #2f81f7)" : "var(--text-secondary)";
+  block.style.display = isFollow ? "block" : "none";
+  document.getElementById("futures-modal").dataset.entryMode = mode;
+  if (isFollow) populateFuturesSourceDropdown();
+}
+
+function populateFuturesSourceDropdown() {
+  const sel = document.getElementById("ff-source");
+  if (!sel) return;
+  const cur = sel.value;
+  const list = STATE.followSources || [];
+  sel.innerHTML = `<option value="">Select source...</option>` +
+    list.map(s => `<option value="${escapeHtml(s.name)}"${cur===s.name?" selected":""}>${escapeHtml(s.name)}</option>`).join("") +
+    `<option value="__add__">+ Add new source...</option>`;
+  sel.onchange = function() {
+    if (this.value === "__add__") {
+      const name = prompt("New source name:");
+      if (!name) { this.value = ""; return; }
+      const url = prompt("Source URL (optional):") || "";
+      STATE.followSources = STATE.followSources || [];
+      if (!STATE.followSources.some(s => s.name.toLowerCase() === name.trim().toLowerCase())) {
+        STATE.followSources.push({ name: name.trim(), url: url.trim(), addedAt: new Date().toISOString().slice(0,10) });
+        save();
+      }
+      populateFuturesSourceDropdown();
+      this.value = name.trim();
+    }
+  };
+}
+
+function onFuturesTickerChange() { updateFuturesCalc(); }
+
+function updateFuturesCalc() {
+  const ticker = document.getElementById("ff-ticker")?.value;
+  const spec = FUTURES_SPECS[ticker];
+  if (!spec) return;
+  const entry = parseFloat(document.getElementById("ff-entry").value);
+  const stop = parseFloat(document.getElementById("ff-stop").value);
+  const target = parseFloat(document.getElementById("ff-target").value);
+  const contracts = parseInt(document.getElementById("ff-contracts").value) || 1;
+  const dir = document.getElementById("futures-modal").dataset.direction || "long";
+  const acct = STATE.accountBalance || 0;
+  const rules = STATE.standingRules || {};
+
+  const body = document.getElementById("ff-calc-body");
+  if (!entry) { body.innerHTML = `<span style="color:var(--text-secondary)">Enter prices to see calc.</span>`; return; }
+
+  let rows = [];
+  rows.push(`<div style="color:var(--text-secondary)">Multiplier: <span style="color:var(--text-primary)">$${spec.multiplier}/pt</span> · ${contracts}x contract${contracts>1?"s":""}</div>`);
+
+  // Direction sanity check
+  if (stop) {
+    const stopOnWrongSide = (dir === "long" && stop >= entry) || (dir === "short" && stop <= entry);
+    if (stopOnWrongSide) {
+      rows.push(`<div style="color:var(--negative);margin-top:4px">⚠ Stop is on the wrong side of entry for a ${dir.toUpperCase()} trade</div>`);
+    } else {
+      const points = Math.abs(entry - stop);
+      const risk$ = points * spec.multiplier * contracts;
+      const acctPct = acct > 0 ? (risk$ / acct * 100).toFixed(2) : null;
+      const overRule = rules.maxPositionPct && acctPct && parseFloat(acctPct) > rules.maxPositionPct;
+      rows.push(`<div style="margin-top:4px"><span style="color:var(--text-secondary)">Risk:</span> <span style="color:var(--negative);font-weight:600">${points.toFixed(2)} pts = -$${risk$.toFixed(0)}</span>${acctPct ? ` <span style="color:${overRule?'var(--negative)':'var(--text-secondary)'}">(${acctPct}% of acct${overRule?' — over '+rules.maxPositionPct+'% rule':''})</span>` : ''}</div>`);
+    }
+  }
+
+  if (target && entry) {
+    const targetOnWrongSide = (dir === "long" && target <= entry) || (dir === "short" && target >= entry);
+    if (targetOnWrongSide) {
+      rows.push(`<div style="color:var(--warning);margin-top:4px">⚠ Target on wrong side of entry for ${dir.toUpperCase()}</div>`);
+    } else {
+      const points = Math.abs(target - entry);
+      const reward$ = points * spec.multiplier * contracts;
+      rows.push(`<div><span style="color:var(--text-secondary)">Reward:</span> <span style="color:var(--positive);font-weight:600">${points.toFixed(2)} pts = +$${reward$.toFixed(0)}</span></div>`);
+    }
+  }
+
+  if (entry && stop && target) {
+    const r = Math.abs(entry - stop);
+    const w = Math.abs(target - entry);
+    if (r > 0) rows.push(`<div style="margin-top:4px;color:var(--text-secondary)">R:R <span style="color:var(--text-primary);font-weight:600">${(w/r).toFixed(2)}:1</span></div>`);
+  }
+
+  body.innerHTML = rows.join("");
+}
+
+function saveFuturesTrade() {
+  const ticker = document.getElementById("ff-ticker").value;
+  const spec = FUTURES_SPECS[ticker];
+  if (!spec) { alert("Select a contract"); return; }
+  const entry = parseFloat(document.getElementById("ff-entry").value);
+  const stop = parseFloat(document.getElementById("ff-stop").value);
+  const target = parseFloat(document.getElementById("ff-target").value);
+  const contracts = parseInt(document.getElementById("ff-contracts").value) || 1;
+  const entryDate = document.getElementById("ff-entryDate").value || new Date().toISOString().slice(0,10);
+  const dir = document.getElementById("futures-modal").dataset.direction || "long";
+  const mode = document.getElementById("futures-modal").dataset.entryMode || "dd";
+
+  if (!entry) { alert("Entry price required"); return; }
+  // Stop is required by standing rule (if enabled)
+  const rules = STATE.standingRules || {};
+  if (rules.requireStop !== false && !stop) {
+    alert("Standing rule: stop required on every trade. Set one or disable the rule in Settings.");
+    return;
+  }
+  if (stop) {
+    const stopOnWrongSide = (dir === "long" && stop >= entry) || (dir === "short" && stop <= entry);
+    if (stopOnWrongSide) { alert(`Stop is on the wrong side of entry for a ${dir.toUpperCase()} trade.`); return; }
+  }
+
+  // Build follow source bits
+  let sourceBits = { entryMode: "dd", source: "", sourcePostUrl: "" };
+  if (mode === "follow") {
+    let src = (document.getElementById("ff-source").value || "").trim();
+    if (src === "__add__") src = "";
+    sourceBits = {
+      entryMode: "follow",
+      source: src,
+      sourcePostUrl: document.getElementById("ff-sourceUrl").value.trim() || "",
+    };
+  }
+  if (mode === "follow" && rules.requireSourceForFollow !== false && !sourceBits.source) {
+    if (!confirm("Standing rule: follow trades need a source. Save without one?")) return;
+  }
+
+  // Compute ruleViolations
+  const violations = [];
+  const acct = STATE.accountBalance || 0;
+  if (stop && acct > 0 && rules.maxPositionPct) {
+    const risk$ = Math.abs(entry - stop) * spec.multiplier * contracts;
+    const pct = risk$ / acct * 100;
+    if (pct > rules.maxPositionPct) violations.push(`Risk ${pct.toFixed(1)}% of account exceeds standing rule (${rules.maxPositionPct}%)`);
+  }
+  if (rules.requireStop !== false && !stop) violations.push("Standing rule requires a stop");
+  if (mode === "follow" && rules.requireSourceForFollow !== false && !sourceBits.source) violations.push("Follow trade is missing a source");
+
+  const newTrade = {
+    id: STATE.nextId++,
+    ticker,
+    assetClass: "Futures",
+    tradeType: dir === "long" ? "Futures Long" : "Futures Short",
+    direction: dir,
+    entryPrice: entry,
+    stopPrice: stop || null,
+    targetPrice: target || null,
+    contracts,
+    pointMultiplier: spec.multiplier,
+    entryDate,
+    expiry: null, // futures: no expiry tracking for day-trading
+    status: "Open",
+    realizedPnl: null,
+    exitDate: null,
+    exitPrice: null,
+    thesis: document.getElementById("ff-thesis").value.trim(),
+    ...sourceBits,
+    ruleViolations: violations,
+    journal: [],
+    rolls: [],
+    createdAt: new Date().toISOString().slice(0,10),
+  };
+
+  STATE.trades.push(newTrade);
+  save();
+  closeFuturesModal();
+  renderPositions();
+  renderSnapshot();
+  if (typeof renderKPIs === "function") renderKPIs();
+}
+
+// Futures exit
+let _futuresExitId = null;
+function openFuturesExit(id) {
+  const t = STATE.trades.find(x => x.id === id);
+  if (!t || !isFutures(t)) return;
+  _futuresExitId = id;
+  const spec = FUTURES_SPECS[(t.ticker||"").toUpperCase()];
+  document.getElementById("futures-exit-title").textContent = `CLOSE ${t.ticker} — ${(t.direction||"long").toUpperCase()}`;
+  document.getElementById("futures-exit-summary").innerHTML =
+    `${t.contracts}x ${t.ticker} (${t.direction}) · entry ${t.entryPrice}<br>` +
+    `Stop ${t.stopPrice ?? "—"} · Target ${t.targetPrice ?? "—"}<br>` +
+    `Multiplier $${spec?.multiplier ?? t.pointMultiplier ?? "?"}/pt`;
+  document.getElementById("fe-exitPrice").value = "";
+  document.getElementById("fe-exitDate").value = new Date().toISOString().slice(0,10);
+  document.getElementById("fe-reason").value = "";
+  document.getElementById("fe-notes").value = "";
+  document.getElementById("fe-pnl-preview").innerHTML = `<span style="color:var(--text-secondary)">Enter exit price to see P&L</span>`;
+  document.getElementById("futures-exit-modal").style.display = "flex";
+}
+
+function closeFuturesExitModal() { document.getElementById("futures-exit-modal").style.display = "none"; _futuresExitId = null; }
+
+function updateFuturesExitCalc() {
+  const t = STATE.trades.find(x => x.id === _futuresExitId);
+  if (!t) return;
+  const exitPrice = parseFloat(document.getElementById("fe-exitPrice").value);
+  if (isNaN(exitPrice)) { document.getElementById("fe-pnl-preview").innerHTML = `<span style="color:var(--text-secondary)">Enter exit price to see P&L</span>`; return; }
+  const pnl = futuresPnl(t, exitPrice);
+  const points = (exitPrice - t.entryPrice) * (t.direction === "short" ? -1 : 1);
+  const color = pnl >= 0 ? "var(--positive)" : "var(--negative)";
+  document.getElementById("fe-pnl-preview").innerHTML =
+    `<span style="color:var(--text-secondary)">P&L:</span> <span style="color:${color};font-weight:700;font-size:16px">${pnl>=0?"+$":"-$"}${Math.abs(pnl).toFixed(0)}</span> ` +
+    `<span style="color:var(--text-secondary);font-size:11px">(${points>=0?"+":""}${points.toFixed(2)} pts)</span>`;
+}
+
+function saveFuturesExit() {
+  const t = STATE.trades.find(x => x.id === _futuresExitId);
+  if (!t) return;
+  const exitPrice = parseFloat(document.getElementById("fe-exitPrice").value);
+  if (isNaN(exitPrice)) { alert("Exit price required"); return; }
+  t.exitPrice = exitPrice;
+  t.exitDate = document.getElementById("fe-exitDate").value || new Date().toISOString().slice(0,10);
+  t.realizedPnl = futuresPnl(t, exitPrice);
+  t.status = "Closed";
+  t.exitReason = document.getElementById("fe-reason").value;
+  const notes = document.getElementById("fe-notes").value.trim();
+  if (notes) t.lessonLearned = notes;
+  save();
+  closeFuturesExitModal();
+  renderPositions();
+  renderSnapshot();
+  if (typeof renderKPIs === "function") renderKPIs();
+}
+
 function calcSpreadSLValue() {
   const pct = parseFloat(document.getElementById("tf-spreadSLPct").value);
   const premium = parseFloat(document.getElementById("tf-premium").value);
   const contracts = parseInt(document.getElementById("tf-contracts").value) || 1;
   const shortStrike = parseFloat(document.getElementById("tf-shortStrike").value) || 0;
   const longStrike = parseFloat(document.getElementById("tf-longStrike").value) || 0;
+  const ticker = document.getElementById("tf-ticker").value;
   if (!pct || !premium) return "";
-  const perSpread = premium / (100 * contracts);
+  const mult = getOptionMultiplier(ticker);
+  const perSpread = premium / (mult * contracts);
   const width = Math.abs(shortStrike - longStrike);
   // SL = entry + (premium per spread × pct / 100)
   // e.g. collected $3.10/share, 50% SL → lose $1.55 → close when spread is at $3.10 + $1.55 = $4.65
@@ -6502,8 +7526,10 @@ function calcSpreadTPValue() {
   const pct = parseFloat(document.getElementById("tf-spreadTPPct").value);
   const premium = parseFloat(document.getElementById("tf-premium").value);
   const contracts = parseInt(document.getElementById("tf-contracts").value) || 1;
+  const ticker = document.getElementById("tf-ticker").value;
   if (!pct || !premium) return "";
-  const perSpread = premium / (100 * contracts);
+  const mult = getOptionMultiplier(ticker);
+  const perSpread = premium / (mult * contracts);
   const tp = perSpread * (1 - pct / 100);
   return tp.toFixed(2);
 }
@@ -6522,7 +7548,7 @@ function runBrowserChecklist(trade) {
   const closed = STATE.trades.filter(t => t.status !== 'Open');
   const acct = STATE.accountBalance || 0;
   const width = Math.abs(trade.shortStrike - trade.longStrike);
-  const maxLoss = (width * 100 * trade.contracts) - trade.premiumCollected;
+  const maxLoss = (width * getOptionMultiplier(trade.ticker) * trade.contracts) - trade.premiumCollected;
   const rr = trade.premiumCollected > 0 ? maxLoss / trade.premiumCollected : 999;
 
   // 1. Max loss vs account
@@ -6548,21 +7574,22 @@ function runBrowserChecklist(trade) {
   if (rr > 3) flags.push({ severity:'warn', msg:`R:R ${rr.toFixed(1)}:1 — risking $${maxLoss.toFixed(0)} to make $${trade.premiumCollected}` });
   else checks.push(`R:R ${rr.toFixed(1)}:1`);
 
-  // 5. DTE
+  // 5. DTE — informational only (user trades 0DTE/1DTE as bread & butter; no warnings)
   const dte = trade.dteAtEntry || 0;
-  if (dte <= 1) flags.push({ severity:'info', msg:`0-1 DTE — aggressive expiry` });
-  else if (dte > 45) flags.push({ severity:'info', msg:`${dte} DTE — unusually long for credit spread` });
-  else checks.push(`${dte} DTE`);
+  checks.push(`${dte} DTE`);
 
   // 6. Position count
   if (open.length >= 5) flags.push({ severity:'warn', msg:`${open.length} open positions — adding another` });
   else checks.push(`${open.length} open positions`);
 
-  // 7. Total portfolio risk
+  // 7. Total portfolio risk — only sum option spreads (skip FX/Stock/Futures, which have different shapes)
   if (acct > 0) {
     const existingRisk = open.reduce((s,t) => {
-      const w = Math.abs((t.shortStrike||0)-(t.longStrike||0));
-      return s + (w * (t.contracts||1) * 100 - (t.premiumCollected||0));
+      // Skip non-option trades entirely; their max-loss isn't (width × contracts × $100)
+      if (t.assetClass === 'FX' || t.assetClass === 'Futures' || (t.tradeType||'').startsWith('Stock')) return s;
+      if (!t.shortStrike || !t.longStrike) return s;
+      const w = Math.abs(t.shortStrike - t.longStrike);
+      return s + (w * (t.contracts||1) * getOptionMultiplier(t.ticker) - (t.premiumCollected||0));
     }, 0);
     const totalRisk = existingRisk + maxLoss;
     const totalPct = (totalRisk / acct * 100);
@@ -6579,16 +7606,40 @@ function runBrowserChecklist(trade) {
     else checks.push(`${wr}% win rate on ${trade.ticker}`);
   }
 
-  // 9. Wide spread
-  if (width > 10) flags.push({ severity:'info', msg:`$${width} wide spread` });
+  // 9. Wide spread — flag only if $ width is unusually large for this underlying
+  // (10pt is huge for equity options; 50pt is normal for /NQ at $20/pt)
+  const widthDollars = width * getOptionMultiplier(trade.ticker);
+  if (widthDollars > 1000) flags.push({ severity:'info', msg:`$${widthDollars.toFixed(0)} wide spread (${width}pt × $${getOptionMultiplier(trade.ticker)})` });
 
-  return { flags, checks, maxLoss, rr, width };
+  // 10. Standing rules — these become rule violations recorded on the trade
+  const rules = STATE.standingRules || {};
+  const violations = [];
+  if (acct > 0 && rules.maxPositionPct) {
+    const pct = (maxLoss / acct * 100);
+    if (pct > rules.maxPositionPct) {
+      const msg = `Risk ${pct.toFixed(1)}% of account exceeds standing rule (${rules.maxPositionPct}%)`;
+      flags.push({ severity:'warn', msg: 'RULE: ' + msg });
+      violations.push(msg);
+    }
+  }
+  if (rules.requireStop && !trade.slPrice && !trade.spreadSL) {
+    const msg = 'Standing rule requires a stop (Support price or Spread SL)';
+    flags.push({ severity:'warn', msg: 'RULE: ' + msg });
+    violations.push(msg);
+  }
+  if (rules.requireSourceForFollow && trade.entryMode === 'follow' && !trade.source) {
+    const msg = 'Follow trade is missing a source';
+    flags.push({ severity:'warn', msg: 'RULE: ' + msg });
+    violations.push(msg);
+  }
+
+  return { flags, checks, maxLoss, rr, width, violations };
 }
 
 function showChecklist(ticker, trade, result) {
   const { flags, checks, maxLoss } = result;
   const width = Math.abs(trade.shortStrike - trade.longStrike);
-  const perSpread = (trade.premiumCollected / (100 * trade.contracts)).toFixed(2);
+  const perSpread = (trade.premiumCollected / (getOptionMultiplier(trade.ticker) * trade.contracts)).toFixed(2);
 
   document.getElementById('checklist-title').textContent = 'PRE-TRADE CHECKLIST — ' + ticker;
   document.getElementById('checklist-summary').innerHTML =
@@ -6676,6 +7727,18 @@ function saveTrade() {
     } : {}),
     thesis: document.getElementById("tf-thesis").value,
     exitThesis: document.getElementById("tf-exitThesis").value,
+    ...(()=>{
+      const mode = document.getElementById("trade-modal").dataset.entryMode || "dd";
+      if (mode !== "follow") return { entryMode: "dd", source: "", sourcePostUrl: "", sourceThesis: "" };
+      let src = (document.getElementById("tf-source")?.value || "").trim();
+      if (src === "__add__") src = "";
+      return {
+        entryMode: "follow",
+        source: src,
+        sourcePostUrl: document.getElementById("tf-sourceUrl")?.value.trim() || "",
+        sourceThesis: document.getElementById("tf-sourceThesis")?.value.trim() || "",
+      };
+    })(),
     chartLink: pendingChartDataUrl === "CLEARED" ? '' : (pendingChartDataUrl || (editingTradeId ? (STATE.trades.find(t=>t.id===editingTradeId)||{}).chartLink||'' : '')),
   };
 
@@ -6684,6 +7747,7 @@ function saveTrade() {
     const entryD = new Date(newTrade.entryDate), expiryD = new Date(newTrade.expiry);
     newTrade.dteAtEntry = Math.ceil((expiryD - entryD) / 86400000);
     const result = runBrowserChecklist(newTrade);
+    newTrade.ruleViolations = result.violations || [];
     if (result.flags.length > 0) {
       _pendingSaveTrade = newTrade;
       showChecklist(ticker, newTrade, result);
@@ -6708,6 +7772,8 @@ function _doSaveTrade(newTrade) {
     newTrade.strategyType = prev.strategyType; newTrade.sentiment = prev.sentiment; newTrade.earningsFlag = prev.earningsFlag;
     newTrade.mae = prev.mae; newTrade.mfe = prev.mfe; newTrade.deltaClose = prev.deltaClose;
     newTrade.exitChartLink = prev.exitChartLink || '';
+    // Preserve standing-rule violations recorded at entry time
+    newTrade.ruleViolations = prev.ruleViolations || [];
     // Preserve existing chartLink unless a new one was selected or cleared
     if (!pendingChartDataUrl && prev.chartLink) newTrade.chartLink = prev.chartLink;
     if (pendingChartDataUrl === "CLEARED") newTrade.chartLink = '';
@@ -7015,10 +8081,21 @@ function openSettings() {
   document.getElementById("s-strikeprox").value = STATE.alertStrikeProx||5;
   document.getElementById("s-ibkr-token").value = STATE.ibkrToken||"";
   document.getElementById("s-ibkr-query").value = STATE.ibkrQueryId||"";
+  document.getElementById("s-autosync-enabled").checked = STATE.autoSyncEnabled !== false && !!(STATE.ibkrToken && STATE.ibkrQueryId);
+  document.getElementById("s-autosync-interval").value = STATE.autoSyncIntervalMin || 15;
+  _renderAutoSyncStatus();
   document.getElementById("s-autoexit-enabled").checked = STATE.autoExitEnabled||false;
   document.getElementById("s-autoexit-paper").checked = STATE.autoExitPaper!==false;
   document.getElementById("s-autoexit-gateway").value = STATE.autoExitGateway||"";
   document.getElementById("s-autoexit-auth").value = STATE.autoExitAuthToken||"";
+  // Standing rules
+  const sr = STATE.standingRules || {};
+  document.getElementById("s-rule-maxpos").value = sr.maxPositionPct ?? 5;
+  document.getElementById("s-rule-maxloss").value = sr.maxTradeLossPct ?? 2;
+  document.getElementById("s-rule-spreadsl").value = sr.defaultSpreadSLPct ?? 100;
+  document.getElementById("s-rule-requirestop").checked = sr.requireStop !== false;
+  document.getElementById("s-rule-requiresrc").checked = sr.requireSourceForFollow !== false;
+  renderFollowSourcesList();
   // Show auto-exit log
   const logEl = document.getElementById("autoexit-log");
   const log = (STATE.autoExitLog||[]).slice(-5).reverse();
@@ -7039,11 +8116,57 @@ function saveSettings() {
   STATE.alertStrikeProx = parseFloat(document.getElementById("s-strikeprox").value)||5;
   STATE.ibkrToken = document.getElementById("s-ibkr-token").value.trim();
   STATE.ibkrQueryId = document.getElementById("s-ibkr-query").value.trim();
+  STATE.autoSyncEnabled = document.getElementById("s-autosync-enabled").checked;
+  STATE.autoSyncIntervalMin = Math.max(5, parseInt(document.getElementById("s-autosync-interval").value) || 15);
   STATE.autoExitEnabled = document.getElementById("s-autoexit-enabled").checked;
   STATE.autoExitPaper = document.getElementById("s-autoexit-paper").checked;
   STATE.autoExitGateway = document.getElementById("s-autoexit-gateway").value.trim();
   STATE.autoExitAuthToken = document.getElementById("s-autoexit-auth").value.trim();
+  STATE.standingRules = {
+    maxPositionPct: parseFloat(document.getElementById("s-rule-maxpos").value) || 5,
+    maxTradeLossPct: parseFloat(document.getElementById("s-rule-maxloss").value) || 2,
+    defaultSpreadSLPct: parseFloat(document.getElementById("s-rule-spreadsl").value) || 100,
+    requireStop: document.getElementById("s-rule-requirestop").checked,
+    requireSourceForFollow: document.getElementById("s-rule-requiresrc").checked,
+  };
   save(); closeSettings(); renderKPIs();
+  startAutoSync(); // apply new auto-sync on/off + interval immediately
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function renderFollowSourcesList() {
+  const el = document.getElementById("s-sources-list");
+  if (!el) return;
+  const list = STATE.followSources || [];
+  if (!list.length) { el.innerHTML = `<div style="font-size:10px;color:${C.textMut};padding:6px 0">No sources yet — add the people you copy trades from.</div>`; return; }
+  el.innerHTML = list.map((s,i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:${C.bg};border:1px solid ${C.borderVis};border-radius:3px;margin-bottom:4px;font-size:11px">
+    <span style="color:${C.text};font-weight:500;flex:1">${escapeHtml(s.name)}</span>
+    ${s.url?`<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener" style="color:${C.accent};font-size:10px;text-decoration:none">↗ link</a>`:""}
+    <button class="btn btn-g" style="padding:3px 8px;font-size:9px;color:${C.neg};border-color:${C.negDim}" onclick="removeFollowSource(${i})">×</button>
+  </div>`).join("");
+}
+
+function addFollowSource() {
+  const name = document.getElementById("s-source-name").value.trim();
+  const url = document.getElementById("s-source-url").value.trim();
+  if (!name) { alert("Name is required"); return; }
+  STATE.followSources = STATE.followSources || [];
+  if (STATE.followSources.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+    alert("That source already exists"); return;
+  }
+  STATE.followSources.push({ name, url, addedAt: new Date().toISOString().slice(0,10) });
+  document.getElementById("s-source-name").value = "";
+  document.getElementById("s-source-url").value = "";
+  save(); renderFollowSourcesList();
+}
+
+function removeFollowSource(i) {
+  if (!confirm("Remove this source? Existing trades that reference it will keep the name.")) return;
+  STATE.followSources.splice(i, 1);
+  save(); renderFollowSourcesList();
 }
 async function testTelegram() {
   const bot = document.getElementById("s-tgbot").value.trim();
@@ -7430,14 +8553,14 @@ function parseFlexCSVTrades(csvText) {
   return optionTrades;
 }
 
-async function syncIBKR() {
+async function syncIBKR(quiet = false) {
   // Always prefer current input value — user may have updated token without saving
   const tokenField = document.getElementById("s-ibkr-token");
   const queryField = document.getElementById("s-ibkr-query");
   const token = (tokenField && tokenField.value.trim()) || STATE.ibkrToken;
   const queryId = (queryField && queryField.value.trim()) || STATE.ibkrQueryId;
   if (!token || !queryId) {
-    alert("Enter your IBKR Flex Query token and Query ID in Settings first.\n\nTo set up:\n1. Log into IBKR Account Management\n2. Go to Reports → Flex Queries\n3. Create an Activity Flex Query for Trades\n4. Copy the Token and Query ID here");
+    if (!quiet) alert("Enter your IBKR Flex Query token and Query ID in Settings first.\n\nTo set up:\n1. Log into IBKR Account Management\n2. Go to Reports → Flex Queries\n3. Create an Activity Flex Query for Trades\n4. Copy the Token and Query ID here");
     return;
   }
   // Auto-save to state so it persists
@@ -7445,9 +8568,11 @@ async function syncIBKR() {
     STATE.ibkrToken = token; STATE.ibkrQueryId = queryId; save();
   }
 
-  // Auto-open debug panel during sync
-  const dbgPanel = document.getElementById("debug-panel");
-  if (dbgPanel) { dbgPanel.style.display = "block"; }
+  // Auto-open debug panel during sync (skip for quiet/background syncs)
+  if (!quiet) {
+    const dbgPanel = document.getElementById("debug-panel");
+    if (dbgPanel) { dbgPanel.style.display = "block"; }
+  }
   showSyncStatus("Requesting Flex Query from IBKR...", "info");
 
   try {
@@ -7795,6 +8920,80 @@ async function quickSync() {
   btns.forEach(b => { b.textContent = b.dataset.origText || "⚡ SYNC"; b.disabled = false; });
 }
 
+// ── IBKR Auto-Sync (background Flex Query) ──────────────────────────────────
+// Fires on app load + on a timer. Quiet: no popups, auto-imports new fills.
+// IBKR rate-limits Flex requests, so the interval floor is 5 min (default 15).
+let _autoSyncTimer = null;
+let _autoSyncRunning = false;
+
+function _autoSyncStatusText() {
+  if (!STATE.lastAutoSync) return "";
+  const d = new Date(STATE.lastAutoSync);
+  return "synced " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// Update the little status line next to the SYNC buttons (if present)
+function _renderAutoSyncStatus(msg) {
+  document.querySelectorAll(".autosync-status").forEach(el => {
+    el.textContent = msg != null ? msg : _autoSyncStatusText();
+  });
+}
+
+async function autoSyncIBKR() {
+  if (_autoSyncRunning) return;                                  // no overlap
+  if (STATE.autoSyncEnabled === false) return;                  // user turned it off
+  if (!STATE.ibkrToken || !STATE.ibkrQueryId) return;           // no creds
+  if (document.hidden) return;                                  // don't burn rate limit on a hidden tab
+  _autoSyncRunning = true;
+  _renderAutoSyncStatus("syncing…");
+  try {
+    await syncIBKR(true); // quiet
+    const pending = (window._ibkrPending || []).length;
+    if (pending) {
+      const { added, closed } = _mergeIBKRPending();
+      if (added || closed) {
+        STATE.lastAutoSync = new Date().toISOString();
+        save();
+        renderAll();
+        if (typeof dbg === "function") dbg(`Auto-sync: +${added} new, ${closed} closed from IBKR`, "success");
+      }
+    } else {
+      STATE.lastAutoSync = new Date().toISOString();
+      // light save so the timestamp persists, but skip a full re-render when nothing changed
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch (e) {}
+    }
+    _renderAutoSyncStatus();
+  } catch (e) {
+    if (typeof dbg === "function") dbg("Auto-sync failed: " + (e?.message || e), "warn");
+    _renderAutoSyncStatus("sync error");
+  } finally {
+    _autoSyncRunning = false;
+  }
+}
+
+function startAutoSync() {
+  if (_autoSyncTimer) clearInterval(_autoSyncTimer);
+  if (STATE.autoSyncEnabled === false) { _renderAutoSyncStatus("auto-sync off"); return; }
+  if (!STATE.ibkrToken || !STATE.ibkrQueryId) { _renderAutoSyncStatus(""); return; }
+  const mins = Math.max(5, STATE.autoSyncIntervalMin || 15); // floor at 5 min for IBKR rate limits
+  // First run shortly after load so the page settles, then on the interval
+  setTimeout(autoSyncIBKR, 4000);
+  _autoSyncTimer = setInterval(autoSyncIBKR, mins * 60 * 1000);
+  // Re-sync when the tab regains focus if it's been a while
+  if (!window._autoSyncVisWired) {
+    window._autoSyncVisWired = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) return;
+      const last = STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0;
+      if (Date.now() - last > (mins * 60 * 1000)) autoSyncIBKR();
+    });
+  }
+}
+
+function stopAutoSync() {
+  if (_autoSyncTimer) { clearInterval(_autoSyncTimer); _autoSyncTimer = null; }
+}
+
 // ── IBKR CSV Import ─────────────────────────────────────────────────────────
 function parseCSVLine(line) {
   const fields = []; let cur = ""; let inQuote = false;
@@ -7895,8 +9094,9 @@ function pairIntoSpreads(optionTrades) {
     const isPut = shortLeg.side === "P";
     const shortStrike = shortLeg.strike;
     const longStrike = longLeg.strike;
-    // Premium = net credit received (short price - long price) × contracts × 100
-    const premium = Math.round(Math.abs(shortLeg.price - longLeg.price) * contracts * 100);
+    // Premium = net credit received (short price - long price) × contracts × multiplier
+    // (multiplier is 100 for equity options, 50 for /ES, 20 for /NQ, etc.)
+    const premium = Math.round(Math.abs(shortLeg.price - longLeg.price) * contracts * getOptionMultiplier(shortLeg.ticker));
     const entryDate = shortLeg.dateOnly;
 
     // Determine trade type
@@ -8031,11 +9231,12 @@ function handleIBKRImport(input) {
   input.value = "";
 }
 
-function confirmIBKRImport() {
+// Shared merge: applies window._ibkrPending into STATE.trades (append-only for new,
+// status/exit update for matched opens). Returns {added, closed}. No UI side effects.
+function _mergeIBKRPending() {
   const newSpreads = window._ibkrPending;
-  if (!newSpreads || !newSpreads.length) return;
-
-  // Check for closed trades that update existing open ones
+  if (!newSpreads || !newSpreads.length) return { added: 0, closed: 0 };
+  let added = 0, closed = 0;
   for (const ns of newSpreads) {
     const existing = STATE.trades.find(t =>
       t.ticker === ns.ticker && t.expiry === ns.expiry &&
@@ -8046,22 +9247,33 @@ function confirmIBKRImport() {
       existing.status = "Closed";
       existing.exitDate = ns.exitDate;
       existing.realizedPnl = ns.realizedPnl;
+      closed++;
       continue;
     }
     ns.id = STATE.nextId++;
     STATE.trades.push(ns);
+    added++;
   }
+  window._ibkrPending = null;
+  return { added, closed };
+}
 
+function confirmIBKRImport() {
+  const newSpreads = window._ibkrPending;
+  if (!newSpreads || !newSpreads.length) return;
+  const { added, closed } = _mergeIBKRPending();
   save();
   document.getElementById("ibkr-preview").style.display = "none";
-  window._ibkrPending = null;
   closeSettings();
   renderAll();
-  alert("✅ Imported " + newSpreads.length + " trades!");
+  alert("✅ Imported " + (added + closed) + " trades!");
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-(async () => {
+let _appBooted = false;
+async function bootApp() {
+  if (_appBooted) return;
+  _appBooted = true;
   await load();
   // One-time migration: switch to koyfin theme
   if (STATE.theme === 'original') { STATE.theme = 'koyfin'; save(); }
@@ -8071,7 +9283,7 @@ function confirmIBKRImport() {
     (STATE.trades||[]).forEach(t => {
       if (t.status !== 'Open' || !t.premiumCollected || !t.shortStrike || !t.longStrike || !t.contracts) return;
       const width = Math.abs(t.shortStrike - t.longStrike);
-      const perSpread = t.premiumCollected / (100 * t.contracts);
+      const perSpread = t.premiumCollected / (getOptionMultiplier(t.ticker) * t.contracts);
       const maxLossPerSpread = width - perSpread;
       if (maxLossPerSpread <= 0) return;
       // Recalc SL: 75% of max risk
@@ -8116,7 +9328,7 @@ function confirmIBKRImport() {
     (STATE.trades||[]).forEach(t => {
       if (t.status !== 'Open' || !t.premiumCollected || !t.shortStrike || !t.longStrike || !t.contracts) return;
       const width = Math.abs(t.shortStrike - t.longStrike);
-      const perSpread = t.premiumCollected / (100 * t.contracts);
+      const perSpread = t.premiumCollected / (getOptionMultiplier(t.ticker) * t.contracts);
       if (perSpread <= 0) return;
       const slPct = parseFloat(t.spreadSLPct) || 50;
       const sl = Math.min(perSpread + (perSpread * slPct / 100), width);
@@ -8134,9 +9346,65 @@ function confirmIBKRImport() {
     if (STATE.theme !== 'original') document.documentElement.dataset.theme = STATE.theme;
   }
   renderAll();
-  _showChartPanel(false); // Markets tab is default, hide chart panel
+  _showChartPanel(false);
   refreshAll();
   pollTimer = setInterval(refreshAll, POLL_INTERVAL);
+  // Default auto-sync ON once Flex creds exist (user can toggle in Settings)
+  if (STATE.autoSyncEnabled === undefined && STATE.ibkrToken && STATE.ibkrQueryId) {
+    STATE.autoSyncEnabled = true;
+  }
+  startAutoSync();
+}
+
+// ── Auth gate ───────────────────────────────────────────────────────────────
+function _showLoginGate(show) {
+  const g = document.getElementById("login-gate");
+  if (g) g.style.display = show ? "flex" : "none";
+  // hide the whole app shell behind the gate
+  const layout = document.getElementById("app-layout");
+  const topbar = document.getElementById("topbar");
+  const nav = document.getElementById("bottom-nav");
+  [layout, topbar, nav].forEach(el => { if (el) el.style.visibility = show ? "hidden" : ""; });
+}
+
+async function doLogin() {
+  const email = document.getElementById("login-email").value.trim();
+  const pw = document.getElementById("login-password").value;
+  const errEl = document.getElementById("login-error");
+  const btn = document.getElementById("login-btn");
+  errEl.textContent = "";
+  if (!email || !pw) { errEl.textContent = "Enter email and password."; return; }
+  btn.disabled = true; btn.textContent = "Signing in…";
+  try {
+    const { error } = await _sbClient().auth.signInWithPassword({ email, password: pw });
+    if (error) throw error;
+    _showLoginGate(false);
+    await bootApp();
+  } catch (e) {
+    errEl.textContent = e?.message || "Sign-in failed.";
+    btn.disabled = false; btn.textContent = "Sign In";
+  }
+}
+
+async function doLogout() {
+  try { await _sbClient().auth.signOut(); } catch (e) {}
+  location.reload();
+}
+
+// Entry point: check for an existing session, gate the app behind login.
+(async () => {
+  const c = _sbClient();
+  if (!c) { // supabase-js failed to load — fall back to old behavior so the app isn't bricked
+    await bootApp();
+    return;
+  }
+  const { data } = await c.auth.getSession();
+  if (data?.session) {
+    _showLoginGate(false);
+    await bootApp();
+  } else {
+    _showLoginGate(true);
+  }
 })();
 
 // Markets tab load is deferred to after mkt* functions are declared (see bottom of file)
@@ -9861,6 +11129,26 @@ function _renderAiResults(r) {
     return '<div style="margin-top:10px;padding:10px;border:1px solid var(--negative);border-radius:4px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--negative)">' + r.error + '</div>';
   }
 
+  // Detect when the scan returned nothing useful — the backend AI hallucinates a
+  // "technical error" narrative in r.explanation when this happens, so we suppress it
+  // and show a clear "not supported" message instead.
+  var noResults = false, backendErr = null;
+  if (Array.isArray(r.results)) {
+    if (r.results.length === 0) noResults = true;
+    else if (r.results.every(function(x){ return x && (x.error || (x.sample_size === 0)); })) {
+      noResults = true;
+      backendErr = (r.results.find(function(x){ return x && x.error; }) || {}).error || null;
+    }
+  } else if (r.results && typeof r.results === "object") {
+    if (r.results.error) { noResults = true; backendErr = r.results.error; }
+    else if (r.results.sample_size === 0) noResults = true;
+  } else if (r.results == null) {
+    noResults = true;
+  }
+
+  // Detect the most common cause: AI couldn't pin down a primary trigger ticker
+  var missingTrigger = r.scan_params && (r.scan_params.primary_ticker == null || r.scan_params.primary_ticker === "");
+
   var html = "";
 
   // Interpretation
@@ -9878,12 +11166,37 @@ function _renderAiResults(r) {
       ? "Universe: " + ((p.target_tickers && p.target_tickers.length) || 0) + " tickers"
       : "Target: " + (p.target_ticker || p.primary_ticker);
     html += '<div style="margin-top:6px;font-size:10px;color:var(--text-muted);font-family:\'IBM Plex Mono\',monospace">' +
-      'Signal: ' + p.primary_ticker + ' | Conditions: ' + condStr + ' | ' + targetInfo +
+      'Signal: ' + (p.primary_ticker || 'null') + ' | Conditions: ' + condStr + ' | ' + targetInfo +
     '</div>';
   }
 
-  // AI Explanation
-  if (r.explanation) {
+  if (noResults) {
+    // Suppress the AI's hallucinated "technical error" narrative — show real diagnosis instead.
+    html += '<div style="margin-top:10px;padding:14px;background:var(--bg-surface);border:1px solid var(--warning);border-radius:4px">' +
+      '<div style="font-size:9px;color:var(--warning);font-family:\'IBM Plex Mono\',monospace;letter-spacing:0.02em;margin-bottom:8px">⚠ NO RESULTS</div>' +
+      '<div style="font-size:12px;color:var(--text-primary);line-height:1.6;margin-bottom:10px">';
+    if (missingTrigger) {
+      html += '<b>Your question doesn\'t have an event trigger.</b> The scanner can only backtest patterns of the form "after <i>X happens</i>, what does <i>Y</i> do?" — so it needs a specific trigger ticker or condition.';
+    } else {
+      html += 'The scan ran but found no matching signals across the universe.';
+    }
+    html += '</div>';
+    if (missingTrigger) {
+      html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;font-family:\'IBM Plex Mono\',monospace;letter-spacing:0.02em">TRY REPHRASING AS:</div>' +
+        '<ul style="font-size:11px;color:var(--text-secondary);margin:0 0 8px 18px;line-height:1.7">' +
+          '<li>"What happens to SPY after 3 consecutive down days?"</li>' +
+          '<li>"Which stocks rise the week after a Fed rate cut?"</li>' +
+          '<li>"Gold performance when VIX is above 30"</li>' +
+          '<li>"NVDA returns after a +5% gap up"</li>' +
+        '</ul>' +
+        '<div style="font-size:10px;color:var(--text-muted);font-family:\'IBM Plex Mono\',monospace;margin-top:8px">Pure seasonality questions ("how does X do from Apr 26 to May 3?") aren\'t supported yet — would need a date-range scan type added to the backend.</div>';
+    }
+    if (backendErr) {
+      html += '<div style="margin-top:8px;font-size:10px;color:var(--text-muted);font-family:\'IBM Plex Mono\',monospace">backend: ' + backendErr + '</div>';
+    }
+    html += '</div>';
+  } else if (r.explanation) {
+    // Only show AI Explanation when there are real results to explain
     html += '<div style="margin-top:10px;padding:12px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:4px">' +
       '<div style="font-size:9px;color:var(--accent);font-family:\'IBM Plex Mono\',monospace;letter-spacing:0.02em;margin-bottom:6px">AI ANALYSIS</div>' +
       '<div style="font-size:12px;color:var(--text-primary);line-height:1.6;white-space:pre-wrap">' + r.explanation + '</div>' +
@@ -9891,10 +11204,12 @@ function _renderAiResults(r) {
   }
 
   // Results
-  if (r.scan_type === "universe" && Array.isArray(r.results)) {
-    html += _renderUniverseAiResults(r.results);
-  } else if (r.results && typeof r.results === "object") {
-    html += '<div style="margin-top:10px">' + _renderScanResults(r.results) + '</div>';
+  if (!noResults) {
+    if (r.scan_type === "universe" && Array.isArray(r.results)) {
+      html += _renderUniverseAiResults(r.results);
+    } else if (r.results && typeof r.results === "object") {
+      html += '<div style="margin-top:10px">' + _renderScanResults(r.results) + '</div>';
+    }
   }
 
   return html;
@@ -9995,12 +11310,6 @@ function _renderHistogram(values, title) {
 // MARKETS TAB
 // ══════════════════════════════════════════════════════════════════════════════
 
-let _mktsData = null;
-let _mktsLoaded = false;
-
-
-
-
 // ══════════════════════════════════════════════════════════════════════════════
 // MARKETS TAB — Dedicated rendering from markets.html
 // Uses /mkt/api/* endpoints for market data, positions, watchlist, calendar
@@ -10008,9 +11317,7 @@ let _mktsLoaded = false;
 
 const MKT_API = '/mkt/api';
 const MKT_QUOTE_API = '/api/quote';
-const MKT_REFRESH_INTERVAL = 60000;
 
-let _marketData = null;
 let _mktPositions = [];
 let _mktCalendar = [];
 let _mktWatchlist = { tickers: [], targets: {}, notes: {}, srLevels: {}, sectors: {} };
@@ -10048,62 +11355,6 @@ async function mktMdaFetch(path, retries=2) {
   }
 }
 
-
-// ── Market Data Table ───────────────────────────────────────────────────────
-function mktRenderQuoteTable(items, containerId) {
-  const el = mkt$(containerId);
-  if (!el) return;
-  if (!items || !items.length) { el.innerHTML = '<div class="empty">No data</div>'; return; }
-  let html = `<table class="data-table"><thead><tr>
-    <th>Name</th><th>Ticker</th><th class="r">Price</th><th class="r">Change</th><th class="r">% Change</th>
-  </tr></thead><tbody>`;
-  for (const q of items) {
-    const c = mktCls(q.changePct);
-    html += `<tr>
-      <td class="name">${q.name}</td><td class="ticker">${q.ticker}</td>
-      <td class="r price">${mktFmt(q.price, q.price > 100 ? 2 : 4)}</td>
-      <td class="r ${c}">${mktFmtChg(q.change)}</td>
-      <td class="r"><span class="change-pill ${mktPillCls(q.changePct)}">${mktFmtPct(q.changePct)}</span></td>
-    </tr>`;
-  }
-  html += '</tbody></table>';
-  el.innerHTML = html;
-}
-
-function mktRenderYields(yields) {
-  const el = mkt$('yields-body');
-  if (!el) return;
-  if (!yields || !yields.length) { el.innerHTML = '<div class="empty">No yield data</div>'; return; }
-  const mats = ['3M','1Y','5Y','10Y','30Y'];
-  let html = `<table class="data-table yield-table"><thead><tr><th>Country</th>`;
-  for (const m of mats) html += `<th class="r">${m}</th>`;
-  html += '</tr></thead><tbody>';
-  for (const y of yields) {
-    html += `<tr><td><div class="country-cell"><span class="flag">${y.flag||''}</span><span>${y.country}</span></div></td>`;
-    for (const m of mats) html += `<td class="r">${y[m] || '—'}</td>`;
-    html += '</tr>';
-  }
-  html += '</tbody></table>';
-  el.innerHTML = html;
-}
-
-function mktRenderSectors(sectors) {
-  const el = mkt$('sectors-body');
-  if (!el) return;
-  if (!sectors || !sectors.length) { el.innerHTML = '<div class="empty">No sector data</div>'; return; }
-  const sorted = [...sectors].sort((a,b) => b.changePct - a.changePct);
-  let html = `<table class="data-table"><thead><tr>
-    <th>Sector</th><th>ETF</th><th class="r">Price</th><th class="r">Change</th><th class="r">% Change</th>
-  </tr></thead><tbody>`;
-  for (const s of sorted) {
-    const c = mktCls(s.changePct);
-    html += `<tr><td class="name">${s.name}</td><td class="ticker">${s.ticker}</td>
-      <td class="r price">${mktFmt(s.price)}</td><td class="r ${c}">${mktFmtChg(s.change)}</td>
-      <td class="r"><span class="change-pill ${mktPillCls(s.changePct)}">${mktFmtPct(s.changePct)}</span></td></tr>`;
-  }
-  html += '</tbody></table>';
-  el.innerHTML = html;
-}
 
 // Economic calendar now powered by TradingView embed widget (no API calls needed)
 
@@ -10185,9 +11436,10 @@ function mktIntrinsicSpreadValue(trade, stockPrice) {
 function mktLiveUnrealizedPnl(trade, stockPrice) {
   if ((trade.tradeType||'').startsWith('Stock')) { if (!stockPrice || !trade.shortStrike) return null; const shares = trade.contracts || 0; if (trade.tradeType === 'Stock Long') return (stockPrice - trade.shortStrike) * shares; if (trade.tradeType === 'Stock Short') return (trade.shortStrike - stockPrice) * shares; return null; }
   const premium = trade.premiumCollected || 0; const contracts = trade.contracts || 1;
+  const mult = getOptionMultiplier(trade.ticker);
   const spread = _posSpreads[trade.id];
-  if (spread?.mid != null && spread._fetchedAt && (Date.now() - spread._fetchedAt) < 30*60*1000) return premium - (spread.mid * 100 * contracts);
-  const itm = mktIntrinsicSpreadValue(trade, stockPrice); if (itm === null) return null; return premium - (itm * 100 * contracts);
+  if (spread?.mid != null && spread._fetchedAt && (Date.now() - spread._fetchedAt) < 30*60*1000) return premium - (spread.mid * mult * contracts);
+  const itm = mktIntrinsicSpreadValue(trade, stockPrice); if (itm === null) return null; return premium - (itm * mult * contracts);
 }
 
 function mktPnlSource(trade) {
@@ -10376,150 +11628,7 @@ function mktRenderWatchlist() {
   el.innerHTML = html;
 }
 
-// ── Market overview symbol map (Yahoo tickers) ──────────────────────────────
-const _MKT_SYMBOLS = {
-  indices: [
-    {y: "^GSPC",  ticker: "SPX",  name: "S&P 500"},
-    {y: "^DJI",   ticker: "INDU", name: "Dow Jones"},
-    {y: "^IXIC",  ticker: "NDX",  name: "Nasdaq"},
-    {y: "^RUT",   ticker: "RTY",  name: "Russell 2000"},
-    {y: "^VIX",   ticker: "VIX",  name: "CBOE VIX"},
-  ],
-  sectors: [
-    {y: "XLU",  ticker: "XLU",  name: "Utilities"},
-    {y: "XLP",  ticker: "XLP",  name: "Cons. Staples"},
-    {y: "XLE",  ticker: "XLE",  name: "Energy"},
-    {y: "XLRE", ticker: "XLRE", name: "Real Estate"},
-    {y: "XLF",  ticker: "XLF",  name: "Financials"},
-    {y: "XLV",  ticker: "XLV",  name: "Health Care"},
-    {y: "XLI",  ticker: "XLI",  name: "Industrials"},
-    {y: "XLY",  ticker: "XLY",  name: "Cons. Discretionary"},
-    {y: "XLC",  ticker: "XLC",  name: "Communications"},
-    {y: "XLK",  ticker: "XLK",  name: "Technology"},
-    {y: "XLB",  ticker: "XLB",  name: "Materials"},
-  ],
-  globalBroad: [
-    {y: "^GSPC", ticker: "SPX",   name: "S&P 500"},
-    {y: "ACWI",  ticker: "ACWI",  name: "MSCI World"},
-    {y: "EEM",   ticker: "EEM",   name: "Emerging Mkts ETF"},
-  ],
-  globalDeveloped: [
-    {y: "^N225",  ticker: "NI225", name: "Nikkei 225"},
-    {y: "^HSI",   ticker: "HSI",   name: "Hang Seng"},
-    {y: "^FTSE",  ticker: "FTSE",  name: "FTSE 100"},
-    {y: "^GDAXI", ticker: "DAX",   name: "DAX"},
-    {y: "^AXJO",  ticker: "ASX",   name: "ASX 200"},
-    {y: "^FCHI",  ticker: "CAC",   name: "CAC 40"},
-  ],
-  globalEmerging: [
-    {y: "^KS11",   ticker: "KOSPI",  name: "KOSPI"},
-    {y: "000001.SS", ticker: "SHCOMP", name: "Shanghai Composite"},
-    {y: "^BSESN",  ticker: "SENSEX", name: "BSE Sensex"},
-    {y: "^BVSP",   ticker: "IBOV",   name: "Bovespa"},
-    {y: "^MXX",    ticker: "IPC",    name: "IPC Mexico"},
-    {y: "^TWII",   ticker: "TWSE",   name: "Taiwan Weighted"},
-  ],
-  currencies: [
-    {y: "USDJPY=X", ticker: "USDJPY", name: "Japanese Yen"},
-    {y: "EURUSD=X", ticker: "EURUSD", name: "Euro"},
-    {y: "GBPUSD=X", ticker: "GBPUSD", name: "British Pound"},
-    {y: "USDCAD=X", ticker: "USDCAD", name: "Canadian Dollar"},
-  ],
-  crypto: [
-    {y: "BTC-USD", ticker: "BTCUSD", name: "Bitcoin"},
-  ],
-  commodities: [
-    {y: "GLD",  ticker: "XAUUSD", name: "Gold"},
-    {y: "USO",  ticker: "CL1",    name: "Crude Oil"},
-    {y: "BNO",  ticker: "CO1",    name: "Brent Crude"},
-    {y: "UNG",  ticker: "NG1",    name: "Natural Gas"},
-  ],
-};
-
-async function _mktYahooSection(symbols) {
-  const yTickers = symbols.map(s => s.y);
-  try {
-    const r = await fetch(MKT_QUOTE_API + '?symbols=' + yTickers.join(','));
-    if (!r.ok) return symbols.map(s => ({name: s.name, ticker: s.ticker, price: 0, change: 0, changePct: 0}));
-    const d = await r.json();
-    if (d.s !== 'ok') throw new Error('Bad response');
-    return symbols.map(s => {
-      const q = d.quotes[s.y];
-      return {
-        name: s.name,
-        ticker: s.ticker,
-        price: q ? q.price : 0,
-        change: q ? q.change : 0,
-        changePct: q ? q.changePct : 0,
-      };
-    });
-  } catch(e) {
-    console.warn('Yahoo section error:', e);
-    return symbols.map(s => ({name: s.name, ticker: s.ticker, price: 0, change: 0, changePct: 0}));
-  }
-}
-
-async function _mktYahooYields() {
-  // US yields from Yahoo (real-time) + international from server (EOD)
-  const usSym = [
-    {y: "^IRX", mat: "3M"},
-    {y: "^FVX", mat: "5Y"},
-    {y: "^TNX", mat: "10Y"},
-    {y: "^TYX", mat: "30Y"},
-  ];
-  try {
-    const [yahooR, serverR] = await Promise.all([
-      fetch(MKT_QUOTE_API + '?symbols=' + usSym.map(s=>s.y).join(',')),
-      fetch(MKT_API + '/market-overview').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]);
-    const rows = [];
-    // US row from Yahoo
-    if (yahooR.ok) {
-      const d = await yahooR.json();
-      if (d.s === 'ok') {
-        const row = {country: "United States", flag: "🇺🇸"};
-        for (const s of usSym) { const q = d.quotes[s.y]; row[s.mat] = q ? q.price.toFixed(3) + '%' : '—'; }
-        rows.push(row);
-      }
-    }
-    // International rows from server (EODHD EOD)
-    if (serverR?.yields) {
-      for (const y of serverR.yields) {
-        if (y.country !== 'United States') rows.push(y);
-      }
-    }
-    return rows;
-  } catch { return []; }
-}
-
-// ── Data Loading (Markets tab) ──────────────────────────────────────────────
-async function mktLoadMarketData() {
-  try {
-    // Fetch all sections in parallel via Yahoo (real-time)
-    const [indices, sectors, globalBroad, globalDeveloped, globalEmerging, currencies, commodities, yields] = await Promise.all([
-      _mktYahooSection([..._MKT_SYMBOLS.indices]),
-      _mktYahooSection(_MKT_SYMBOLS.sectors),
-      _mktYahooSection(_MKT_SYMBOLS.globalBroad),
-      _mktYahooSection(_MKT_SYMBOLS.globalDeveloped),
-      _mktYahooSection(_MKT_SYMBOLS.globalEmerging),
-      _mktYahooSection([..._MKT_SYMBOLS.currencies, ..._MKT_SYMBOLS.crypto]),
-      _mktYahooSection(_MKT_SYMBOLS.commodities),
-      _mktYahooYields(),
-    ]);
-    _marketData = {indices, sectors, globalBroad, globalDeveloped, globalEmerging, currencies, commodities, yields, ts: Math.floor(Date.now()/1000)};
-    mktRenderQuoteTable(indices, 'indices-body');
-    mktRenderSectors(sectors);
-    mktRenderYields(yields);
-    mktRenderQuoteTable(globalBroad, 'global-broad-body');
-    mktRenderQuoteTable(globalDeveloped, 'global-dev-body');
-    mktRenderQuoteTable(globalEmerging, 'global-em-body');
-    mktRenderQuoteTable(currencies, 'currencies-body');
-    mktRenderQuoteTable(commodities, 'commodities-body');
-    const lu = mkt$('last-updated'); if(lu) lu.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  } catch (e) { console.error('Market data error:', e); const el = mkt$('indices-body'); if(el) el.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>'; }
-}
-
-// mktLoadCalendar removed — now using TradingView embed widget
+// Markets dashboard (global indices/sectors/yields/etc) was removed 2026-04-25 — user moved to Koyfin.
 
 async function mktLoadPositions() {
   try {
@@ -10561,14 +11670,12 @@ async function mktLoadWatchlist() {
 }
 
 async function mktLoadAll() {
-  const tasks = [mktLoadMarketData(), mktLoadPositions()];
-  await Promise.all(tasks);
+  await mktLoadPositions();
   mktLoadWatchlist();
 }
 
 // ── Markets init (must be after mkt* function declarations) ──
 mktLoadAll();
-setInterval(mktLoadMarketData, MKT_REFRESH_INTERVAL);
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -10579,7 +11686,7 @@ setInterval(mktLoadMarketData, MKT_REFRESH_INTERVAL);
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['mkts', 'premarket', 'diary', 'stats', 'forecast', 'scanner', 'charts'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'scanner', 'charts'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -10592,10 +11699,8 @@ function switchTab(tab, btn) {
   const section = document.getElementById('tab-' + tab);
   if (section) {
     section.classList.add('active');
-    // Dashboard tabs use display:contents to flow into the 2-col grid
-    // Markets uses display:contents to flow tiles into 2-col grid
-    // Diary/stats/forecast use display:block (they have their own internal layout)
-    section.style.display = (tab === 'mkts') ? 'contents' : 'block';
+    // Dashboard tabs use display:block (they have their own internal layout)
+    section.style.display = 'block';
   }
 
   // Layout mode: dashboard (2-col grid, no chart) vs chart (narrow + chart panel)
@@ -10650,8 +11755,6 @@ function switchTab(tab, btn) {
     if (typeof renderLotsOfCharts === 'function') renderLotsOfCharts();
   } else if (tab === 'premarket') {
     if (typeof renderMorningChecklist === 'function') renderMorningChecklist();
-  } else if (tab === 'mkts') {
-    if (!_marketData) mktLoadAll();
   }
 }
 
@@ -10699,6 +11802,63 @@ const FX_UNIVERSE = [
   {t:'USDZAR=X',n:'USD/ZAR',s:'EM'},{t:'USDTRY=X',n:'USD/TRY',s:'EM'},
 ];
 
+// Futures universe — Yahoo continuous-front-month tickers (=F)
+// TradingView symbols are mapped separately in _lcTVSymbol()
+const FUTURES_UNIVERSE = [
+  // Equity Index
+  {t:'ES=F',n:'E-mini S&P 500',s:'Equity Index'},
+  {t:'NQ=F',n:'E-mini Nasdaq 100',s:'Equity Index'},
+  {t:'YM=F',n:'E-mini Dow',s:'Equity Index'},
+  {t:'RTY=F',n:'E-mini Russell 2000',s:'Equity Index'},
+  {t:'MES=F',n:'Micro E-mini S&P',s:'Equity Index'},
+  {t:'MNQ=F',n:'Micro E-mini Nasdaq',s:'Equity Index'},
+  {t:'M2K=F',n:'Micro E-mini Russell',s:'Equity Index'},
+  {t:'MYM=F',n:'Micro E-mini Dow',s:'Equity Index'},
+  // Volatility
+  {t:'VX=F',n:'VIX Future',s:'Volatility'},
+  // Energy
+  {t:'CL=F',n:'Crude Oil WTI',s:'Energy'},
+  {t:'NG=F',n:'Natural Gas',s:'Energy'},
+  {t:'BZ=F',n:'Brent Crude',s:'Energy'},
+  // Metals
+  {t:'GC=F',n:'Gold',s:'Metals'},
+  {t:'SI=F',n:'Silver',s:'Metals'},
+  {t:'HG=F',n:'Copper',s:'Metals'},
+  // Rates
+  {t:'ZN=F',n:'10Y T-Note',s:'Rates'},
+  {t:'ZB=F',n:'30Y T-Bond',s:'Rates'},
+  {t:'ZF=F',n:'5Y T-Note',s:'Rates'},
+];
+
+// Map a chart-universe ticker to the right TradingView symbol so click-through
+// lands on the correct contract instead of a generic resolver guess.
+function _lcTVSymbol(t) {
+  if (!t) return '';
+  // Yahoo continuous-front-month "X=F" → TradingView "X1!" (CME front-month)
+  // Equity-index micros + e-minis trade on CME_MINI; energy/metals/rates need separate exchanges
+  const FRONT = {
+    'ES=F':'CME_MINI:ES1!',  'NQ=F':'CME_MINI:NQ1!',  'YM=F':'CBOT_MINI:YM1!', 'RTY=F':'CME_MINI:RTY1!',
+    'MES=F':'CME_MINI:MES1!','MNQ=F':'CME_MINI:MNQ1!','MYM=F':'CBOT_MINI:MYM1!','M2K=F':'CME_MINI:M2K1!',
+    'VX=F':'CBOE:VX1!',
+    'CL=F':'NYMEX:CL1!','NG=F':'NYMEX:NG1!','BZ=F':'NYMEX:BZ1!',
+    'GC=F':'COMEX:GC1!','SI=F':'COMEX:SI1!','HG=F':'COMEX:HG1!',
+    'ZN=F':'CBOT:ZN1!','ZB=F':'CBOT:ZB1!','ZF=F':'CBOT:ZF1!',
+  };
+  if (FRONT[t]) return FRONT[t];
+  // FX: Yahoo "EURUSD=X" → TradingView "FX:EURUSD"
+  if (t.endsWith('=X')) return 'FX:' + t.replace('=X','');
+  // Crypto convention used elsewhere
+  if (/^(BTC|ETH|SOL|XRP|DOGE|ADA)$/i.test(t)) return 'BINANCE:' + t.toUpperCase() + 'USDT';
+  // Slash-prefixed user input (e.g. "/ES" typed in trade modal) → drop the slash + use front-month
+  if (t.startsWith('/')) {
+    const root = t.slice(1).toUpperCase().replace(/[FGHJKMNQUVXZ]\d{1,2}$/, '');
+    const map = { ES:'CME_MINI:ES1!', NQ:'CME_MINI:NQ1!', MES:'CME_MINI:MES1!', MNQ:'CME_MINI:MNQ1!' };
+    if (map[root]) return map[root];
+  }
+  // Default: let TradingView resolve the symbol
+  return t;
+}
+
 const COMMODITY_UNIVERSE = [
   {t:'CL=F',n:'Crude Oil WTI',s:'Energy'},{t:'BZ=F',n:'Brent Crude',s:'Energy'},{t:'NG=F',n:'Natural Gas',s:'Energy'},
   {t:'RB=F',n:'RBOB Gasoline',s:'Energy'},{t:'HO=F',n:'Heating Oil',s:'Energy'},
@@ -10730,6 +11890,7 @@ function _lcGetUniverse() {
   if (_lc.universe === 'ndx100') return NDX_100;
   if (_lc.universe === 'sp500') return SP_500;
   if (_lc.universe === 'fx') return FX_UNIVERSE;
+  if (_lc.universe === 'futures') return FUTURES_UNIVERSE;
   if (_lc.universe === 'commodities') return COMMODITY_UNIVERSE;
   if (_lc.universe === 'etfs') return ETF_UNIVERSE;
   if (_lc.universe === 'watchlist') {
@@ -10999,6 +12160,7 @@ function _lcDrawChart(canvas, candles, ticker) {
 function renderLotsOfCharts() {
   const el = document.getElementById('charts-content');
   if (!el) return;
+  _lcInstallKeyNav(); // idempotent — installs once
 
   const universe = _lcGetUniverse();
   const sectors = ['All', ...new Set(universe.map(u => u.s))].sort((a,b) => a === 'All' ? -1 : b === 'All' ? 1 : a.localeCompare(b));
@@ -11016,6 +12178,7 @@ function renderLotsOfCharts() {
   html += `<option value="ndx100" ${_lc.universe==='ndx100'?'selected':''}>Nasdaq 100</option>`;
   html += `<option value="sp500" ${_lc.universe==='sp500'?'selected':''}>S&P 500</option>`;
   html += `<option value="etfs" ${_lc.universe==='etfs'?'selected':''}>Top ETFs</option>`;
+  html += `<option value="futures" ${_lc.universe==='futures'?'selected':''}>Futures (/ES /NQ /CL /GC ...)</option>`;
   html += `<option value="fx" ${_lc.universe==='fx'?'selected':''}>FX Pairs</option>`;
   html += `<option value="commodities" ${_lc.universe==='commodities'?'selected':''}>Commodities</option>`;
   html += `<option value="watchlist" ${_lc.universe==='watchlist'?'selected':''}>My Watchlist</option>`;
@@ -11030,7 +12193,7 @@ function renderLotsOfCharts() {
   html += `<option value="0" ${!_lc.sma2?'selected':''}>Off</option>`;
   [20,50,100,200].forEach(v => { html += `<option value="${v}" ${_lc.sma2===v?'selected':''}>${v}</option>`; });
   html += '</select>';
-  html += '<span style="color:var(--text-secondary);font-size:10px;margin-left:auto">' + filtered.length + ' stocks</span>';
+  html += '<span style="color:var(--text-muted);font-size:9px;margin-left:auto" title="← / → to page · click chart to open TradingView">← → · click→TV · ' + filtered.length + ' charts</span>';
   html += '</div>';
 
   // Row 2: Resolution
@@ -11068,7 +12231,7 @@ function renderLotsOfCharts() {
     const gIdx = start + idx;
     html += `<div class="mini-chart-cell" id="lc-cell-${gIdx}">`;
     html += `<div class="mini-chart-hdr"><span><span class="tk">${item.t}</span> <span style="color:var(--text-secondary);font-size:9px">${item.n||''}</span> <span style="color:var(--text-secondary);font-size:9px" id="lc-price-${gIdx}">...</span> <span id="lc-chg-${gIdx}" style="font-size:9px">...</span></span><span><span class="sma-lbl" style="color:#f59e0b" id="lc-sma-${gIdx}">SMA(${_lc.sma}) ...</span>${_lc.sma2?` <span class="sma-lbl" style="color:#3b82f6" id="lc-sma2-${gIdx}">SMA(${_lc.sma2}) ...</span>`:''}</span></div>`;
-    html += `<canvas id="lc-canvas-${gIdx}" style="width:100%;height:260px;cursor:pointer" onclick="_lcClickChart('${item.t}')"></canvas>`;
+    html += `<canvas id="lc-canvas-${gIdx}" title="Click to open ${item.t} on TradingView" style="width:100%;height:260px;cursor:pointer" onclick="_lcOpenInTradingView('${item.t}')"></canvas>`;
     html += '</div>';
   });
   html += '</div>';
@@ -11146,6 +12309,40 @@ async function _lcLoadAndDraw(ticker, idx) {
   const sma2El = document.getElementById('lc-sma2-' + idx);
   if (sma2El && canvas._lastSMA2 != null) sma2El.textContent = 'SMA(' + _lc.sma2 + ') ' + canvas._lastSMA2.toFixed(2);
   else if (sma2El) sma2El.textContent = 'SMA(' + _lc.sma2 + ') --';
+}
+
+// Click on a thumbnail → open the chart on TradingView in a new tab
+function _lcOpenInTradingView(ticker) {
+  const sym = _lcTVSymbol(ticker);
+  window.open('https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(sym), '_blank', 'noopener');
+}
+
+// Arrow-key paging: ← / → to step pages while CHARTS tab is visible.
+// Installed once at startup; no-ops when CHARTS isn't the active tab or when typing in an input.
+let _lcKeysInstalled = false;
+function _lcInstallKeyNav() {
+  if (_lcKeysInstalled) return;
+  _lcKeysInstalled = true;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    // Only when CHARTS tab is the active section
+    const chartsTab = document.getElementById('tab-charts');
+    if (!chartsTab || !chartsTab.classList.contains('active')) return;
+    // Don't hijack arrow keys while typing in inputs/selects/textareas
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)) return;
+    // Don't fire when a modal is open
+    const openModal = document.querySelector('.overlay[style*="flex"]');
+    if (openModal) return;
+    // Compute current page bounds so we don't go off the end
+    const universe = _lcGetUniverse();
+    const filtered = _lc.sector === 'All' ? universe : universe.filter(u => u.s === _lc.sector);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / _lc.perPage));
+    const before = _lc.page;
+    if (e.key === 'ArrowLeft' && _lc.page > 0) _lc.page--;
+    else if (e.key === 'ArrowRight' && _lc.page < totalPages - 1) _lc.page++;
+    if (_lc.page !== before) { e.preventDefault(); renderLotsOfCharts(); }
+  });
 }
 
 function _lcClickChart(ticker) {
