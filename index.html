@@ -2776,6 +2776,53 @@ function setWatchlistBiasFilter(b, btn) {
   if (btn) btn.classList.add('active');
   renderWatchlist();
 }
+// ── Watchlist checklist (vetting funnel: source + why + 6-item DD before trading) ──
+// Stored at STATE.watchlistChecklist[ticker] = { source, seasonax, gex, news,
+// priceAction, earnings, ewPositive, notes, updatedAt }
+const WATCH_CHECK_ITEMS = [
+  ['seasonax', 'Seasonax positive trend'],
+  ['gex', 'GEX levels checked'],
+  ['news', 'No negative news'],
+  ['priceAction', 'Price action / chart confirms'],
+  ['earnings', 'No earnings before expiry'],
+  ['ewPositive', 'Prev earnings positive (EW)'],
+];
+const WATCH_SOURCES = ['Seasonax', 'Finviz', 'TOS-Discord', 'Own scan', 'Other'];
+let _watchExpandedChecklist = {}; // {ticker: true}
+
+function getWatchlistChecklist(ticker) {
+  return (STATE.watchlistChecklist && STATE.watchlistChecklist[ticker]) || null;
+}
+function watchChecklistScore(ticker) {
+  const c = getWatchlistChecklist(ticker);
+  if (!c) return { done: 0, total: WATCH_CHECK_ITEMS.length, started: false };
+  const done = WATCH_CHECK_ITEMS.filter(([k]) => !!c[k]).length;
+  return { done, total: WATCH_CHECK_ITEMS.length, started: true };
+}
+function setWatchlistChecklistField(ticker, field, value) {
+  STATE.watchlistChecklist = STATE.watchlistChecklist || {};
+  const c = STATE.watchlistChecklist[ticker] = STATE.watchlistChecklist[ticker] || {};
+  c[field] = value;
+  c.updatedAt = new Date().toISOString();
+  save();
+  if (field === 'source' || /^(seasonax|gex|news|priceAction|earnings|ewPositive)$/.test(field)) renderWatchlist();
+}
+function toggleWatchlistChecklist(ticker, e) {
+  if (e) e.stopPropagation();
+  _watchExpandedChecklist[ticker] = !_watchExpandedChecklist[ticker];
+  renderWatchlist();
+}
+function convertWatchlistToTrade(ticker, e) {
+  if (e) e.stopPropagation();
+  const c = getWatchlistChecklist(ticker) || {};
+  const prefill = {
+    ticker,
+    source: c.source || 'Own DD',
+    checklist: { ...c, notes: c.notes || (STATE.watchlistThesis?.[ticker] || '') },
+  };
+  openQuickLog(prefill);
+}
+
 // Bias is stored on the most-recent note for that ticker (existing schema)
 function getWatchlistBias(ticker) {
   const notes = STATE.watchlistNotes?.[ticker] || [];
@@ -2932,9 +2979,41 @@ function renderWatchlist() {
         <span onclick="event.stopPropagation()">
           <button onclick="copyTickerContext('${ticker}',event)" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">COPY</button>
           <button onclick="openSRModal('${ticker}')" style="background:none;border:none;color:${C.textMut};font-size:9px;cursor:pointer;padding:1px 4px">LEVELS</button>
+          ${(()=>{
+            const sc = watchChecklistScore(ticker);
+            const isExpanded = !!_watchExpandedChecklist[ticker];
+            let label, color;
+            if (!sc.started) { label = '✎ checklist'; color = C.textMut; }
+            else if (sc.done === sc.total) { label = `✓ ${sc.done}/${sc.total} vetted`; color = C.pos; }
+            else { label = `○ ${sc.done}/${sc.total} vetting`; color = C.warn; }
+            return `<button onclick="toggleWatchlistChecklist('${ticker}',event)" style="background:none;border:1px solid ${color}55;color:${color};font-size:9px;cursor:pointer;padding:2px 6px;border-radius:2px;font-weight:600">${label}${isExpanded?' ▾':''}</button>`;
+          })()}
         </span>
       </div>` : ""}
       ${why ? `<div style="font-size:10px;color:${C.textSec};margin-top:4px;font-style:italic;line-height:1.4" title="Click LEVELS to edit">📝 ${escapeHtml(why)}</div>` : ""}
+      ${_watchExpandedChecklist[ticker] ? (()=>{
+        const c = getWatchlistChecklist(ticker) || {};
+        const curSrc = c.source || '';
+        return `<div style="margin-top:10px;padding:10px;background:${C.bg};border:1px solid ${C.borderVis};border-radius:4px" onclick="event.stopPropagation()">
+          <div style="font-size:9px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:6px">SOURCE</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px">
+            ${WATCH_SOURCES.map(s => `<button onclick="setWatchlistChecklistField('${ticker}','source','${s}')" style="font-size:10px;padding:4px 9px;border-radius:3px;border:1px solid ${curSrc===s?C.accent:C.borderVis};background:${curSrc===s?(C.accentDim||'rgba(47,129,247,0.12)'):'transparent'};color:${curSrc===s?C.accent:C.textSec};cursor:pointer;font-weight:${curSrc===s?'700':'500'}">${s}</button>`).join('')}
+          </div>
+          <div style="font-size:9px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:4px">WHY I'M WATCHING</div>
+          <textarea oninput="setWatchlistChecklistField('${ticker}','notes',this.value)" placeholder="e.g. seasonality says +8% avg this 7-day window past 10 years, breaking out of base" style="width:100%;box-sizing:border-box;background:${C.bgCard};color:${C.text};border:1px solid ${C.borderVis};border-radius:3px;padding:6px 8px;font-size:11px;height:40px;resize:vertical;margin-bottom:10px;font-family:'Inter',sans-serif">${escapeHtml(c.notes||'')}</textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <div style="font-size:9px;color:${C.textSec};letter-spacing:0.02em">PRE-ENTRY CHECKLIST</div>
+            <span style="font-size:9px;color:${C.textMut};font-variant-numeric:tabular-nums">${watchChecklistScore(ticker).done} / ${WATCH_CHECK_ITEMS.length}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-bottom:10px">
+            ${WATCH_CHECK_ITEMS.map(([k,lbl])=>`<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:${c[k]?C.text:C.textSec};cursor:pointer;padding:2px 0"><input type="checkbox" ${c[k]?'checked':''} onchange="setWatchlistChecklistField('${ticker}','${k}',this.checked)" style="accent-color:${C.pos}"> ${lbl}</label>`).join('')}
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="toggleWatchlistChecklist('${ticker}',event)" style="flex:1;padding:6px;background:transparent;border:1px solid ${C.borderVis};color:${C.textSec};font-size:10px;border-radius:3px;cursor:pointer">DONE FOR NOW</button>
+            <button onclick="convertWatchlistToTrade('${ticker}',event)" style="flex:1;padding:6px;background:${C.pos};border:none;color:#0d1117;font-size:10px;font-weight:700;border-radius:3px;cursor:pointer">→ TRADE THIS</button>
+          </div>
+        </div>`;
+      })() : ''}
     </div>`;
   }).join("");
   requestAnimationFrame(() => _initCardScrollSync());
@@ -7394,7 +7473,8 @@ function closeTradeModal() { document.getElementById("trade-modal").style.displa
 
 // ── Quick Futures modal ──────────────────────────────────────────────────────
 // ── Quick Log (v2): fast trade entry with source pills + pre-entry checklist ───
-function openQuickLog() {
+// Optional prefill: { ticker, source, checklist } — used when converting a watchlist row
+function openQuickLog(prefill) {
   // Reset
   ["ql-ticker","ql-shortStrike","ql-longStrike","ql-premium","ql-checklist-note"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   document.getElementById("ql-contracts").value = 1;
@@ -7402,9 +7482,23 @@ function openQuickLog() {
   document.getElementById("ql-expiry").value = "";
   document.getElementById("ql-entryTime").value = _nowET();
   document.querySelectorAll(".ql-chk").forEach(c => c.checked = false);
-  _updateQLCount();
-  // Default source: Own DD (so checklist shows)
-  setQuickSource("Own DD");
+  // Apply prefill from watchlist if provided
+  if (prefill && typeof prefill === 'object') {
+    if (prefill.ticker) document.getElementById("ql-ticker").value = prefill.ticker;
+    // Map watchlist source names to Quick Log source pills
+    const srcMap = { 'Seasonax':'Seasonax', 'Finviz':'Finviz', 'TOS-Discord':'TOS', 'TOS':'TOS', 'Own scan':'Own DD', 'Own DD':'Own DD', 'Other':'Own DD' };
+    const src = srcMap[prefill.source] || 'Own DD';
+    setQuickSource(src);
+    if (prefill.checklist) {
+      const ck = prefill.checklist;
+      document.querySelectorAll(".ql-chk").forEach(c => { c.checked = !!ck[c.dataset.k]; });
+      if (ck.notes) document.getElementById("ql-checklist-note").value = ck.notes;
+      _updateQLCount();
+    }
+  } else {
+    _updateQLCount();
+    setQuickSource("Own DD");
+  }
   document.getElementById("quicklog-modal").style.display = "flex";
 }
 function closeQuickLog() { document.getElementById("quicklog-modal").style.display = "none"; }
