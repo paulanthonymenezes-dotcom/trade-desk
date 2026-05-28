@@ -7479,6 +7479,13 @@ async function saveQuickLog() {
     createdAt: new Date().toISOString().slice(0,10),
   };
   STATE.trades.push(t);
+  // Auto-generate entry chart image (same as v1 trade save) if candle data is available
+  try {
+    if (typeof renderTradeChart === "function" && STATE.candles && STATE.candles[ticker]) {
+      const chart = renderTradeChart(ticker, t.entryDate, null, { short: shortStrike, long: longStrike });
+      if (chart) t.chartLink = chart;
+    }
+  } catch (e) { /* candle data not ready — fine, the live TV chart in the diary still works */ }
   // Add the source to followSources if not already there (so SOURCES stats aggregate cleanly)
   STATE.followSources = STATE.followSources || [];
   if (src !== "Own DD" && !STATE.followSources.some(s => s.name === src)) {
