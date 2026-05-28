@@ -8577,10 +8577,17 @@ function reconstructFlexTrades(csvText) {
     const prem = legs.reduce((s,l)=>s+l.oproc,0);
     const contracts = Math.max(...legs.map(l=>l.oqty));
     const odts = legs.map(l=>l.odt).filter(Boolean); const odt = odts.length?odts.sort()[0]:"";
+    const entryISO = fmtDate(legs[0].odate); const expiryISO = fmtDate(legs[0].expiry);
+    let dte = null;
+    if (expiryISO && entryISO) {
+      const dteMs = Date.parse(expiryISO+"T00:00:00") - Date.parse(entryISO+"T00:00:00");
+      if (!isNaN(dteMs)) dte = Math.round(dteMs / 86400000);
+    }
     const t = {ticker, assetClass:ac, tradeType:label(legs,asset), status,
-      entryDate:fmtDate(legs[0].odate), entryTime:hhmm(odt), expiry:fmtDate(legs[0].expiry),
+      entryDate:entryISO, entryTime:hhmm(odt), expiry:expiryISO,
       shortStrike:sStrike, longStrike:lStrike, contracts:Math.round(contracts),
       premiumCollected: ac==="Stock"?0:Math.abs(prem), legs:legs.length,
+      dteAtEntry: dte,
       src:"ibkr", rolls:[], journal:[], screenshots:[], thesis:"", exitReason:"", lessonLearned:"", tpPrice:"", slPrice:"", chartLink:""};
     if (status==="Closed"){ t.exitDate=fmtDate(legs.map(l=>l.exit).sort().reverse()[0]); t.realizedPnl=Math.round(legs.reduce((s,l)=>s+l.pnl,0)*100)/100; }
     else { t.exitDate=null; t.realizedPnl=null; }
