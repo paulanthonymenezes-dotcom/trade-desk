@@ -6507,10 +6507,17 @@ function saveRuleFromAI(ruleText) {
 }
 
 function renderForecast() {
-  const base = (STATE.accountBalance||0) + (STATE.ytdDeposits||0);
+  // Two different "base" values — both matter:
+  //   capitalDeployed = cost basis (what you put in). Denominator for % return.
+  //   currentEquity   = where you stand RIGHT NOW (capital + realized P&L from closed trades).
+  //                     This is what you compound FROM in the projection — projecting from
+  //                     cost basis would lose all your accumulated gains.
+  const capitalDeployed = (STATE.accountBalance||0) + (STATE.ytdDeposits||0);
+  const allClosed = STATE.trades.filter(t => t.status!=="Open" && t.exitDate);
+  const realizedPnlAll = allClosed.reduce((s,t) => s + (t.realizedPnl||0), 0);
+  const base = capitalDeployed + realizedPnlAll;  // current equity — the projection starting point
 
   // Find earliest trade date
-  const allClosed = STATE.trades.filter(t => t.status!=="Open" && t.exitDate);
   const firstTradeDate = allClosed.length ? new Date(allClosed.reduce((a,b) => a.exitDate < b.exitDate ? a : b).exitDate) : new Date();
   const daysSinceFirst = Math.max(1, (Date.now() - firstTradeDate) / (24*60*60*1000));
 
@@ -6522,7 +6529,10 @@ function renderForecast() {
     const trades = STATE.trades.filter(t => t.status!=="Open" && t.exitDate && new Date(t.exitDate) >= effectiveCutoff);
     const pnl = trades.reduce((s,t)=>s+(t.realizedPnl||0),0);
     const months = effectiveDays / 30;
-    const rate = base > 0 && months > 0 ? (pnl / base / months) * 100 : 0;
+    // % return uses capitalDeployed (cost basis) as denominator, NOT current
+    // equity — projections compound from current equity, but the rate itself
+    // should reflect "how fast is my deployed capital growing per month."
+    const rate = capitalDeployed > 0 && months > 0 ? (pnl / capitalDeployed / months) * 100 : 0;
     return { rate, pnl, count: trades.length, cutoff: effectiveCutoff };
   }
 
@@ -6667,8 +6677,10 @@ function renderForecast() {
     </div>
   `;
 
-  // Async: fetch SPY + QQQ candles and draw chart
-  renderBenchmarkChart(firstTradeDate, base, allClosed);
+  // Async: fetch SPY + QQQ candles and draw chart. Pass capitalDeployed
+  // (not current equity) so "your %" reads as return-on-invested-capital,
+  // matching apples-to-apples with SPY/QQQ % returns.
+  renderBenchmarkChart(firstTradeDate, capitalDeployed, allClosed);
 }
 
 async function renderBenchmarkChart(firstTradeDate, base, closedTrades) {
