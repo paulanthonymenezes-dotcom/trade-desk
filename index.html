@@ -6543,7 +6543,23 @@ function renderForecast() {
     { label: "All Time",  period: `${Math.round(daysSinceFirst)}d`, ...pAll, color: "#8b5cf6" },
   ];
 
-  const years = [1,2,3,5,10,15];
+  // Projection rows: Year 1 broken into 12 monthly rows (where the
+  // decisions actually happen), then Y2+ as annual milestones (further-out
+  // numbers are aspirational, monthly precision = false precision).
+  const _monthAbbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const _now = new Date();
+  const projRows = [];
+  for (let m = 1; m <= 12; m++) {
+    const d = new Date(_now.getFullYear(), _now.getMonth() + m, 1);
+    projRows.push({
+      label: `${_monthAbbr[d.getMonth()]} '${String(d.getFullYear()).slice(-2)}`,
+      years: m / 12,
+      kind: "month",
+    });
+  }
+  [2,3,4,5,10,15].forEach((y, i) => projRows.push({
+    label: `Year ${y}`, years: y, kind: "year", firstAnnual: i === 0,
+  }));
 
   function compound(principal, monthlyPct, years) {
     return principal * Math.pow(1 + monthlyPct/100, years*12);
@@ -6597,20 +6613,29 @@ function renderForecast() {
           <table style="width:100%;border-collapse:collapse">
             <thead>
               <tr style="border-bottom:1px solid ${C.border}">
-                <th style="text-align:left;padding:6px 8px;font-size:10px;color:${C.textSec};letter-spacing:0">YR</th>
+                <th style="text-align:left;padding:6px 8px;font-size:10px;color:${C.textSec};letter-spacing:0">PERIOD</th>
                 ${scenarios.map(s=>`<th style="text-align:right;padding:6px 8px;font-size:10px;color:${s.color};letter-spacing:0">${s.label}</th>`).join("")}
               </tr>
             </thead>
             <tbody>
-              ${years.map(y=>`<tr style="border-bottom:1px solid ${C.border}">
-                <td style="padding:7px 8px;font-variant-numeric:tabular-nums;font-size:12px;color:${C.textSec}">${y}</td>
-                ${scenarios.map(s=>{
-                  const val = compound(base, s.rate, y);
-                  return `<td style="padding:7px 8px;text-align:right">
-                    <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${s.color};font-weight:500">$${fmt(val)}</div>
-                  </td>`;
-                }).join("")}
-              </tr>`).join("")}
+              ${projRows.map(r=>{
+                const dividerRow = r.firstAnnual
+                  ? `<tr><td colspan="${scenarios.length + 1}" style="padding:8px 8px 4px;font-size:9px;color:${C.textMut};letter-spacing:0.12em;text-transform:uppercase;border-top:1px solid ${C.border}">— annual milestones —</td></tr>`
+                  : "";
+                const labelColor = r.kind === "year" ? C.text : C.textSec;
+                const labelWeight = r.kind === "year" ? "600" : "400";
+                const valSize = r.kind === "year" ? "12px" : "11px";
+                const valWeight = r.kind === "year" ? "600" : "500";
+                return `${dividerRow}<tr style="border-bottom:1px solid ${C.border}">
+                  <td style="padding:5px 8px;font-variant-numeric:tabular-nums;font-size:11px;color:${labelColor};font-weight:${labelWeight}">${r.label}</td>
+                  ${scenarios.map(s=>{
+                    const val = compound(base, s.rate, r.years);
+                    return `<td style="padding:5px 8px;text-align:right">
+                      <div style="font-variant-numeric:tabular-nums;font-size:${valSize};color:${s.color};font-weight:${valWeight}">$${fmt(val)}</div>
+                    </td>`;
+                  }).join("")}
+                </tr>`;
+              }).join("")}
             </tbody>
           </table>
         </div>
