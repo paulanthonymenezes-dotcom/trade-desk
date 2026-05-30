@@ -1155,9 +1155,16 @@ table{width:100%;border-collapse:collapse}
     <div class="st">Account</div>
     <div class="g2">
       <div class="frow"><label>Starting Account Balance ($)</label><input id="s-balance" type="number" placeholder="38788"></div>
-      <div class="frow"><label>YTD Deposits ($)</label><input id="s-deposits" type="number" placeholder="0"></div>
+      <div class="frow"><label>Total Deposits <span style="color:var(--text-muted);font-size:9px">(auto from list below)</span></label><input id="s-deposits-total" type="text" disabled style="opacity:0.7"></div>
     </div>
-    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">% return = Realized P&L ÷ (Starting + Deposits). Simple approximation.</div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">Date-stamped deposits — used so per-period rates (30d / 90d) don't mistake a recent deposit for trading gains.</div>
+    <div id="s-deposits-list" style="margin-bottom:8px"></div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center">
+      <input id="s-dep-date" type="date" style="flex:0 0 140px">
+      <input id="s-dep-amount" type="number" step="0.01" placeholder="amount ($)" style="flex:1">
+      <input id="s-dep-note" placeholder="note (optional)" style="flex:1">
+      <button class="btn btn-p" style="padding:8px 12px;font-size:11px;white-space:nowrap" onclick="addDeposit()">+ ADD</button>
+    </div>
     <div class="st">Standing Rules</div>
     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Set once. Every trade is checked against these — violations show in the pre-trade checklist and on the trade card.</div>
     <div class="g2">
@@ -1381,7 +1388,8 @@ let STATE = {
   sectors: {}, // { TICKER: sectorString }
   watchlistTargets: {}, // { TICKER: { price: number, direction: 'below'|'above' } }
   tgBot: "", tgChat: "", alertIVRank: 60, alertStrikeProx: 5,
-  accountBalance: 38788, ytdDeposits: 10118,
+  accountBalance: 38788, ytdDeposits: 10118, // ytdDeposits is legacy; deposits[] is authoritative (auto-migrated on load)
+  deposits: [], // [{ date: "YYYY-MM-DD", amount: number, note?: string }] — date-stamped so per-period rates can attribute capital correctly
   ibkrToken: "", ibkrQueryId: "",
   // Auto-exit settings
   autoExitEnabled: false,
@@ -1861,6 +1869,7 @@ async function load() {
     if (rows && rows[0] && rows[0].data && rows[0].data.trades) {
       const d = rows[0].data;
       STATE = {...STATE, ...d, quotes:{}, candles:{}};
+      _migrateDeposits();
       return;
     }
   } catch(e) {}
@@ -1869,6 +1878,33 @@ async function load() {
     const s = localStorage.getItem(STORAGE_KEY);
     if (s) { const d = JSON.parse(s); STATE = {...STATE, ...d, quotes:{}, candles:{}}; }
   } catch(e) {}
+  _migrateDeposits();
+}
+
+// One-time migration: the legacy single ytdDeposits field becomes a row in
+// the deposits[] list dated Jan 1 of the current year. Idempotent — safe to
+// call repeatedly. After migration, getTotalDeposits() is authoritative.
+function _migrateDeposits() {
+  if (!Array.isArray(STATE.deposits)) STATE.deposits = [];
+  if (STATE.deposits.length === 0 && (STATE.ytdDeposits || 0) > 0) {
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10);
+    STATE.deposits.push({ date: yearStart, amount: STATE.ytdDeposits, note: "auto-migrated from legacy YTD Deposits" });
+  }
+}
+
+// Sum of all date-stamped deposits — this is the authoritative total.
+function getTotalDeposits() {
+  return (STATE.deposits || []).reduce((s, d) => s + (parseFloat(d.amount) || 0), 0);
+}
+
+// Sum of deposits made on/after cutoffDate. Used by periodRate() to subtract
+// in-period deposits from the start-of-period equity calculation, so a recent
+// deposit doesn't get mistaken for trading gains.
+function getDepositsSince(cutoffDate) {
+  const cutoff = cutoffDate instanceof Date ? cutoffDate : new Date(cutoffDate);
+  return (STATE.deposits || [])
+    .filter(d => d.date && new Date(d.date) >= cutoff)
+    .reduce((s, d) => s + (parseFloat(d.amount) || 0), 0);
 }
 
 // ── Market Data API (routed through server proxy to preserve IP lock) ────────
@@ -2744,7 +2780,7 @@ function renderKPIs() {
   const pnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
   const wins = closed.filter(t=>(t.realizedPnl||0)>0).length;
   const wr = closed.length ? Math.round(wins/closed.length*100) : 0;
-  const base = (STATE.accountBalance||0)+(STATE.ytdDeposits||0);
+  const base = (STATE.accountBalance||0) + getTotalDeposits();
   const pct_ = base>0 ? (pnl/base*100) : null;
 
   document.getElementById("kpi-open").textContent = open.length;
@@ -6512,7 +6548,7 @@ function renderForecast() {
   //   currentEquity   = where you stand RIGHT NOW (capital + realized P&L from closed trades).
   //                     This is what you compound FROM in the projection — projecting from
   //                     cost basis would lose all your accumulated gains.
-  const capitalDeployed = (STATE.accountBalance||0) + (STATE.ytdDeposits||0);
+  const capitalDeployed = (STATE.accountBalance||0) + getTotalDeposits();
   const allClosed = STATE.trades.filter(t => t.status!=="Open" && t.exitDate);
   const realizedPnlAll = allClosed.reduce((s,t) => s + (t.realizedPnl||0), 0);
   const base = capitalDeployed + realizedPnlAll;  // current equity — the projection starting point
@@ -6529,13 +6565,15 @@ function renderForecast() {
     const trades = STATE.trades.filter(t => t.status!=="Open" && t.exitDate && new Date(t.exitDate) >= effectiveCutoff);
     const pnl = trades.reduce((s,t)=>s+(t.realizedPnl||0),0);
     const months = effectiveDays / 30;
-    // Denominator = equity at the START of the period (not cost basis).
-    // For "Last 30d": start equity = current equity − P&L made in last 30d.
-    // For "All Time": start equity = capitalDeployed (cost basis) — which
-    // happens naturally since pnl_alltime is all the gains accumulated.
-    // Matches IBKR's "% return for the period" convention. Assumes no
-    // deposits/withdrawals inside the period (true for the short windows).
-    const periodStartEquity = base - pnl;
+    // Denominator = equity at the START of the period.
+    // For short windows (Last 30d / 90d): equity at window start =
+    //   current_equity − P&L_in_window − deposits_in_window  (deposits
+    //   in the window aren't trading gains; they shouldn't sit in the denom)
+    // For All Time: denominator = capitalDeployed (cost basis = accountBalance
+    //   + ALL deposits). Deposits are invested capital here, NOT an in-period
+    //   inflow to subtract. Special-case via depositsInPeriod = 0.
+    const depositsInPeriod = days === 99999 ? 0 : getDepositsSince(effectiveCutoff);
+    const periodStartEquity = base - pnl - depositsInPeriod;
     const rate = periodStartEquity > 0 && months > 0 ? (pnl / periodStartEquity / months) * 100 : 0;
     return { rate, pnl, count: trades.length, cutoff: effectiveCutoff };
   }
@@ -8583,7 +8621,8 @@ function openSettings() {
   document.getElementById("theme-koyfin").style.borderColor = STATE.theme==="koyfin" ? "var(--accent)" : "";
   document.getElementById("theme-koyfin").style.color = STATE.theme==="koyfin" ? "var(--accent)" : "";
   document.getElementById("s-balance").value = STATE.accountBalance||"";
-  document.getElementById("s-deposits").value = STATE.ytdDeposits||"";
+  _renderDepositsList();
+  document.getElementById("s-dep-date").value = new Date().toISOString().slice(0,10);
   document.getElementById("s-tgbot").value = STATE.tgBot||"";
   document.getElementById("s-tgchat").value = STATE.tgChat||"";
   document.getElementById("s-ivrank").value = STATE.alertIVRank||60;
@@ -8618,7 +8657,9 @@ function openSettings() {
 function closeSettings() { document.getElementById("settings-modal").style.display="none"; }
 function saveSettings() {
   STATE.accountBalance = parseFloat(document.getElementById("s-balance").value)||0;
-  STATE.ytdDeposits = parseFloat(document.getElementById("s-deposits").value)||0;
+  // ytdDeposits is now derived from STATE.deposits — keep legacy field in sync for
+  // any external consumer that hasn't been migrated yet (Telegram brief, exports).
+  STATE.ytdDeposits = getTotalDeposits();
   STATE.tgBot = document.getElementById("s-tgbot").value.trim();
   STATE.tgChat = document.getElementById("s-tgchat").value.trim();
   STATE.alertIVRank = parseFloat(document.getElementById("s-ivrank").value)||60;
@@ -8644,6 +8685,57 @@ function saveSettings() {
 
 function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+// ── Deposits list (Settings) ──────────────────────────────────────────────────
+function _renderDepositsList() {
+  const el = document.getElementById("s-deposits-list");
+  const totalEl = document.getElementById("s-deposits-total");
+  if (!el || !totalEl) return;
+  const list = (STATE.deposits || []).slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  const total = getTotalDeposits();
+  totalEl.value = "$" + total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!list.length) {
+    el.innerHTML = `<div style="font-size:10px;color:var(--text-muted);padding:6px 0">No deposits yet — add the dates and amounts you've funded the account.</div>`;
+    return;
+  }
+  el.innerHTML = list.map((d) => {
+    const idx = (STATE.deposits || []).indexOf(d);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-primary);border:1px solid var(--border-visible);border-radius:3px;margin-bottom:4px;font-size:11px;font-variant-numeric:tabular-nums">
+      <span style="color:var(--text-secondary);flex:0 0 100px">${escapeHtml(d.date||"—")}</span>
+      <span style="color:var(--text-primary);font-weight:600;flex:0 0 110px;text-align:right">$${(parseFloat(d.amount)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      <span style="color:var(--text-muted);flex:1;font-style:${d.note?'normal':'italic'};font-size:10px">${d.note?escapeHtml(d.note):'no note'}</span>
+      <button class="btn btn-g" style="padding:3px 8px;font-size:9px;color:var(--negative);border-color:var(--negative-dim,rgba(239,68,68,0.3))" onclick="removeDeposit(${idx})">×</button>
+    </div>`;
+  }).join("");
+}
+
+function addDeposit() {
+  const date = document.getElementById("s-dep-date").value;
+  const amount = parseFloat(document.getElementById("s-dep-amount").value);
+  const note = document.getElementById("s-dep-note").value.trim();
+  if (!date) { alert("Date required"); return; }
+  if (!amount || amount <= 0) { alert("Amount must be > 0"); return; }
+  if (!Array.isArray(STATE.deposits)) STATE.deposits = [];
+  STATE.deposits.push({ date, amount, ...(note ? { note } : {}) });
+  // Keep legacy ytdDeposits in sync for any consumer that hasn't migrated.
+  STATE.ytdDeposits = getTotalDeposits();
+  save();
+  _renderDepositsList();
+  document.getElementById("s-dep-amount").value = "";
+  document.getElementById("s-dep-note").value = "";
+  renderKPIs(); // refresh KPIs since capital deployed changed
+}
+
+function removeDeposit(idx) {
+  if (!Array.isArray(STATE.deposits) || idx < 0 || idx >= STATE.deposits.length) return;
+  const d = STATE.deposits[idx];
+  if (!confirm(`Remove deposit: ${d.date} · $${d.amount}?`)) return;
+  STATE.deposits.splice(idx, 1);
+  STATE.ytdDeposits = getTotalDeposits();
+  save();
+  _renderDepositsList();
+  renderKPIs();
 }
 
 function renderFollowSourcesList() {
