@@ -1216,16 +1216,12 @@ table{width:100%;border-collapse:collapse}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
         <input type="checkbox" id="s-autosync-enabled" style="accent-color:var(--positive)">
-        <span style="font-size:12px;color:var(--text-primary);font-weight:500">Auto-sync in background</span>
+        <span style="font-size:12px;color:var(--text-primary);font-weight:500">Auto-sync on page load (4h cooldown)</span>
       </label>
-      <div style="display:flex;align-items:center;gap:4px">
-        <span style="font-size:11px;color:var(--text-secondary)">every</span>
-        <input id="s-autosync-interval" type="number" min="5" step="5" placeholder="15" style="width:56px;font-size:11px">
-        <span style="font-size:11px;color:var(--text-secondary)">min</span>
-      </div>
+      <input id="s-autosync-interval" type="hidden" value="15">
       <span class="autosync-status" style="font-size:10px;color:var(--text-muted);margin-left:auto;font-variant-numeric:tabular-nums"></span>
     </div>
-    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Pulls new fills automatically while the app is open. Minimum 5 min (IBKR rate limit). Skips when the tab is hidden.</div>
+    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Background auto-sync runs on the server every hour (VPS cron). Browser only re-pulls if it's been &gt;4h since last sync — prevents IBKR throttle. Use SYNC button for instant refresh; CSV upload as fallback.</div>
     <div id="ibkr-sync-status" style="display:none;margin-bottom:8px"></div>
     <div id="ibkr-preview" style="display:none;margin-bottom:16px"></div>
     <div class="st">Auto-Exit (IBKR Gateway)</div>
@@ -9350,21 +9346,28 @@ async function autoSyncIBKR() {
 }
 
 function startAutoSync() {
-  if (_autoSyncTimer) clearInterval(_autoSyncTimer);
+  // NOTE: browser-side polling is intentionally minimal. The real auto-sync is
+  // the hourly cron on the VPS (/opt/edge-scanner/flex_cron_sync.py at :07 every
+  // hour). Browser polling at 15-min was hammering IBKR's per-query throttle
+  // (96+ queries/day) and ended up rate-limiting us for hours at a time, so the
+  // journal would silently go stale. Here we fire AT MOST one sync per page
+  // session, and only if it's been >4h since the last successful sync. The
+  // manual SYNC button is the on-demand path. CSV upload is the fallback.
+  if (_autoSyncTimer) { clearInterval(_autoSyncTimer); _autoSyncTimer = null; }
   if (STATE.autoSyncEnabled === false) { _renderAutoSyncStatus("auto-sync off"); return; }
   if (!STATE.ibkrToken || !STATE.ibkrQueryId) { _renderAutoSyncStatus(""); return; }
-  const mins = Math.max(5, STATE.autoSyncIntervalMin || 15); // floor at 5 min for IBKR rate limits
-  // First run shortly after load so the page settles, then on the interval
-  setTimeout(autoSyncIBKR, 4000);
-  _autoSyncTimer = setInterval(autoSyncIBKR, mins * 60 * 1000);
-  // Re-sync when the tab regains focus if it's been a while
+  const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4h
+  const maybeSync = () => {
+    if (document.hidden) return;
+    const last = STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0;
+    if (Date.now() - last > COOLDOWN_MS) autoSyncIBKR();
+  };
+  // Single fire shortly after load if the journal is stale
+  setTimeout(maybeSync, 4000);
+  // Re-check when tab regains focus (still rate-limited by the 4h cooldown)
   if (!window._autoSyncVisWired) {
     window._autoSyncVisWired = true;
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) return;
-      const last = STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0;
-      if (Date.now() - last > (mins * 60 * 1000)) autoSyncIBKR();
-    });
+    document.addEventListener("visibilitychange", maybeSync);
   }
 }
 
