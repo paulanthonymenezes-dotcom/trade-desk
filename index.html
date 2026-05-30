@@ -4126,7 +4126,7 @@ function renderDiary() {
           <div class="lbl">Idea Source</div>
           <select onchange="updateTradeField(${t.id},'ideaSource',this.value)" style="font-size:11px">
             <option value="">—</option>
-            ${["Brent D","The Options Seller","Longwashere","Lyn Alden","Seasonax","Finviz Heat Map","Personal Knowledge","Scanner","News / Event","Other"].map(o=>`<option${t.ideaSource===o?" selected":""}>${o}</option>`).join("")}
+            ${["Brent D","The Options Seller","Longwashere","Lyn Alden","Seasonax","Finviz Heat Map","Personal Knowledge","News / Event","Other"].map(o=>`<option${t.ideaSource===o?" selected":""}>${o}</option>`).join("")}
           </select>
         </div>
         <div>
