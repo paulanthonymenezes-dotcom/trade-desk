@@ -881,6 +881,16 @@ table{width:100%;border-collapse:collapse}
       </div>
     </div>
 
+    <!-- Work environment -->
+    <div style="margin-bottom:12px">
+      <div style="font-size:9px;color:var(--text-secondary);letter-spacing:0.02em;margin-bottom:5px">WHERE FROM?</div>
+      <div style="display:flex;gap:6px">
+        <button type="button" class="ff-env-pill" data-env="WFH" onclick="setFuturesEnv('WFH')" style="flex:1;padding:6px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">📍 WFH</button>
+        <button type="button" class="ff-env-pill" data-env="Office" onclick="setFuturesEnv('Office')" style="flex:1;padding:6px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🏢 Office</button>
+        <button type="button" class="ff-env-pill" data-env="Other" onclick="setFuturesEnv('Other')" style="flex:1;padding:6px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🌍 Other</button>
+      </div>
+    </div>
+
     <!-- Ticker + direction -->
     <div class="g2">
       <div class="frow"><label>Contract</label><select id="ff-ticker" onchange="onFuturesTickerChange()"></select></div>
@@ -958,6 +968,16 @@ table{width:100%;border-collapse:collapse}
         <button type="button" class="ql-src-pill" data-src="Seasonax" onclick="setQuickSource('Seasonax')" style="flex:1;min-width:90px;padding:10px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">📈 Seasonax<br><span style="font-size:9px;font-weight:400;opacity:.7">checklist req</span></button>
         <button type="button" class="ql-src-pill" data-src="Finviz" onclick="setQuickSource('Finviz')" style="flex:1;min-width:90px;padding:10px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🔍 Finviz<br><span style="font-size:9px;font-weight:400;opacity:.7">checklist req</span></button>
         <button type="button" class="ql-src-pill" data-src="Own DD" onclick="setQuickSource('Own DD')" style="flex:1;min-width:90px;padding:10px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🧠 Own DD<br><span style="font-size:9px;font-weight:400;opacity:.7">checklist req</span></button>
+      </div>
+    </div>
+
+    <!-- Work environment pills -->
+    <div style="margin-bottom:14px">
+      <div style="font-size:10px;color:var(--text-secondary);letter-spacing:0.02em;margin-bottom:6px">WHERE ARE YOU TRADING FROM?</div>
+      <div style="display:flex;gap:6px">
+        <button type="button" class="ql-env-pill" data-env="WFH" onclick="setQuickEnv('WFH')" style="flex:1;padding:8px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">📍 WFH</button>
+        <button type="button" class="ql-env-pill" data-env="Office" onclick="setQuickEnv('Office')" style="flex:1;padding:8px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🏢 Office</button>
+        <button type="button" class="ql-env-pill" data-env="Other" onclick="setQuickEnv('Other')" style="flex:1;padding:8px;background:transparent;border:1px solid var(--border-visible);color:var(--text-secondary);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">🌍 Other</button>
       </div>
     </div>
 
@@ -5747,9 +5767,41 @@ function renderStatsSessions(closed) {
     ${noTime ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:14px">${noTime} older closed trade${noTime!==1?'s':''} have no entry time recorded and aren't counted in the session breakdown.</div>` : ""}
 
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">WIN RATE BY ENTRY DAY (Mon–Fri)</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
       ${DOW.map(dowCard).join("")}
     </div>
+
+    ${(()=>{
+      // BY WORK ENVIRONMENT — only trades that have an environment recorded
+      const ENV = ['WFH','Office','Other'];
+      const envGroups = {}; ENV.forEach(e => envGroups[e] = []);
+      let untagged = 0;
+      closed.forEach(t => { if (t.environment && envGroups[t.environment]) envGroups[t.environment].push(t); else untagged++; });
+      const tagged = closed.length - untagged;
+      if (!tagged) return '';
+      const envIcon = { WFH:'📍', Office:'🏢', Other:'🌍' };
+      const envCard = (k) => {
+        const c = envGroups[k]; const pnl = c.reduce((s,t)=>s+(t.realizedPnl||0),0);
+        const wins = c.filter(t=>(t.realizedPnl||0)>0).length;
+        const wr = c.length ? Math.round(wins/c.length*100) : null;
+        const avg = c.length ? pnl/c.length : 0;
+        const wrColor = wr===null?C.textMut:wr>=80?C.pos:wr>=60?C.text:wr<40?C.neg:C.warn;
+        return `<div class="card" style="flex:1;min-width:140px">
+          <div style="font-size:11px;color:${C.text};font-weight:600;margin-bottom:2px">${envIcon[k]} ${k}</div>
+          <div style="font-size:9px;color:${C.textMut};margin-bottom:8px">${c.length} trade${c.length!==1?'s':''}</div>
+          <div style="font-size:9px;color:${C.textSec};margin-bottom:2px">Win Rate</div>
+          <div style="font-size:16px;font-weight:600;color:${wrColor};margin-bottom:6px">${wr===null?'—':wr+'%'}</div>
+          <div style="font-size:9px;color:${C.textSec};margin-bottom:2px">Total P&L</div>
+          <div style="font-size:13px;font-weight:600;color:${pnl>=0?C.pos:C.neg}">${c.length?(pnl>=0?'+$':'-$')+Math.abs(pnl).toFixed(0):'—'}</div>
+          <div style="font-size:9px;color:${C.textMut};margin-top:4px">${wins}W / ${c.length-wins}L${c.length?` · avg ${avg>=0?'+$':'-$'}${Math.abs(avg).toFixed(0)}`:''}</div>
+        </div>`;
+      };
+      return `
+        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">WIN RATE BY ENVIRONMENT</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${ENV.map(envCard).join("")}</div>
+        ${untagged ? `<div style="font-size:10px;color:${C.textMut};margin-top:6px">${untagged} trade${untagged!==1?'s':''} have no environment recorded (pre-feature or imported)</div>` : ''}
+      `;
+    })()}
   `;
 }
 
@@ -7530,6 +7582,8 @@ function openQuickLog(prefill) {
     _updateQLCount();
     setQuickSource("Own DD");
   }
+  // Default environment to whatever was used last (sticky), or WFH if first time
+  setQuickEnv(STATE.lastEnvironment || "WFH");
   document.getElementById("quicklog-modal").style.display = "flex";
 }
 function closeQuickLog() { document.getElementById("quicklog-modal").style.display = "none"; }
@@ -7549,6 +7603,17 @@ function setQuickSource(src) {
   const isTOS = src === "TOS";
   document.getElementById("ql-checklist").style.display = isTOS ? "none" : "block";
   document.getElementById("ql-tos-notice").style.display = isTOS ? "block" : "none";
+}
+
+function setQuickEnv(env) {
+  document.getElementById("quicklog-modal").dataset.env = env;
+  document.querySelectorAll(".ql-env-pill").forEach(b => {
+    const active = b.dataset.env === env;
+    b.style.borderColor = active ? "var(--accent, #2f81f7)" : "var(--border-visible)";
+    b.style.color = active ? "var(--accent, #2f81f7)" : "var(--text-secondary)";
+    b.style.background = active ? "var(--accent-dim, rgba(47,129,247,0.12))" : "transparent";
+    b.style.fontWeight = active ? "700" : "600";
+  });
 }
 
 function _updateQLCount() {
@@ -7591,6 +7656,8 @@ async function saveQuickLog() {
   const assetClass = isFutOpt ? "Futures Options" : (tradeType.startsWith("Stock") ? "Stock" : "Options");
   const entryMode = src === "Own DD" ? "dd" : "follow";
 
+  const env = document.getElementById("quicklog-modal").dataset.env || "WFH";
+  STATE.lastEnvironment = env; // remember for next time
   const t = {
     id: STATE.nextId++,
     ticker, assetClass, tradeType, status: "Open",
@@ -7599,6 +7666,7 @@ async function saveQuickLog() {
     realizedPnl: null, exitDate: null, dteAtEntry: dte,
     src: "manual",              // never wiped by Flex auto-sync
     entryMode, source: src, sourcePostUrl: "",
+    environment: env,
     checklist,
     rolls: [], journal: [], screenshots: [], thesis: "", exitReason: "", lessonLearned: "", tpPrice: "", slPrice: "", chartLink: "",
     createdAt: new Date().toISOString().slice(0,10),
@@ -7638,6 +7706,7 @@ function openFuturesModal() {
   document.getElementById("ff-sourceUrl").value = "";
   setFuturesDir("long");
   setFuturesEntryMode("dd");
+  setFuturesEnv(STATE.lastEnvironment || "WFH");
   populateFuturesSourceDropdown();
   updateFuturesCalc();
   document.getElementById("futures-modal").style.display = "flex";
@@ -7655,6 +7724,17 @@ function setFuturesDir(dir) {
   shortBtn.style.color = !isLong ? "var(--negative)" : "var(--text-secondary)";
   document.getElementById("futures-modal").dataset.direction = dir;
   updateFuturesCalc();
+}
+
+function setFuturesEnv(env) {
+  document.getElementById("futures-modal").dataset.env = env;
+  document.querySelectorAll(".ff-env-pill").forEach(b => {
+    const active = b.dataset.env === env;
+    b.style.borderColor = active ? "var(--accent, #2f81f7)" : "var(--border-visible)";
+    b.style.color = active ? "var(--accent, #2f81f7)" : "var(--text-secondary)";
+    b.style.background = active ? "var(--accent-dim, rgba(47,129,247,0.12))" : "transparent";
+    b.style.fontWeight = active ? "700" : "600";
+  });
 }
 
 function setFuturesEntryMode(mode) {
@@ -7813,6 +7893,7 @@ function saveFuturesTrade() {
     pointMultiplier: spec.multiplier,
     entryDate,
     entryTime,
+    environment: (document.getElementById("futures-modal").dataset.env || "WFH"),
     expiry: null, // futures: no expiry tracking for day-trading
     status: "Open",
     realizedPnl: null,
@@ -7827,6 +7908,7 @@ function saveFuturesTrade() {
   };
 
   STATE.trades.push(newTrade);
+  STATE.lastEnvironment = newTrade.environment; // sticky default
   save();
   closeFuturesModal();
   renderPositions();
