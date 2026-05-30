@@ -9232,7 +9232,7 @@ async function syncIBKR(quiet = false) {
     if (!recon.length) {
       showSyncStatus("No trades reconstructed from IBKR response.", "warn");
       if (!quiet) alert("No trades reconstructed.\n\nResponse starts:\n" + data.substring(0, 200));
-      return;
+      return false; // didn't actually sync anything
     }
     const res = applyFlexReconstruction(recon);
     save();
@@ -9241,10 +9241,12 @@ async function syncIBKR(quiet = false) {
     const _pnl = _cl.reduce((s, t) => s + (t.realizedPnl || 0), 0);
     showSyncStatus(`Synced ${recon.length} trades · ${res.replaced} refreshed · ${res.manualKept} manual kept.`, "success");
     dbg(`IBKR sync: ${recon.length} trades reconstructed, $${_pnl.toFixed(0)} realized`, "success");
+    return true;
 
   } catch (e) {
     showSyncStatus("Sync failed: " + e.message, "error");
     dbg("IBKR sync error: " + e.message, "error");
+    return false; // sync failed — don't lie about lastAutoSync upstream
   }
 }
 
@@ -9291,11 +9293,15 @@ async function autoSyncIBKR() {
   _autoSyncRunning = true;
   _renderAutoSyncStatus("syncing…");
   try {
-    // syncIBKR(true) reconstructs + applies directly (idempotent). Stamp + persist time.
-    await syncIBKR(true);
-    STATE.lastAutoSync = new Date().toISOString();
-    save();
-    _renderAutoSyncStatus();
+    const ok = await syncIBKR(true);     // returns true ONLY if it actually applied a fresh reconstruction
+    if (ok) {
+      STATE.lastAutoSync = new Date().toISOString();
+      save();
+      _renderAutoSyncStatus();
+    } else {
+      _renderAutoSyncStatus("sync skipped (rate-limited or empty)");
+      if (typeof dbg === "function") dbg("Auto-sync: no data applied this cycle", "warn");
+    }
   } catch (e) {
     if (typeof dbg === "function") dbg("Auto-sync failed: " + (e?.message || e), "warn");
     _renderAutoSyncStatus("sync error");
