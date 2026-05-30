@@ -1155,15 +1155,16 @@ table{width:100%;border-collapse:collapse}
     <div class="st">Account</div>
     <div class="g2">
       <div class="frow"><label>Starting Account Balance ($)</label><input id="s-balance" type="number" placeholder="38788"></div>
-      <div class="frow"><label>Total Deposits <span style="color:var(--text-muted);font-size:9px">(auto from list below)</span></label><input id="s-deposits-total" type="text" disabled style="opacity:0.7"></div>
+      <div class="frow"><label>Net Cash In <span style="color:var(--text-muted);font-size:9px">(deposits − withdrawals)</span></label><input id="s-deposits-total" type="text" disabled style="opacity:0.7"></div>
     </div>
-    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">Date-stamped deposits — used so per-period rates (30d / 90d) don't mistake a recent deposit for trading gains.</div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">Date-stamped cash flows — deposits (+) and withdrawals (−). Used so per-period rates (30d / 90d) don't mistake capital movement for trading gains. Will matter when you pay back the shareholder loan.</div>
     <div id="s-deposits-list" style="margin-bottom:8px"></div>
     <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center">
       <input id="s-dep-date" type="date" style="flex:0 0 140px">
       <input id="s-dep-amount" type="number" step="0.01" placeholder="amount ($)" style="flex:1">
-      <input id="s-dep-note" placeholder="note (optional)" style="flex:1">
-      <button class="btn btn-p" style="padding:8px 12px;font-size:11px;white-space:nowrap" onclick="addDeposit()">+ ADD</button>
+      <input id="s-dep-note" placeholder="note (e.g. 'shareholder loan')" style="flex:1">
+      <button class="btn btn-p" style="padding:8px 10px;font-size:11px;white-space:nowrap" onclick="addDeposit()" title="Money INTO the account">+ DEPOSIT</button>
+      <button class="btn btn-g" style="padding:8px 10px;font-size:11px;white-space:nowrap;color:var(--negative);border-color:var(--negative-dim,rgba(239,68,68,0.3))" onclick="addWithdrawal()" title="Money OUT of the account (e.g. loan repayment)">− WITHDRAW</button>
     </div>
     <div class="st">Standing Rules</div>
     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Set once. Every trade is checked against these — violations show in the pre-trade checklist and on the trade card.</div>
@@ -1892,14 +1893,17 @@ function _migrateDeposits() {
   }
 }
 
-// Sum of all date-stamped deposits — this is the authoritative total.
+// Net cash-in: signed sum of all date-stamped cash flows. Positive amounts
+// are deposits, negative amounts are withdrawals (e.g. shareholder-loan
+// repayment). Adding to accountBalance gives total capitalDeployed.
 function getTotalDeposits() {
   return (STATE.deposits || []).reduce((s, d) => s + (parseFloat(d.amount) || 0), 0);
 }
 
-// Sum of deposits made on/after cutoffDate. Used by periodRate() to subtract
-// in-period deposits from the start-of-period equity calculation, so a recent
-// deposit doesn't get mistaken for trading gains.
+// Net cash flow on/after cutoffDate. Used by periodRate() to subtract
+// in-period cash flow from start-of-period equity so movements aren't
+// mistaken for trading gains. Withdrawals (negative) flip the sign so
+// startEquity correctly rises above current_equity − pnl.
 function getDepositsSince(cutoffDate) {
   const cutoff = cutoffDate instanceof Date ? cutoffDate : new Date(cutoffDate);
   return (STATE.deposits || [])
@@ -8687,37 +8691,46 @@ function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
-// ── Deposits list (Settings) ──────────────────────────────────────────────────
+// ── Cash flows list (Settings) — deposits (+) and withdrawals (−) ─────────────
+// Stored in STATE.deposits[] for legacy compat (name kept). A withdrawal is a
+// row with negative amount. Net cash in = sum, used as the capital-deployed
+// signal for per-period rate math.
 function _renderDepositsList() {
   const el = document.getElementById("s-deposits-list");
   const totalEl = document.getElementById("s-deposits-total");
   if (!el || !totalEl) return;
   const list = (STATE.deposits || []).slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
   const total = getTotalDeposits();
-  totalEl.value = "$" + total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const totalStr = (total >= 0 ? "$" : "−$") + Math.abs(total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  totalEl.value = totalStr;
   if (!list.length) {
-    el.innerHTML = `<div style="font-size:10px;color:var(--text-muted);padding:6px 0">No deposits yet — add the dates and amounts you've funded the account.</div>`;
+    el.innerHTML = `<div style="font-size:10px;color:var(--text-muted);padding:6px 0">No cash flows yet — add deposits (+) when you fund the account and withdrawals (−) when you pull money out.</div>`;
     return;
   }
   el.innerHTML = list.map((d) => {
     const idx = (STATE.deposits || []).indexOf(d);
+    const amt = parseFloat(d.amount) || 0;
+    const isWithdrawal = amt < 0;
+    const amtColor = isWithdrawal ? "var(--negative)" : "var(--positive)";
+    const sign = isWithdrawal ? "−" : "+";
+    const kindLabel = isWithdrawal ? "WITHDRAW" : "DEPOSIT";
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-primary);border:1px solid var(--border-visible);border-radius:3px;margin-bottom:4px;font-size:11px;font-variant-numeric:tabular-nums">
+      <span style="color:var(--text-muted);flex:0 0 70px;font-size:9px;letter-spacing:0.02em">${kindLabel}</span>
       <span style="color:var(--text-secondary);flex:0 0 100px">${escapeHtml(d.date||"—")}</span>
-      <span style="color:var(--text-primary);font-weight:600;flex:0 0 110px;text-align:right">$${(parseFloat(d.amount)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      <span style="color:${amtColor};font-weight:600;flex:0 0 110px;text-align:right">${sign}$${Math.abs(amt).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
       <span style="color:var(--text-muted);flex:1;font-style:${d.note?'normal':'italic'};font-size:10px">${d.note?escapeHtml(d.note):'no note'}</span>
       <button class="btn btn-g" style="padding:3px 8px;font-size:9px;color:var(--negative);border-color:var(--negative-dim,rgba(239,68,68,0.3))" onclick="removeDeposit(${idx})">×</button>
     </div>`;
   }).join("");
 }
 
-function addDeposit() {
+function _addCashFlow(signedAmount) {
   const date = document.getElementById("s-dep-date").value;
-  const amount = parseFloat(document.getElementById("s-dep-amount").value);
   const note = document.getElementById("s-dep-note").value.trim();
-  if (!date) { alert("Date required"); return; }
-  if (!amount || amount <= 0) { alert("Amount must be > 0"); return; }
+  if (!date) { alert("Date required"); return false; }
+  if (!signedAmount || !Number.isFinite(signedAmount)) { alert("Amount must be a number > 0"); return false; }
   if (!Array.isArray(STATE.deposits)) STATE.deposits = [];
-  STATE.deposits.push({ date, amount, ...(note ? { note } : {}) });
+  STATE.deposits.push({ date, amount: signedAmount, ...(note ? { note } : {}) });
   // Keep legacy ytdDeposits in sync for any consumer that hasn't migrated.
   STATE.ytdDeposits = getTotalDeposits();
   save();
@@ -8725,12 +8738,26 @@ function addDeposit() {
   document.getElementById("s-dep-amount").value = "";
   document.getElementById("s-dep-note").value = "";
   renderKPIs(); // refresh KPIs since capital deployed changed
+  return true;
+}
+
+function addDeposit() {
+  const amount = Math.abs(parseFloat(document.getElementById("s-dep-amount").value));
+  _addCashFlow(amount);
+}
+
+function addWithdrawal() {
+  const amount = Math.abs(parseFloat(document.getElementById("s-dep-amount").value));
+  _addCashFlow(-amount); // stored negative — getTotalDeposits sums to a net figure
 }
 
 function removeDeposit(idx) {
   if (!Array.isArray(STATE.deposits) || idx < 0 || idx >= STATE.deposits.length) return;
   const d = STATE.deposits[idx];
-  if (!confirm(`Remove deposit: ${d.date} · $${d.amount}?`)) return;
+  const amt = parseFloat(d.amount) || 0;
+  const kind = amt < 0 ? "withdrawal" : "deposit";
+  const sign = amt < 0 ? "−" : "+";
+  if (!confirm(`Remove ${kind}: ${d.date} · ${sign}$${Math.abs(amt)}?`)) return;
   STATE.deposits.splice(idx, 1);
   STATE.ytdDeposits = getTotalDeposits();
   save();
