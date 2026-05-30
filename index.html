@@ -6553,7 +6553,10 @@ function renderForecast() {
     return principal * Math.pow(1 + monthlyPct/100, years*12);
   }
 
-  function fmt(n) { return n>=1e6?(n/1e6).toFixed(2)+"M":n.toLocaleString(undefined,{maximumFractionDigits:0}); }
+  // Money formatter: always commas, always 2 decimals (43631185.69 → "43,631,185.69")
+  function fmt(n) { return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  // Same but no decimals (for short-form P&L)
+  function fmtI(n) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
 
   // Trend indicator
   const trend = p30.rate > p90.rate && p90.rate > pAll.rate ? { text:"▲ Improving", color:C.pos }
@@ -6581,7 +6584,7 @@ function renderForecast() {
           <div style="font-size:12px;color:${C.textSec};margin-bottom:8px">per month</div>
           <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid ${C.border}">
             <div><div style="font-size:10px;color:${C.textSec}">Annualized</div><div style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.color};font-weight:600">${annRate.toFixed(1)}%</div></div>
-            <div style="text-align:right"><div style="font-size:10px;color:${C.textSec}">P&L</div><div style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.pnl>=0?C.pos:C.neg};font-weight:600">${s.pnl>=0?"+$":"-$"}${Math.abs(s.pnl).toFixed(0)}</div></div>
+            <div style="text-align:right"><div style="font-size:10px;color:${C.textSec}">P&L</div><div style="font-variant-numeric:tabular-nums;font-size:13px;color:${s.pnl>=0?C.pos:C.neg};font-weight:600">${s.pnl>=0?"+$":"-$"}${fmtI(Math.abs(s.pnl))}</div></div>
           </div>
           <div style="font-size:10px;color:${C.textMut};margin-top:4px">${s.count} trades · ${s.period}</div>
         </div>`;
