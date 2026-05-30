@@ -8913,36 +8913,75 @@ function parseFlexXMLTrades(xmlText) {
 // Faithful port of the validated Python import. Emits trades tagged src:"ibkr".
 // ════════════════════════════════════════════════════════════════════════════
 function reconstructFlexTrades(csvText) {
-  const lines = csvText.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
-  const header = parseCSVLine(lines[0]);
+  const allLines = csvText.split(/\r?\n/).filter(l => l.trim());
+  if (allLines.length < 2) return [];
+
+  // Detect multi-section CSV (Trades + Option Exercises/Assignments/Expirations).
+  // Each section starts with a header line whose first column is AssetClass.
+  const sectionStarts = [];
+  allLines.forEach((l, i) => { if (/^"?AssetClass"?\s*,/i.test(l)) sectionStarts.push(i); });
+  if (!sectionStarts.length) return [];
+
   const norm = s => s.toLowerCase().replace(/[\s_\/]/g, "");
-  const col = (names) => { for (const n of names) { const i = header.findIndex(h => norm(h) === norm(n)); if (i >= 0) return i; } return -1; };
-  const iCat=col(["AssetClass","AssetCategory"]), iSym=col(["Symbol"]), iUnd=col(["UnderlyingSymbol"]),
-    iStrike=col(["Strike"]), iExp=col(["Expiry","Expiration"]), iPC=col(["Put/Call","PutCall","Right"]),
-    iQty=col(["Quantity"]), iProc=col(["Proceeds"]), iPnl=col(["FifoPnlRealized","RealizedPnL","Realized P/L"]),
-    iCode=col(["Open/CloseIndicator","OpenCloseIndicator","Code"]), iTDate=col(["TradeDate"]), iDT=col(["DateTime","Date/Time"]);
-  if (iCat < 0 || iQty < 0) return []; // not a recognizable Flex trades CSV
   const F = x => { const v = parseFloat(x); return isNaN(v) ? 0 : v; };
-  const today = parseInt(new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'}).replace(/-/g,'')); // YYYYMMDD ET
+  const today = parseInt(new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'}).replace(/-/g,''));
   const fmtDate = s => (s && s.length >= 8) ? s.slice(0,4)+"-"+s.slice(4,6)+"-"+s.slice(6,8) : (s||"");
   const hhmm = dt => (dt && dt.includes(";")) ? dt.split(";")[1].slice(0,2)+":"+dt.split(";")[1].slice(2,4) : "";
   const futRoot = (sym,und) => { const b=(und||sym||"").toUpperCase(); const m=b.match(/^(MNQ|MES|NQ|ES|M2K|MYM|RTY|YM)/); return m?"/"+m[1]:b; };
   const isOpt = c => c==="OPT" || c==="FOP";
 
-  // parse rows
   const rows = [];
-  for (let i=1;i<lines.length;i++){
-    const f = parseCSVLine(lines[i]); if (f.length < 5) continue;
-    const cat = (iCat>=0?f[iCat]:"").toUpperCase();
-    const codeRaw = iCode>=0?f[iCode]:"";
-    rows.push({
-      cat, sym:iSym>=0?f[iSym]:"", und:iUnd>=0?f[iUnd]:"", strike:iStrike>=0?f[iStrike]:"",
-      expiry:iExp>=0?f[iExp]:"", pc:iPC>=0?f[iPC]:"", qty:F(iQty>=0?f[iQty]:0), proc:F(iProc>=0?f[iProc]:0),
-      pnl:F(iPnl>=0?f[iPnl]:0), code: codeRaw.includes("O")?"O":(/C|Ep/.test(codeRaw)?"C":""),
-      tdate:iTDate>=0?f[iTDate]:"", dt:iDT>=0?f[iDT]:"",
-    });
+
+  // ── Parse one section into row events ──
+  function parseSection(sectionLines, kind) {
+    if (sectionLines.length < 2) return;
+    const header = parseCSVLine(sectionLines[0]);
+    const col = (names) => { for (const n of names) { const i = header.findIndex(h => norm(h) === norm(n)); if (i >= 0) return i; } return -1; };
+    const iCat=col(["AssetClass","AssetCategory"]), iSym=col(["Symbol"]), iUnd=col(["UnderlyingSymbol"]),
+      iStrike=col(["Strike"]), iExp=col(["Expiry","Expiration"]), iPC=col(["Put/Call","PutCall","Right"]),
+      iQty=col(["Quantity"]), iProc=col(["Proceeds"]),
+      iPnl=col(["FifoPnlRealized","RealizedPnl","RealizedPnL","Realized P/L","RealizedPL"]),
+      iCode=col(["Open/CloseIndicator","OpenCloseIndicator","Code"]),
+      iTDate=col(["TradeDate","Date"]), iDT=col(["DateTime","Date/Time"]),
+      iTT=col(["TransactionType","Transaction Type"]);
+    if (iCat < 0) return;
+    for (let i = 1; i < sectionLines.length; i++) {
+      const f = parseCSVLine(sectionLines[i]); if (f.length < 5) continue;
+      const cat = (iCat>=0?f[iCat]:"").toUpperCase();
+      let code, qty = F(iQty>=0?f[iQty]:0), proc = F(iProc>=0?f[iProc]:0), pnl = F(iPnl>=0?f[iPnl]:0);
+      if (kind === "exp") {
+        // Expirations section: every row is a close event (expiration/assignment/exercise).
+        // The Quantity field has the correct sign to bring an open position to flat.
+        // Proceeds is 0 for expirations; RealizedPnl carries the value.
+        const tt = (iTT>=0?f[iTT]:"").toLowerCase();
+        if (tt && !/expir|assign|exerc/.test(tt)) continue;   // skip non-event rows
+        code = "C";
+        // Stock rows in this section (from assignments creating stock positions) — skip,
+        // the actual stock trades land in the Trades section.
+        if (cat === "STK") continue;
+      } else {
+        const codeRaw = iCode>=0?f[iCode]:"";
+        code = codeRaw.includes("O") ? "O" : (/C|Ep/.test(codeRaw) ? "C" : "");
+      }
+      const tdate = iTDate>=0?f[iTDate]:"";
+      // Expirations land at end of trading day — give them a synthetic time so they
+      // sort AFTER intraday opens on the same date (otherwise same-day open+expire
+      // fires backwards and the P&L attribution gets reversed).
+      const dt = kind === "exp" ? (tdate + ";235959") : (iDT>=0?f[iDT]:tdate);
+      rows.push({
+        cat, sym:iSym>=0?f[iSym]:"", und:iUnd>=0?f[iUnd]:"", strike:iStrike>=0?f[iStrike]:"",
+        expiry:iExp>=0?f[iExp]:"", pc:iPC>=0?f[iPC]:"", qty, proc, pnl, code,
+        tdate, dt,
+      });
+    }
   }
+
+  // ONLY parse the Trades section. IBKR's "Option Exercises, Assignments and
+  // Expirations" section is REDUNDANT — every expiration is already booked as a
+  // synthetic close fill in Trades (with the correct FifoPnlRealized). Parsing both
+  // double-counts and creates phantom open positions. Trades is authoritative.
+  const firstEnd = sectionStarts.length > 1 ? sectionStarts[1] : allLines.length;
+  parseSection(allLines.slice(sectionStarts[0], firstEnd), "trades");
   rows.sort((a,b)=>(a.dt||a.tdate).localeCompare(b.dt||b.tdate));
 
   const ikey = r => isOpt(r.cat) ? [r.und||r.sym,r.strike,r.expiry,r.pc,r.cat,r.sym].join("|") : [r.sym,r.cat].join("|");
