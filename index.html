@@ -2776,7 +2776,31 @@ async function triggerAutoExit(trade, reason, currentPrice) {
 }
 
 // ── Render helpers ─────────────────────────────────────────────────────────────
-function renderAll() { renderKPIs(); renderWatchlist(); renderPositions(); renderTrades(); renderStats(); if (currentDiaryId) renderDiary(); renderIncompleteBanner(); }
+// True if the user is mid-edit in `container` (or anywhere, if container omitted).
+// Used to skip destructive re-renders that would wipe an in-progress textarea/input
+// — most painfully the diary "Thesis to Enter" which only saves onblur (so the
+// 90-second poll's render would clobber whatever you were typing).
+function _userIsTypingIn(container) {
+  const a = document.activeElement;
+  if (!a) return false;
+  if (a.tagName !== 'INPUT' && a.tagName !== 'TEXTAREA' && !a.isContentEditable) return false;
+  if (!container) return true;
+  return container.contains(a);
+}
+
+function renderAll() {
+  renderKPIs();
+  renderWatchlist();
+  // Skip destructive re-renders if user is mid-typing inside them — the next
+  // poll/save cycle will pick up the data once focus moves on.
+  const posEl = document.getElementById('positions-content') || document.getElementById('tab-positions');
+  if (!_userIsTypingIn(posEl)) renderPositions();
+  renderTrades();
+  renderStats();
+  const diaryEl = document.getElementById('tab-diary') || document.getElementById('diary-detail-panel');
+  if (currentDiaryId && !_userIsTypingIn(diaryEl)) renderDiary();
+  renderIncompleteBanner();
+}
 
 function renderKPIs() {
   const closed = STATE.trades.filter(t=>t.status!=="Open");
@@ -4074,6 +4098,14 @@ function renderDiary() {
     <!-- Strategy & Sentiment -->
     <div class="card" style="margin-bottom:10px">
       <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">STRATEGY & CONTEXT</div>
+      <!-- Trade Type — auto-classified from IBKR fills; override here if wrong (e.g. Multi-leg that's really a Double Put Spread). Survives every sync. -->
+      <div class="frow" style="margin-bottom:10px">
+        <label>Trade Type <span style="color:${C.textMut};font-size:9px">— auto: ${escapeHtml(t.tradeType||"—")}${t.tradeTypeOverride?` · <span style="color:${C.accent}">overridden</span>`:""}</span></label>
+        <select onchange="setTradeTypeOverride(${t.id}, this.value)" style="font-size:11px">
+          <option value="">— use auto (${escapeHtml(t.tradeType||"—")}) —</option>
+          ${["Bull Put Spread","Bear Call Spread","Bear Put Spread","Bull Call Spread","Iron Condor","Iron Fly","Strangle","Straddle","Short Put","Short Call","Long Put","Long Call","Double Put Spread","Double Call Spread","Put Ladder","Call Ladder","Diagonal Spread","Calendar Spread","Multi-leg","Stock Long","Stock Short"].map(o => `<option value="${o}"${t.tradeTypeOverride===o?" selected":""}>${o}</option>`).join("")}
+        </select>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div>
           <div class="lbl">Market Sentiment</div>
@@ -4107,11 +4139,11 @@ function renderDiary() {
       </div>
       <div class="frow" style="margin-bottom:6px">
         <label>Thesis to Enter</label>
-        <textarea onblur="updateTradeField(${t.id},'thesis',this.value)" style="height:50px" placeholder="">${t.thesis||""}</textarea>
+        <textarea oninput="updateTradeFieldDebounced(${t.id},'thesis',this.value)" onblur="updateTradeField(${t.id},'thesis',this.value)" style="height:50px" placeholder="">${t.thesis||""}</textarea>
       </div>
       <div class="frow" style="margin-bottom:0">
         <label>Thesis to Exit</label>
-        <textarea onblur="updateTradeField(${t.id},'exitThesis',this.value)" style="height:40px" placeholder="">${t.exitThesis||""}</textarea>
+        <textarea oninput="updateTradeFieldDebounced(${t.id},'exitThesis',this.value)" onblur="updateTradeField(${t.id},'exitThesis',this.value)" style="height:40px" placeholder="">${t.exitThesis||""}</textarea>
       </div>
     </div>
 
@@ -8586,6 +8618,37 @@ function updateTradeField(id, field, value) {
   save();
 }
 
+// Set or clear a tradeType override. When set, applyFlexReconstruction will
+// replace the auto-classified tradeType with this value on every sync so the
+// manual label sticks. Pass "" to clear (use auto-classification).
+function setTradeTypeOverride(id, value) {
+  STATE.trades = STATE.trades.map(t => {
+    if (t.id !== id) return t;
+    const out = {...t, tradeTypeOverride: value || ""};
+    // Apply immediately to the live tradeType so the UI reflects the change.
+    if (value) out.tradeType = value;
+    // If cleared, we don't know the original auto-classified value here —
+    // next IBKR sync will recompute it from the CSV. Leave tradeType as-is
+    // until then.
+    return out;
+  });
+  save();
+  if (currentDiaryId === id) renderDiary();
+}
+
+// Debounced per-(id,field) variant. Use for textareas that should save WHILE
+// the user types (so a background render can't lose the in-progress text),
+// without hammering Supabase on every keystroke. 600ms after last keystroke.
+const _utfDebounceTimers = {};
+function updateTradeFieldDebounced(id, field, value) {
+  const k = id + "|" + field;
+  if (_utfDebounceTimers[k]) clearTimeout(_utfDebounceTimers[k]);
+  _utfDebounceTimers[k] = setTimeout(() => {
+    delete _utfDebounceTimers[k];
+    updateTradeField(id, field, value);
+  }, 600);
+}
+
 function addJournal() {
   const txt = document.getElementById("journal-input").value.trim();
   if (!txt) return;
@@ -9232,6 +9295,13 @@ function applyFlexReconstruction(recon) {
       t.journal=a.journal||[]; t.screenshots=a.screenshots||[]; t.thesis=a.thesis||"";
       t.lessonLearned=a.lessonLearned||""; t.exitReason=a.exitReason||t.exitReason||"";
       t.tpPrice=a.tpPrice||""; t.slPrice=a.slPrice||""; t.entryMode=a.entryMode; t.source=a.source; t.sourcePostUrl=a.sourcePostUrl;
+      t.exitThesis=a.exitThesis||""; t.thesisAccuracy=a.thesisAccuracy||"";
+      t.sentiment=a.sentiment||""; t.strategyType=a.strategyType||""; t.ideaSource=a.ideaSource||""; t.earningsFlag=a.earningsFlag||"";
+      // Trade-type override: when the auto-classifier mis-labels something (e.g.
+      // "Multi-leg" that's really a double put spread), user picks the correct
+      // label in the diary and it sticks across all future syncs.
+      t.tradeTypeOverride = a.tradeTypeOverride || "";
+      if (t.tradeTypeOverride) t.tradeType = t.tradeTypeOverride;
       t.id = a.id; // keep stable id
     } else { t.id = nid++; }
   }
