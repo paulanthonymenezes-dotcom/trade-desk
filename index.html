@@ -6529,10 +6529,14 @@ function renderForecast() {
     const trades = STATE.trades.filter(t => t.status!=="Open" && t.exitDate && new Date(t.exitDate) >= effectiveCutoff);
     const pnl = trades.reduce((s,t)=>s+(t.realizedPnl||0),0);
     const months = effectiveDays / 30;
-    // % return uses capitalDeployed (cost basis) as denominator, NOT current
-    // equity — projections compound from current equity, but the rate itself
-    // should reflect "how fast is my deployed capital growing per month."
-    const rate = capitalDeployed > 0 && months > 0 ? (pnl / capitalDeployed / months) * 100 : 0;
+    // Denominator = equity at the START of the period (not cost basis).
+    // For "Last 30d": start equity = current equity − P&L made in last 30d.
+    // For "All Time": start equity = capitalDeployed (cost basis) — which
+    // happens naturally since pnl_alltime is all the gains accumulated.
+    // Matches IBKR's "% return for the period" convention. Assumes no
+    // deposits/withdrawals inside the period (true for the short windows).
+    const periodStartEquity = base - pnl;
+    const rate = periodStartEquity > 0 && months > 0 ? (pnl / periodStartEquity / months) * 100 : 0;
     return { rate, pnl, count: trades.length, cutoff: effectiveCutoff };
   }
 
