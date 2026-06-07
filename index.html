@@ -4137,6 +4137,24 @@ function renderDiary() {
           </select>
         </div>
       </div>
+      <!-- Vol/macro context at entry — used to stratify P&L by regime later. -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;padding-top:10px;border-top:1px solid ${C.border}">
+        <div>
+          <div class="lbl">VIX at Entry</div>
+          <input type="number" step="0.01" placeholder="e.g. 16.3" value="${t.vixEntry??""}" onchange="updateTradeField(${t.id},'vixEntry',this.value===''?null:parseFloat(this.value))" style="font-size:11px;font-variant-numeric:tabular-nums">
+        </div>
+        <div>
+          <div class="lbl">IV Rank at Entry</div>
+          <input type="number" step="1" min="0" max="100" placeholder="0–100" value="${t.ivRankEntry??""}" onchange="updateTradeField(${t.id},'ivRankEntry',this.value===''?null:parseFloat(this.value))" style="font-size:11px;font-variant-numeric:tabular-nums">
+        </div>
+        <div>
+          <div class="lbl">Macro Event ≤7d</div>
+          <select onchange="updateTradeField(${t.id},'macroEventFlag',this.value)" style="font-size:11px">
+            <option value="">—</option>
+            ${["None","NFP","CPI","FOMC","PPI","GDP","Earnings (other ticker)","Other"].map(o=>`<option${t.macroEventFlag===o?" selected":""}>${o}</option>`).join("")}
+          </select>
+        </div>
+      </div>
       <div class="frow" style="margin-bottom:6px">
         <label>Thesis to Enter</label>
         <textarea oninput="updateTradeFieldDebounced(${t.id},'thesis',this.value)" onblur="updateTradeField(${t.id},'thesis',this.value)" style="height:50px" placeholder="">${t.thesis||""}</textarea>
@@ -9297,6 +9315,10 @@ function applyFlexReconstruction(recon) {
       t.tpPrice=a.tpPrice||""; t.slPrice=a.slPrice||""; t.entryMode=a.entryMode; t.source=a.source; t.sourcePostUrl=a.sourcePostUrl;
       t.exitThesis=a.exitThesis||""; t.thesisAccuracy=a.thesisAccuracy||"";
       t.sentiment=a.sentiment||""; t.strategyType=a.strategyType||""; t.ideaSource=a.ideaSource||""; t.earningsFlag=a.earningsFlag||"";
+      // Vol/macro context — preserved so we can stratify P&L by regime later.
+      if (a.vixEntry != null) t.vixEntry = a.vixEntry;
+      if (a.ivRankEntry != null) t.ivRankEntry = a.ivRankEntry;
+      if (a.macroEventFlag) t.macroEventFlag = a.macroEventFlag;
       // Trade-type override: when the auto-classifier mis-labels something (e.g.
       // "Multi-leg" that's really a double put spread), user picks the correct
       // label in the diary and it sticks across all future syncs.
