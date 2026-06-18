@@ -9319,6 +9319,14 @@ function applyFlexReconstruction(recon) {
       if (a.vixEntry != null) t.vixEntry = a.vixEntry;
       if (a.ivRankEntry != null) t.ivRankEntry = a.ivRankEntry;
       if (a.macroEventFlag) t.macroEventFlag = a.macroEventFlag;
+      // MAE / MFE — both manual (Exit form) and auto (polled by refreshAll
+      // and the VPS alerter). Was getting WIPED on every sync. That's why
+      // 0/160 closed trades had any MAE data — every reconstruction nuked
+      // whatever the alerter had accumulated. Preserve all four shapes.
+      if (a.mae != null && a.mae !== 0) t.mae = a.mae;
+      if (a.mfe != null && a.mfe !== 0) t.mfe = a.mfe;
+      if (a._autoMAE && a._autoMAE.pnl != null) t._autoMAE = a._autoMAE;
+      if (a._autoMFE && a._autoMFE.pnl != null) t._autoMFE = a._autoMFE;
       // Trade-type override: when the auto-classifier mis-labels something (e.g.
       // "Multi-leg" that's really a double put spread), user picks the correct
       // label in the diary and it sticks across all future syncs.
