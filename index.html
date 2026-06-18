@@ -403,6 +403,8 @@ table{width:100%;border-collapse:collapse}
     <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;box-sizing:border-box;background:#0d1117;border:1px solid #21262d;color:#fff;font-size:13px;padding:9px 11px;border-radius:5px;margin-bottom:12px;outline:none" onkeydown="if(event.key==='Enter')doLogin()">
     <button onclick="doLogin()" id="login-btn" style="width:100%;background:#2f81f7;border:none;color:#fff;font-size:13px;font-weight:600;padding:10px;border-radius:5px;cursor:pointer">Sign In</button>
     <div id="login-error" style="font-size:11px;color:#f85149;margin-top:10px;min-height:14px"></div>
+    <div style="text-align:center;margin-top:10px"><a href="#" onclick="event.preventDefault();doForgotPassword()" style="font-size:11px;color:#8b949e;text-decoration:none">Forgot password?</a></div>
+    <div id="login-info" style="font-size:11px;color:#3fb950;margin-top:8px;min-height:14px;text-align:center"></div>
   </div>
 </div>
 
@@ -9996,6 +9998,23 @@ async function doLogin() {
 async function doLogout() {
   try { await _sbClient().auth.signOut(); } catch (e) {}
   location.reload();
+}
+
+async function doForgotPassword() {
+  const email = document.getElementById("login-email").value.trim();
+  const errEl = document.getElementById("login-error");
+  const infoEl = document.getElementById("login-info");
+  errEl.textContent = ""; infoEl.textContent = "";
+  if (!email) { errEl.textContent = "Enter your email above first."; return; }
+  try {
+    const { error } = await _sbClient().auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin
+    });
+    if (error) throw error;
+    infoEl.textContent = "Reset email sent — check inbox (and spam).";
+  } catch (e) {
+    errEl.textContent = e?.message || "Couldn't send reset email.";
+  }
 }
 
 // Entry point: check for an existing session, gate the app behind login.
