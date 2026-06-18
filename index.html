@@ -1227,6 +1227,11 @@ table{width:100%;border-collapse:collapse}
     <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Background auto-sync runs on the server every hour (VPS cron). Browser only re-pulls if it's been &gt;4h since last sync — prevents IBKR throttle. Use SYNC button for instant refresh; CSV upload as fallback.</div>
     <div id="ibkr-sync-status" style="display:none;margin-bottom:8px"></div>
     <div id="ibkr-preview" style="display:none;margin-bottom:16px"></div>
+
+    <div class="st">Historical MAE / MFE Backfill</div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">One-time pull of 1-min historical option quotes from MarketData.app for every closed trade with no MAE/MFE data. Equity credit positions only — skips futures (/NQ) and debit positions. Logs progress to the debug panel; saves incrementally so a disconnect won't lose work.</div>
+    <button id="btn-backfill-mae" onclick="backfillAllMaeMfe()" class="btn btn-g" style="padding:8px 14px;font-size:11px;margin-bottom:16px">⟲ BACKFILL MAE / MFE FROM HISTORY</button>
+
     <div class="st">Auto-Exit (IBKR Gateway)</div>
     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Automatically close positions when TP/SL levels are hit. Requires IBKR Client Portal Gateway running on a VPS.</div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
@@ -3321,6 +3326,174 @@ function updateAutoMAEMFE(trade, stockPrice) {
   if (trade._autoMFE.pnl === null || pnl > trade._autoMFE.pnl) {
     trade._autoMFE = { pnl, price: stockPrice, date: today, src };
   }
+}
+
+// ── MAE/MFE Backfill (historical via MarketData.app) ─────────────────────────
+// The live tracker (updateAutoMAEMFE) only captures trades opened AFTER the
+// preserve-bug fix. For the ~160 closed trades that already have no MAE/MFE
+// data, we backfill by pulling historical 1-minute option quotes from
+// MarketData.app for each leg across the trade's life. Skips futures options
+// (different symbology, separate work) and skips debit positions for v1.
+
+function _isFuturesOptionTicker(t) {
+  return (t.ticker || "").startsWith("/");
+}
+
+// Credit positions: spread debit = abs(short_mid - long_mid), P&L = premium − debit×qty×100.
+// Debit positions (Bull Call / Bear Put / Long Call/Put): the formula reverses
+// (current credit-to-close − premium_paid). Handled separately if needed; for now
+// we only support credit because that's >95% of the user's strategies.
+function _isCreditPosition(t) {
+  const tt = (t.tradeType || "").toLowerCase();
+  return tt.includes("bull put spread") || tt.includes("bear call spread")
+      || tt.includes("short put") || tt.includes("short call")
+      || tt.includes("iron condor") || tt.includes("iron fly")
+      || tt.includes("strangle");
+}
+
+// OCC-21 option symbol: ROOT(≤6) + YYMMDD + C/P + STRIKE×1000 zero-padded to 8.
+// e.g. NVDA 200 put exp 2026-03-06 → "NVDA260306P00200000"
+function _buildOccSymbol(ticker, expiryISO, side /* "P" | "C" */, strike) {
+  const root = String(ticker || "").toUpperCase();
+  // ISO date → YYMMDD
+  const ymd = expiryISO.replace(/-/g, "").slice(2); // "20260306" → "260306"
+  const k = Math.round(parseFloat(strike) * 1000).toString().padStart(8, "0");
+  return `${root}${ymd}${side}${k}`;
+}
+
+// Fetch 1-minute mid quotes for a single OCC symbol across [from, to].
+// Returns null on any failure (caller should skip the trade).
+async function _fetchOptionMinuteSeries(occ, fromISO, toISO) {
+  try {
+    const path = `/options/quotes/${occ}/?from=${fromISO}&to=${toISO}&resolution=1`;
+    const r = await mdaFetch(path);
+    if (!r || r.s !== "ok") return null;
+    const mid = r.mid || [];
+    const updated = r.updated || [];
+    if (!mid.length) return null;
+    return mid.map((m, i) => ({ mid: m, ts: updated[i] }));
+  } catch(e) {
+    dbg(`backfill: ${occ} fetch failed: ${e.message}`, "warn");
+    return null;
+  }
+}
+
+// Backfill MAE/MFE for one closed trade. Returns { ok, reason?, mae?, mfe? }.
+async function backfillTradeMaeMfe(t) {
+  if (t.status === "Open") return { ok: false, reason: "open" };
+  if (!t.entryDate || !t.exitDate) return { ok: false, reason: "no-dates" };
+  if (_isFuturesOptionTicker(t)) return { ok: false, reason: "futures-option" };
+  if (!_isCreditPosition(t)) return { ok: false, reason: "not-credit" };
+  if ((t._autoMAE?.pnl != null) && (t._autoMFE?.pnl != null)) return { ok: false, reason: "already-have" };
+  if (!t.expiry || !t.shortStrike) return { ok: false, reason: "missing-fields" };
+
+  const isPut = (t.tradeType || "").toLowerCase().includes("put");
+  const side = isPut ? "P" : "C";
+
+  const shortOcc = _buildOccSymbol(t.ticker, t.expiry, side, t.shortStrike);
+  const longOcc = t.longStrike ? _buildOccSymbol(t.ticker, t.expiry, side, t.longStrike) : null;
+
+  const [shortSeries, longSeries] = await Promise.all([
+    _fetchOptionMinuteSeries(shortOcc, t.entryDate, t.exitDate),
+    longOcc ? _fetchOptionMinuteSeries(longOcc, t.entryDate, t.exitDate) : Promise.resolve([{ mid: 0 }]),
+  ]);
+
+  if (!shortSeries || !longSeries) return { ok: false, reason: "no-data" };
+
+  // Align by index (both series queried for the same range/resolution should match).
+  // If lengths differ slightly, walk to the min and trust the data quality.
+  const n = Math.min(shortSeries.length, longSeries.length);
+  if (n < 1) return { ok: false, reason: "empty-series" };
+
+  const contracts = t.contracts || 1;
+  const mult = 100; // equity options
+  const premium = t.premiumCollected || 0;
+
+  let maxDebit = -Infinity, maxAt = null;
+  let minDebit = Infinity,  minAt = null;
+  for (let i = 0; i < n; i++) {
+    const sm = shortSeries[i].mid, lm = longSeries[i].mid;
+    if (sm == null || lm == null) continue;
+    const debit = Math.abs(sm - lm); // per-share debit to close (credit spread or single short)
+    if (debit > maxDebit) { maxDebit = debit; maxAt = shortSeries[i].ts || null; }
+    if (debit < minDebit) { minDebit = debit; minAt = shortSeries[i].ts || null; }
+  }
+  if (!isFinite(maxDebit) || !isFinite(minDebit)) return { ok: false, reason: "no-valid-bars" };
+
+  // Convert per-share debit → total dollars to close, then to P&L vs premium.
+  const maePnl = Math.round((premium - maxDebit * contracts * mult) * 100) / 100;
+  const mfePnl = Math.round((premium - minDebit * contracts * mult) * 100) / 100;
+
+  return {
+    ok: true,
+    mae: { pnl: maePnl, price: null, date: t.exitDate, src: "backfill-mda-1m", ts: maxAt },
+    mfe: { pnl: mfePnl, price: null, date: t.exitDate, src: "backfill-mda-1m", ts: minAt },
+  };
+}
+
+// Orchestrator. Idempotent (skips trades that already have MAE/MFE).
+// Saves to Supabase incrementally every BATCH_SIZE trades so a disconnect
+// mid-run doesn't lose progress.
+async function backfillAllMaeMfe() {
+  const all = (STATE.trades || []).filter(t => t.status !== "Open");
+  const candidates = all.filter(t => !(_isFuturesOptionTicker(t)) && _isCreditPosition(t)
+                                   && !(t._autoMAE?.pnl != null && t._autoMFE?.pnl != null));
+  const skipped = {
+    futures: all.filter(_isFuturesOptionTicker).length,
+    notCredit: all.filter(t => !_isFuturesOptionTicker(t) && !_isCreditPosition(t)).length,
+    alreadyHave: all.filter(t => t._autoMAE?.pnl != null && t._autoMFE?.pnl != null).length,
+  };
+
+  const msg = `BACKFILL MAE / MFE\n\n`
+    + `Closed trades total:    ${all.length}\n`
+    + `Will process:           ${candidates.length}\n`
+    + `Skip — already have:    ${skipped.alreadyHave}\n`
+    + `Skip — futures (/NQ):   ${skipped.futures}\n`
+    + `Skip — debit position:  ${skipped.notCredit}\n\n`
+    + `Pulls 1-minute historical option quotes from MarketData.app\n`
+    + `for each leg across each trade's life. ~2 calls per trade.\n`
+    + `Roughly ${candidates.length * 2} MDA API calls total.\n\n`
+    + `Proceed?`;
+  if (!confirm(msg)) return;
+
+  const dbgPanel = document.getElementById("debug-panel");
+  if (dbgPanel) dbgPanel.style.display = "block";
+  dbg(`=== MAE/MFE backfill starting — ${candidates.length} trades ===`, "info");
+
+  const BATCH_SIZE = 10;
+  const PACING_MS = 100; // gentle rate-limit cushion
+  let ok = 0, failed = 0;
+  const failReasons = {};
+
+  for (let i = 0; i < candidates.length; i++) {
+    const t = candidates[i];
+    const tradeIdx = (STATE.trades || []).findIndex(x => x.id === t.id);
+    if (tradeIdx < 0) continue;
+
+    const result = await backfillTradeMaeMfe(t);
+    if (result.ok) {
+      STATE.trades[tradeIdx]._autoMAE = result.mae;
+      STATE.trades[tradeIdx]._autoMFE = result.mfe;
+      ok++;
+      dbg(`✓ ${i+1}/${candidates.length} ${t.ticker} ${t.expiry} ${t.shortStrike}/${t.longStrike||"-"}  MAE $${result.mae.pnl}  MFE $${result.mfe.pnl}`, "success");
+    } else {
+      failed++;
+      failReasons[result.reason] = (failReasons[result.reason] || 0) + 1;
+      dbg(`✗ ${i+1}/${candidates.length} ${t.ticker} ${t.expiry} — ${result.reason}`, "warn");
+    }
+
+    // Incremental save every BATCH_SIZE
+    if ((i + 1) % BATCH_SIZE === 0) {
+      try { await save(); dbg(`… saved progress at ${i+1}`, "info"); } catch(e) { dbg(`save failed: ${e.message}`, "warn"); }
+    }
+    if (PACING_MS) await new Promise(r => setTimeout(r, PACING_MS));
+  }
+
+  try { await save(); } catch(e) {}
+  const summary = `Done. ${ok} backfilled · ${failed} failed.\n\n` + Object.entries(failReasons).map(([k,v]) => `  ${k}: ${v}`).join("\n");
+  dbg(`=== MAE/MFE backfill complete: ${ok} ok / ${failed} failed ===`, "success");
+  alert(summary);
+  renderPositions(); renderTrades();
 }
 
 // Quick chart upload from position card
