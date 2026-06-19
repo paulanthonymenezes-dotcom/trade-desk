@@ -562,11 +562,11 @@ table{width:100%;border-collapse:collapse}
 
 <nav id="left-sidebar">
   <button class="side-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span><span class="side-label">Pre-Market</span></button>
-  <button class="side-btn active" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">Positions</span></button>
+  <button class="side-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">Positions</span></button>
   <button class="side-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span><span class="side-label">Watchlist</span></button>
   <div style="height:1px;background:var(--border-subtle);margin:6px 14px"></div>
   <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">Diary</span></button>
-  <button class="side-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">Statistics</span></button>
+  <button class="side-btn active" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">Statistics</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
 </nav>
 
@@ -582,7 +582,7 @@ table{width:100%;border-collapse:collapse}
   </div>
 
   <!-- POSITIONS TAB -->
-  <div id="tab-positions" class="section active" style="display:block">
+  <div id="tab-positions" class="section" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:8px">
         <div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-secondary);letter-spacing:0.02em">OPEN POSITIONS</div>
@@ -672,7 +672,7 @@ table{width:100%;border-collapse:collapse}
   </div>
 
   <!-- STATS TAB -->
-  <div id="tab-stats" class="section">
+  <div id="tab-stats" class="section active" style="display:block">
     <div id="stats-content" style="max-width:1200px;margin:0 auto"></div>
   </div>
 
@@ -721,10 +721,10 @@ table{width:100%;border-collapse:collapse}
 <!-- Bottom Nav -->
 <nav id="bottom-nav">
   <button class="nav-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span>PRE</button>
-  <button class="nav-btn active" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POS</button>
+  <button class="nav-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POS</button>
   <button class="nav-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>WATCH</button>
   <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
-  <button class="nav-btn" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
+  <button class="nav-btn active" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
   <button class="nav-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span>CAST</button>
 </nav>
 
@@ -5693,8 +5693,85 @@ function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
     }
   }
 
+  // SYMBOL CONCENTRATION — flag if one ticker dominates losses
+  const bySym = {};
+  closed.forEach(t => {
+    const k = t.ticker || "?";
+    if (!bySym[k]) bySym[k] = { n:0, wins:0, pnl:0, lossSum:0 };
+    bySym[k].n++;
+    bySym[k].pnl += (t.realizedPnl||0);
+    if ((t.realizedPnl||0) > 0) bySym[k].wins++;
+    if ((t.realizedPnl||0) < 0) bySym[k].lossSum += (t.realizedPnl||0);
+  });
+  const totalLoss = Object.values(bySym).reduce((a,s) => a + s.lossSum, 0);
+  if (totalLoss < 0) {
+    const ranked = Object.entries(bySym).map(([k,s]) => ({k, ...s, share: totalLoss ? s.lossSum / totalLoss : 0})).filter(s => s.lossSum < 0).sort((a,b) => a.lossSum - b.lossSum);
+    const top = ranked[0];
+    if (top && top.share >= 0.6) {
+      const pct = Math.round(top.share * 100);
+      const sev = pct >= 80 ? "HIGH" : "MEDIUM";
+      const sevC = pct >= 80 ? C.neg : C.warn;
+      const scCtx = `SYMBOL CONCENTRATION: ${top.k} carries ${pct}% of all losses ($${top.lossSum.toFixed(0)} of $${totalLoss.toFixed(0)} total losses) across ${top.n} trades (${Math.round(top.wins/top.n*100)}% WR). Ranked symbols by loss share: ${ranked.slice(0,5).map(s=>`${s.k}=${Math.round(s.share*100)}%`).join(', ')}.`;
+      cards.push(`<div class="card" style="padding:12px;border-left:3px solid ${sevC}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.06em">LOSS CONCENTRATION</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${sevC};font-weight:600;margin-top:2px">${escapeHtml(top.k)}</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button onclick="_aiBreakdown('Loss Concentration', ${JSON.stringify(scCtx)}, 'Why is ${top.k} carrying ${pct}% of my losses? Should I stop trading it entirely, size down, or change my approach (e.g. different DTE, strike distance, time of day)? Give me a specific rule.')" title="Ask Claude to dig in" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
+          </div>
+        </div>
+        <div style="font-size:11px;color:${C.text};line-height:1.5;margin-bottom:8px">
+          ${escapeHtml(top.k)} carries <b style="color:${sevC}">${pct}%</b> of all losses (<b style="color:${C.neg}">${fmt$(top.lossSum)}</b> of ${fmt$(totalLoss)}) across ${top.n} trades.<br>
+          Win rate on ${escapeHtml(top.k)}: <b>${Math.round(top.wins/top.n*100)}%</b>.
+        </div>
+        <div style="font-size:11px;color:${C.text};padding-top:6px;border-top:1px solid ${C.border}">
+          <span style="color:${C.accent}">▶ Next:</span> Compare ${escapeHtml(top.k)} against profitable symbols before adding size or taking marginal setups.
+        </div>
+      </div>`);
+    }
+  }
+
+  // MAE TAIL RISK — % of trades that survived MAE > 100% of premium (i.e.,
+  // were down more than their full credit but lived). High % = you're rolling
+  // tail risk; eventually one of these won't come back.
+  const withMaeAndPrem = closed.filter(t => t.premiumCollected && t.premiumCollected > 0 && getMAE(t) != null);
+  if (withMaeAndPrem.length >= 10) {
+    const breached = withMaeAndPrem.filter(t => (getMAE(t) / t.premiumCollected) >= 1.0);
+    const pct = Math.round(breached.length / withMaeAndPrem.length * 100);
+    if (pct >= 15) {
+      const sev = pct >= 40 ? "HIGH" : pct >= 25 ? "MEDIUM" : "LOW";
+      const sevC = sev === "HIGH" ? C.neg : sev === "MEDIUM" ? C.warn : C.textSec;
+      const breachedWin = breached.filter(t => (t.realizedPnl||0) > 0).length;
+      const tailCtx = `MAE TAIL RISK: ${breached.length}/${withMaeAndPrem.length} trades (${pct}%) saw MAE exceed 100% of premium — i.e., the position was down MORE than the credit collected at some point. Of those, ${breachedWin} (${Math.round(breachedWin/breached.length*100)}%) recovered to win. The trader is sitting through tail-risk events frequently. Worst MAE in scope: ${Math.max(...breached.map(t=>getMAE(t)/t.premiumCollected)).toFixed(1)}x premium.`;
+      cards.push(`<div class="card" style="padding:12px;border-left:3px solid ${sevC}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.06em">MAE TAIL RISK</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${sevC};font-weight:600;margin-top:2px">${pct}%</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button onclick="_aiBreakdown('MAE Tail Risk', ${JSON.stringify(tailCtx)}, 'I am surviving deep drawdowns (>100% premium) on ${pct}% of my trades. What hard SL rule would have changed my outcomes? Quantify: how many losses would have been prevented vs how many winners would have been killed?')" title="Ask Claude to quantify the SL tradeoff" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
+          </div>
+        </div>
+        <div style="font-size:11px;color:${C.text};line-height:1.5;margin-bottom:8px">
+          <b>${breached.length}/${withMaeAndPrem.length}</b> trades (${pct}%) had MAE > 100% of premium.<br>
+          Of those, <b style="color:${breachedWin>=breached.length/2?C.pos:C.neg}">${breachedWin} (${Math.round(breachedWin/breached.length*100)}%)</b> recovered to win — you're sitting through tail risk that mostly resolves, but eventually won't.
+        </div>
+        <div style="font-size:11px;color:${C.text};padding-top:6px;border-top:1px solid ${C.border}">
+          <span style="color:${C.accent}">▶ Next:</span> Pick a hard SL level (e.g. -150% premium) and stick to it. Better to convert occasional saves into smaller certain losses than to keep rolling tail risk.
+        </div>
+      </div>`);
+    }
+  }
+
   if (!cards.length) return "";
-  return `<div style="display:grid;grid-template-columns:repeat(${cards.length>1?2:1},1fr);gap:8px;margin-bottom:14px">${cards.join("")}</div>`;
+  // Layout: 1 card = full width, 2+ = 2-column grid (wraps as needed)
+  const cols = Math.min(2, cards.length);
+  return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:8px;margin-bottom:14px">${cards.join("")}</div>`;
 }
 
 // ── Daily P&L Calendar (TradesViz-style heatmap) ─────────────────────────────
@@ -6813,11 +6890,31 @@ function _readReviewCache(key) {
   } catch { return null; }
 }
 
+// Friendly date-range label for the current statsDateFilter. e.g. "MTD ·
+// Jun 1 → Jun 19" so the user knows exactly what's in scope.
+function _dateFilterLabel(closed) {
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // Determine actual range from the data (since closed has already been
+  // filtered) for the "from" side; "to" is always today/most-recent exit.
+  const dates = closed.map(t => t.exitDate || t.entryDate).filter(Boolean).sort();
+  const from = dates.length ? new Date(dates[0]) : null;
+  const to = dates.length ? new Date(dates[dates.length - 1]) : null;
+  const rangeStr = from && to ? `${fmt(from)} → ${fmt(to)}` : "";
+  const tagMap = {
+    "1d": "Last 24h", "1w": "Last 7d", "mtd": "Month to date",
+    "1m": "Last 30d", "3m": "Last 90d", "ytd": "Year to date",
+    "all": "All time", "custom": "Custom range",
+  };
+  const tag = tagMap[statsDateFilter] || statsDateFilter;
+  return rangeStr ? `${tag} · ${rangeStr}` : tag;
+}
+
 function _tradingReviewPanel(closed) {
   const cacheKey = `_aiTradingReview:${statsDateFilter}:${closed.length}`;
   const cached = _readReviewCache(cacheKey);
   const tradeCount = closed.length;
   const ageStr = cached ? `· ${_relativeTime(cached.ts)} ago · cached` : "";
+  const rangeLabel = _dateFilterLabel(closed);
   const body = cached
     ? _renderTradingReviewBody(cached.data)
     : `<div style="font-size:11px;color:${C.textSec};padding:20px 12px;text-align:center;line-height:1.6">
@@ -6826,10 +6923,10 @@ function _tradingReviewPanel(closed) {
       </div>`;
   return `<div id="trading-review-panel" class="card" style="padding:14px;margin-bottom:14px;border:1px solid ${C.accent}55;background:${C.bgCard||C.bg}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
         <span style="font-size:9px;background:${C.accent}33;color:${C.accent};padding:3px 7px;border-radius:3px;letter-spacing:0.06em;font-weight:700">AI</span>
         <div style="font-size:14px;color:${C.text};font-weight:600">Trading Review</div>
-        <div style="font-size:10px;color:${C.textMut};font-variant-numeric:tabular-nums">${tradeCount} trades ${ageStr}</div>
+        <div style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums"><b>${tradeCount} trades</b> · <span style="color:${C.text}">${escapeHtml(rangeLabel)}</span> ${ageStr}</div>
       </div>
       <button onclick="_runTradingReview()" class="btn btn-p" style="padding:6px 14px;font-size:11px">${cached ? "Re-run Review" : "Run Review"}</button>
     </div>
