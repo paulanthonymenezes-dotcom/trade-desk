@@ -9657,7 +9657,7 @@ function reconstructFlexTrades(csvText) {
     if (Math.abs(st.net)<1e-6){
       legtrips.push({asset:r.cat,under:isOpt(r.cat)?(r.und||r.sym):r.sym,strike:isOpt(r.cat)?r.strike:"",
         expiry:isOpt(r.cat)?r.expiry:"",side:isOpt(r.cat)?r.pc:"",sym:r.sym,odt:st.odt,odate:st.odate,
-        exit:r.tdate,pnl:Math.round(st.pnl*100)/100,oproc:Math.round(st.oproc),oqty:st.oqty,short:st.oproc>0});
+        exit:r.tdate,xdt:r.dt,pnl:Math.round(st.pnl*100)/100,oproc:Math.round(st.oproc),oqty:st.oqty,short:st.oproc>0});
       st.odt=null;
     }
   }
@@ -9680,6 +9680,7 @@ function reconstructFlexTrades(csvText) {
     const prem = legs.reduce((s,l)=>s+l.oproc,0);
     const contracts = Math.max(...legs.map(l=>l.oqty));
     const odts = legs.map(l=>l.odt).filter(Boolean); const odt = odts.length?odts.sort()[0]:"";
+    const xdts = legs.map(l=>l.xdt).filter(Boolean); const xdt = xdts.length?xdts.sort().reverse()[0]:"";
     const entryISO = fmtDate(legs[0].odate); const expiryISO = fmtDate(legs[0].expiry);
     let dte = null;
     if (expiryISO && entryISO) {
@@ -9693,6 +9694,7 @@ function reconstructFlexTrades(csvText) {
     const longSymbol = longs.length ? longs[0].sym : null;
     const t = {ticker, assetClass:ac, tradeType:label(legs,asset), status,
       entryDate:entryISO, entryTime:hhmm(odt), expiry:expiryISO,
+      exitTime: hhmm(xdt),  // closing-fill time (ET); used for MAE/MFE window in Databento backfill
       shortStrike:sStrike, longStrike:lStrike, contracts:Math.round(contracts),
       shortSymbol, longSymbol,
       premiumCollected: ac==="Stock"?0:Math.abs(prem), legs:legs.length,
@@ -9765,6 +9767,7 @@ function applyFlexReconstruction(recon) {
       // was added).
       if (!t.shortSymbol && a.shortSymbol) t.shortSymbol = a.shortSymbol;
       if (!t.longSymbol && a.longSymbol) t.longSymbol = a.longSymbol;
+      if (!t.exitTime && a.exitTime) t.exitTime = a.exitTime;
       // Trade-type override: when the auto-classifier mis-labels something (e.g.
       // "Multi-leg" that's really a double put spread), user picks the correct
       // label in the diary and it sticks across all future syncs.
