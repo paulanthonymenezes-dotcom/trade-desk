@@ -5692,8 +5692,8 @@ function _dailyPnlCalendar(closed) {
     const intensity = Math.min(0.85, (Math.abs(data.pnl) / maxAbs) * 0.7 + 0.15);
     const isPos = data.pnl >= 0;
     const bg = isPos ? `rgba(46,160,67,${intensity})` : `rgba(248,81,73,${intensity})`;
-    const tip = `${ds} · ${data.count} trade${data.count>1?'s':''} · ${fmt$(data.pnl)}`;
-    return `<div title="${tip}" style="aspect-ratio:1;padding:3px;background:${bg};border:1px solid ${isPos?C.pos:C.neg};border-radius:2px;font-size:9px;color:#fff;display:flex;flex-direction:column;justify-content:space-between">
+    const tip = `${ds} · ${data.count} trade${data.count>1?'s':''} · ${fmt$(data.pnl)} — click to view`;
+    return `<div title="${tip}" onclick="_calendarOpenDay('${ds}')" style="aspect-ratio:1;padding:3px;background:${bg};border:1px solid ${isPos?C.pos:C.neg};border-radius:2px;font-size:9px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer;transition:transform 0.05s" onmouseenter="this.style.transform='scale(1.05)'" onmouseleave="this.style.transform='scale(1)'">
       <div style="text-align:right;opacity:0.7">${day}</div>
       <div style="font-variant-numeric:tabular-nums;font-weight:600;font-size:9px;text-align:center">${fmt$(data.pnl)}</div>
     </div>`;
@@ -5724,11 +5724,65 @@ function _dailyPnlCalendar(closed) {
   }
 
   return `<div class="card" style="padding:14px;margin-bottom:14px">
-    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:10px">DAILY P&L CALENDAR — last 3 months</div>
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:10px">DAILY P&L CALENDAR — last 3 months · click a day to view its trades</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
       ${months.map(m => monthGrid(m.year, m.month)).join('')}
     </div>
   </div>`;
+}
+
+// Build (lazily) and open the day-trades modal. List trades that exited on the
+// given date; each row click → openDiary(id) which switches to Diary tab and
+// loads the full detail panel.
+function _calendarOpenDay(dateStr) {
+  const trades = (STATE.trades || []).filter(t => t.status !== "Open" && t.exitDate === dateStr);
+  if (!trades.length) return;
+  const total = trades.reduce((s, t) => s + (t.realizedPnl || 0), 0);
+  const wins = trades.filter(t => (t.realizedPnl || 0) > 0).length;
+
+  // Build or find the modal
+  let modal = document.getElementById("cal-day-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "cal-day-modal";
+    modal.className = "overlay";
+    modal.style.display = "none";
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div class="modal" style="max-width:560px;max-height:80vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div>
+          <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${C.text};font-weight:600">${dateStr}</div>
+          <div style="font-size:10px;color:${C.textSec};margin-top:2px">${trades.length} trade${trades.length>1?'s':''} · ${wins}W / ${trades.length-wins}L · <span style="color:${total>=0?C.pos:C.neg};font-weight:600">${fmt$(total)}</span></div>
+        </div>
+        <button onclick="document.getElementById('cal-day-modal').style.display='none'" style="background:none;border:none;color:${C.textSec};font-size:22px;cursor:pointer">&times;</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        ${trades
+          .slice()
+          .sort((a, b) => (b.realizedPnl || 0) - (a.realizedPnl || 0))
+          .map(t => {
+            const pnl = t.realizedPnl || 0;
+            const pnlColor = pnl >= 0 ? C.pos : C.neg;
+            const strikes = t.longStrike ? `${t.shortStrike}/${t.longStrike}` : `${t.shortStrike}`;
+            return `<div onclick="document.getElementById('cal-day-modal').style.display='none';openDiary(${t.id})"
+              style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;cursor:pointer;transition:border-color 0.1s"
+              onmouseenter="this.style.borderColor='${C.borderVis}'"
+              onmouseleave="this.style.borderColor='${C.border}'">
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+                <div style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.text};font-weight:600">${escapeHtml(t.ticker||'?')} <span style="color:${C.textSec};font-weight:400">· ${escapeHtml(t.tradeType||'')}</span></div>
+                <div style="font-size:10px;color:${C.textMut};font-variant-numeric:tabular-nums">${strikes} · ${t.contracts||1}× · exp ${escapeHtml(t.expiry||'?')}</div>
+              </div>
+              <div style="font-variant-numeric:tabular-nums;font-size:13px;color:${pnlColor};font-weight:600;text-align:right;margin-left:12px">${pnl>=0?'+$':'-$'}${Math.abs(pnl).toFixed(0)}</div>
+            </div>`;
+          }).join("")}
+      </div>
+      <div style="font-size:9px;color:${C.textMut};margin-top:10px;text-align:center;font-style:italic">Click any trade to open in Diary</div>
+    </div>`;
+  modal.style.display = "flex";
 }
 
 // ── 2. RISK ─────────────────────────────────────────────────────────────────
