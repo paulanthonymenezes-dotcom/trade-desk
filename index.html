@@ -6077,16 +6077,26 @@ function _scatterOpenTrade(tradeId) {
 
 function _maeScatterInsight(data) {
   if (data.length < 5) return "";
-  // Of trades that hit deep MAE, what fraction recovered to win?
-  const buckets = [50, 100, 150, 200];
+  // Cumulative cohorts (nested): each "−X% or worse" bucket includes all
+  // trades that hit AT LEAST that level. As the threshold gets deeper the
+  // cohort shrinks but the SAME recovering winners stay in it — so deeper
+  // buckets can show HIGHER win rates not because deeper MAE recovers more
+  // (it doesn't), but because the same few "saved" trades are a bigger
+  // fraction of a smaller denominator. Always read this alongside N.
+  const buckets = [50, 100, 150, 200, 300];
+  const N_LOW = 5; // below this, treat the number as anecdotal
   const lines = buckets.map(b => {
     const breached = data.filter(d => d.maePctOfPrem <= -b);
     if (!breached.length) return null;
     const recovered = breached.filter(d => d.isWin).length;
     const pct = Math.round((recovered / breached.length) * 100);
-    return `Of trades that hit −${b}% MAE: <b style="color:${pct>=50?C.pos:C.neg}">${pct}%</b> still won (${recovered}/${breached.length}).`;
+    const lowSample = breached.length < N_LOW;
+    const pctColor = lowSample ? C.textMut : (pct >= 50 ? C.pos : C.neg);
+    const nNote = lowSample ? ` <span style="color:${C.warn};font-size:9px">(n<${N_LOW}, noisy)</span>` : "";
+    return `Hit −${b}% MAE or worse: <b style="color:${pctColor}">${pct}%</b> still won (${recovered}/${breached.length})${nNote}`;
   }).filter(Boolean);
-  return lines.join("<br>");
+  const header = `<div style="font-size:9px;color:${C.textMut};margin-bottom:4px;font-style:italic">Cumulative cohorts — each row includes trades from the row above. "If your stop was set here, you'd have killed this % of winners."</div>`;
+  return header + lines.join("<br>");
 }
 
 function _mfeScatterInsight(data) {
