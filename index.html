@@ -9326,9 +9326,13 @@ function reconstructFlexTrades(csvText) {
   if (allLines.length < 2) return [];
 
   // Detect multi-section CSV (Trades + Option Exercises/Assignments/Expirations).
-  // Each section starts with a header line whose first column is AssetClass.
+  // A header line contains "AssetClass" AND "Symbol" AND "Quantity" as column
+  // names (bracketed by quotes/commas). Some Flex queries (e.g. TradesViz's)
+  // put ClientAccountID first so AssetClass isn't column 0 — match by presence,
+  // not position. Requiring 3 column names eliminates false positives.
   const sectionStarts = [];
-  allLines.forEach((l, i) => { if (/^"?AssetClass"?\s*,/i.test(l)) sectionStarts.push(i); });
+  const isHeaderLine = l => /[",]AssetClass[",]/i.test(l) && /[",]Symbol[",]/i.test(l) && /[",]Quantity[",]/i.test(l);
+  allLines.forEach((l, i) => { if (isHeaderLine(l)) sectionStarts.push(i); });
   if (!sectionStarts.length) return [];
 
   const norm = s => s.toLowerCase().replace(/[\s_\/]/g, "");
