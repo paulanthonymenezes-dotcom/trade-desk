@@ -6066,17 +6066,16 @@ function _scatterResetZoom(kind) {
   renderStatsContent(true);
 }
 
-// Click handler for scatter dots — opens the trade in the Diary tab
+// Click handler for scatter dots — opens the trade in the Diary tab with
+// full details (thesis, exit review, MAE/MFE, journal, screenshots, etc.)
 function _scatterOpenTrade(tradeId) {
-  if (!tradeId) return;
-  switchTab('diary');
-  setTimeout(() => {
-    if (typeof openDiaryTrade === 'function') openDiaryTrade(tradeId);
-    else if (typeof currentDiaryId !== 'undefined') {
-      currentDiaryId = tradeId;
-      if (typeof renderDiary === 'function') renderDiary();
-    }
-  }, 100);
+  if (typeof tradeId !== "number") return;
+  if (typeof openDiary === "function") openDiary(tradeId);
+  else if (typeof currentDiaryId !== "undefined") {
+    currentDiaryId = tradeId;
+    if (typeof switchTab === "function") switchTab("diary");
+    if (typeof renderDiary === "function") renderDiary();
+  }
 }
 
 function _maeScatterInsight(data) {
