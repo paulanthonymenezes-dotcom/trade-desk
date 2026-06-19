@@ -4606,6 +4606,34 @@ async function renderDiaryTVChart(tradeId) {
     if (t.tpPrice) priceLines.push({ price: parseFloat(t.tpPrice), color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP' });
     if (t.slPrice) priceLines.push({ price: parseFloat(t.slPrice), color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SL' });
   }
+
+  // MAE / MFE underlying price lines — finds the candle nearest the
+  // MAE/MFE timestamp, uses its close as the underlying-price marker.
+  // Shows "MAE @ 30807" / "MFE @ 30481" style labels so the user can see
+  // exactly where the underlying was when their spread was at its worst /
+  // best — i.e. "I could have exited here".
+  function _nearestCandleClose(candleData, tsSec) {
+    if (!candleData.length) return null;
+    let best = candleData[0], bestDiff = Math.abs(candleData[0].time - tsSec);
+    for (const c of candleData) {
+      const d = Math.abs(c.time - tsSec);
+      if (d < bestDiff) { bestDiff = d; best = c; }
+    }
+    return best.close;
+  }
+  const maeTsRaw = t._autoMAE?.date || t._autoMAE?.ts;
+  const mfeTsRaw = t._autoMFE?.date || t._autoMFE?.ts;
+  if (maeTsRaw) {
+    const maeTs = Math.floor(new Date(maeTsRaw).getTime() / 1000);
+    const maePrice = _nearestCandleClose(data, maeTs);
+    if (maePrice != null) priceLines.push({ price: maePrice, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MAE @ ' + maePrice.toFixed(2) });
+  }
+  if (mfeTsRaw) {
+    const mfeTs = Math.floor(new Date(mfeTsRaw).getTime() / 1000);
+    const mfePrice = _nearestCandleClose(data, mfeTs);
+    if (mfePrice != null) priceLines.push({ price: mfePrice, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MFE @ ' + mfePrice.toFixed(2) });
+  }
+
   priceLines.forEach(p => series.createPriceLine(p));
 
   chart.timeScale().fitContent();
@@ -6408,12 +6436,104 @@ function _scatterOpenTrade(tradeId) {
       ${t.lessonLearned ? `<span style="color:${C.textSec}">Lesson</span><span style="font-style:italic;color:${C.text}">${escapeHtml(t.lessonLearned)}</span>` : ""}
     </div>
 
+    <!-- Compact chart with entry/exit/MAE/MFE markers -->
+    <div id="preview-chart-wrap" style="border:1px solid ${C.border};border-radius:3px;margin-bottom:12px">
+      <div id="preview-chart-${t.id}" style="width:100%;height:200px;background:${C.bg}"></div>
+      <div id="preview-chart-status-${t.id}" style="padding:4px 8px;font-size:9px;color:${C.textMut};font-style:italic">Loading chart…</div>
+    </div>
+
     <div style="display:flex;gap:8px">
       <button onclick="document.getElementById('trade-preview-modal').style.display='none';openDiary(${t.id})" class="btn btn-p" style="flex:1;padding:8px">OPEN FULL DIARY →</button>
       <button onclick="document.getElementById('trade-preview-modal').style.display='none'" class="btn btn-g" style="padding:8px 14px">CLOSE</button>
     </div>
   </div>`;
   modal.style.display = "flex";
+  // Render chart after modal is visible so the container has a width
+  setTimeout(() => _renderPreviewChart(t), 50);
+}
+
+// Compact chart for the scatter preview modal — fetches the underlying
+// candles for the trade window and overlays entry/exit/MAE/MFE markers.
+// Smaller version of renderDiaryTVChart (200px tall instead of 340).
+async function _renderPreviewChart(t) {
+  const chartEl = document.getElementById("preview-chart-" + t.id);
+  const statusEl = document.getElementById("preview-chart-status-" + t.id);
+  if (!chartEl || !statusEl) return;
+
+  // Date window: 3 days before entry → 3 days after exit (tighter than diary chart)
+  const entryD = t.entryDate ? new Date(t.entryDate) : new Date();
+  const endRef = t.exitDate ? new Date(t.exitDate) : (t.expiry ? new Date(t.expiry) : new Date());
+  const fromD = new Date(entryD); fromD.setDate(fromD.getDate() - 3);
+  const toD = new Date(endRef); toD.setDate(toD.getDate() + 3);
+  const today = new Date();
+  if (toD > today) toD.setTime(today.getTime());
+  const isoFrom = fromD.toISOString().slice(0,10);
+  const isoTo = toD.toISOString().slice(0,10);
+
+  const yahooTicker = (typeof _yahooSymbolForChart === "function") ? _yahooSymbolForChart(t.ticker) : t.ticker;
+
+  if (typeof LightweightCharts === "undefined") {
+    statusEl.textContent = "Chart library still loading — try again in a sec.";
+    return;
+  }
+  statusEl.textContent = `Fetching ${yahooTicker} candles…`;
+  let candles = null;
+  try {
+    const r = await fetch(`/api/candles?ticker=${encodeURIComponent(yahooTicker)}&start=${isoFrom}&end=${isoTo}`);
+    if (r.ok) { const d = await r.json(); if (d.s === "ok") candles = d; }
+  } catch (e) { /* fall through */ }
+  if (!candles || !candles.t || !candles.t.length) {
+    statusEl.innerHTML = `<span style="color:${C.warn}">No candle data for ${yahooTicker}</span> — open in Diary for full chart.`;
+    return;
+  }
+  const data = candles.t.map((ts, i) => ({
+    time: ts, open: candles.o[i], high: candles.h[i], low: candles.l[i], close: candles.c[i],
+  })).filter(d => d.open != null && d.close != null);
+
+  const chart = LightweightCharts.createChart(chartEl, {
+    width: chartEl.clientWidth || 480, height: 200,
+    layout: { background: { color: C.bg }, textColor: C.textSec, fontFamily: "'IBM Plex Mono', monospace" },
+    grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+    timeScale: { borderColor: C.borderVis },
+    rightPriceScale: { borderColor: C.borderVis },
+    crosshair: { mode: 1 },
+  });
+  const series = chart.addCandlestickSeries({
+    upColor: C.pos, downColor: C.neg, borderUpColor: C.pos, borderDownColor: C.neg,
+    wickUpColor: C.pos, wickDownColor: C.neg,
+  });
+  series.setData(data);
+
+  const dateToTime = (iso) => Math.floor(new Date(iso + "T00:00:00").getTime() / 1000);
+  const markers = [];
+  if (t.entryDate) markers.push({ time: dateToTime(t.entryDate), position: "belowBar", color: C.pos, shape: "arrowUp", text: "ENTRY" });
+  if (t.exitDate) {
+    const isWin = (t.realizedPnl || 0) >= 0;
+    markers.push({ time: dateToTime(t.exitDate), position: "aboveBar", color: isWin ? C.pos : C.neg, shape: "arrowDown", text: `EXIT ${isWin?"+":"-"}$${Math.abs(t.realizedPnl||0).toFixed(0)}` });
+  }
+  if (markers.length) { markers.sort((a,b) => a.time - b.time); series.setMarkers(markers); }
+
+  // MAE/MFE price lines from underlying price at those timestamps
+  function _nearestClose(arr, ts) {
+    if (!arr.length) return null;
+    let best = arr[0], bestDiff = Math.abs(arr[0].time - ts);
+    for (const c of arr) { const d = Math.abs(c.time - ts); if (d < bestDiff) { bestDiff = d; best = c; } }
+    return best.close;
+  }
+  const maeTsRaw = t._autoMAE?.date || t._autoMAE?.ts;
+  const mfeTsRaw = t._autoMFE?.date || t._autoMFE?.ts;
+  if (maeTsRaw) {
+    const maeTs = Math.floor(new Date(maeTsRaw).getTime() / 1000);
+    const p = _nearestClose(data, maeTs);
+    if (p != null) series.createPriceLine({ price: p, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MAE @ " + p.toFixed(2) });
+  }
+  if (mfeTsRaw) {
+    const mfeTs = Math.floor(new Date(mfeTsRaw).getTime() / 1000);
+    const p = _nearestClose(data, mfeTs);
+    if (p != null) series.createPriceLine({ price: p, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MFE @ " + p.toFixed(2) });
+  }
+
+  statusEl.innerHTML = `<span style="color:${C.textMut}">${yahooTicker} · ${isoFrom} → ${isoTo} · daily candles</span>`;
 }
 
 // Floating tooltip for scatter dot HOVER (shows rich trade summary without
