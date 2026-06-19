@@ -6856,6 +6856,229 @@ function renderStatsStrategies(closed) {
 }
 
 // ── SOURCES (Follow-trade attribution) ──────────────────────────────────────
+// ── Aggregate P&L by time-of-day (30-min buckets) with trade-count overlay.
+// X = entry time of day (00:00–24:00), Y = sum P&L, line = # of trades opened.
+// Returns full HTML block including recap cards (Best/Worst/Market Open/Power Hour).
+function _timeOfDayChart(closed) {
+  const withTime = closed.filter(t => t.entryTime);
+  if (withTime.length < 5) return "";
+  // 48 × 30-min buckets indexed 0..47 (00:00, 00:30, 01:00, ..., 23:30)
+  const N = 48;
+  const buckets = Array.from({length: N}, () => ({pnl: 0, count: 0, wins: 0}));
+  for (const t of withTime) {
+    const [hh, mm] = (t.entryTime || "00:00").split(":").map(Number);
+    if (isNaN(hh) || isNaN(mm)) continue;
+    const idx = Math.min(N - 1, Math.max(0, hh * 2 + (mm >= 30 ? 1 : 0)));
+    buckets[idx].pnl += (t.realizedPnl || 0);
+    buckets[idx].count++;
+    if ((t.realizedPnl || 0) > 0) buckets[idx].wins++;
+  }
+
+  // SVG dims
+  const W = 760, H = 220, PAD = {t: 18, r: 38, b: 28, l: 48};
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+  const barW = cw / N - 1;
+  const maxAbs = Math.max(1, ...buckets.map(b => Math.abs(b.pnl)));
+  const maxCount = Math.max(1, ...buckets.map(b => b.count));
+  const zeroY = PAD.t + ch / 2;
+  const halfCh = ch / 2;
+
+  const bars = buckets.map((b, i) => {
+    if (b.count === 0) return "";
+    const x = PAD.l + i * (cw / N);
+    const h = Math.abs(b.pnl) / maxAbs * halfCh;
+    const y = b.pnl >= 0 ? zeroY - h : zeroY;
+    const color = b.pnl >= 0 ? C.pos : C.neg;
+    const label = (i % 2 === 0 ? `${String(Math.floor(i / 2)).padStart(2, "0")}:30` : `${String(Math.floor(i / 2)).padStart(2, "0")}:00`);
+    const tip = `${String(Math.floor(i/2)).padStart(2,"0")}:${i%2?"30":"00"}–${String(Math.floor(i/2)+(i%2?1:0)).padStart(2,"0")}:${i%2?"00":"30"} · ${b.count} trades · ${fmt$(b.pnl)}`;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" fill-opacity="0.85"><title>${escapeHtml(tip)}</title></rect>`;
+  }).join("");
+
+  // Trade-count overlay (line connecting count values on a secondary axis)
+  const linePoints = buckets.map((b, i) => {
+    const x = PAD.l + i * (cw / N) + barW / 2;
+    const y = PAD.t + ch - (b.count / maxCount) * ch;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+
+  // X-axis labels (every 4 hours)
+  const xLabels = [0, 8, 16, 24, 32, 40, 47].map(i => {
+    const hh = String(Math.floor(i / 2)).padStart(2, "0");
+    const mm = i % 2 ? "30" : "00";
+    return `<text x="${(PAD.l + i * (cw / N)).toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${hh}:${mm}</text>`;
+  }).join("");
+
+  // Y-axis labels (left = pnl, right = count)
+  const yPnlLabels = [maxAbs, 0, -maxAbs].map(v => {
+    const y = zeroY - (v / maxAbs) * halfCh;
+    return `<text x="${(PAD.l - 4).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="end">${fmt$(v)}</text>`;
+  }).join("");
+  const yCountLabels = [maxCount, Math.round(maxCount / 2), 0].map(v => {
+    const y = PAD.t + ch - (v / maxCount) * ch;
+    return `<text x="${(PAD.l + cw + 4).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="9" fill="${C.textMut};font-style:italic" text-anchor="start">${v}</text>`;
+  }).join("");
+
+  // Recap windows
+  function winStats(startIdx, endIdx, label) {
+    let pnl = 0, count = 0, wins = 0;
+    for (let i = startIdx; i < endIdx; i++) { pnl += buckets[i].pnl; count += buckets[i].count; wins += buckets[i].wins; }
+    return { label, pnl, count, wins, wr: count ? Math.round(wins / count * 100) : 0 };
+  }
+  // Find best/worst CONTIGUOUS 2-hour (4-bucket) window
+  let best = {pnl: -Infinity}, worst = {pnl: Infinity};
+  for (let i = 0; i <= N - 4; i++) {
+    const w = winStats(i, i + 4, "");
+    if (w.count >= 3) {
+      if (w.pnl > best.pnl) best = { ...w, startIdx: i };
+      if (w.pnl < worst.pnl) worst = { ...w, startIdx: i };
+    }
+  }
+  function ixLbl(i) {
+    const hh = String(Math.floor(i / 2)).padStart(2, "0");
+    const mm = i % 2 ? "30" : "00";
+    return `${hh}:${mm}`;
+  }
+  const marketOpen = winStats(19, 21, "MARKET OPEN"); // 09:30–10:30
+  const powerHour = winStats(30, 32, "POWER HOUR");   // 15:00–16:00
+
+  function recapCard(title, range, w, color) {
+    return `<div class="card" style="padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:10px;color:${C.textSec};font-weight:600">${title}</div>
+        <div style="font-size:9px;color:${C.textMut};font-variant-numeric:tabular-nums">${range}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${w.pnl>=0?C.pos:C.neg};font-weight:600">${fmt$(w.pnl)}</div>
+        <div style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${w.wr}% wr · ${w.count}t</div>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">AGGREGATE P&L vs TIME OF DAY (entry, ET)</div>
+      <div style="display:flex;gap:8px;align-items:center;font-size:9px;color:${C.textMut}">
+        <span><span style="display:inline-block;width:8px;height:8px;background:${C.pos};margin-right:3px;vertical-align:middle"></span>P&L $</span>
+        <span><span style="display:inline-block;width:8px;height:2px;background:${C.warn};margin-right:3px;vertical-align:middle"></span># trades</span>
+      </div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace">
+      <line x1="${PAD.l}" y1="${zeroY}" x2="${PAD.l + cw}" y2="${zeroY}" stroke="${C.border}" stroke-width="0.5"/>
+      ${bars}
+      <polyline points="${linePoints}" fill="none" stroke="${C.warn}" stroke-width="1.5" opacity="0.7"/>
+      ${xLabels}
+      ${yPnlLabels}
+      ${yCountLabels}
+    </svg>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px">
+      ${recapCard("BEST WINDOW", `${ixLbl(best.startIdx||0)}→${ixLbl((best.startIdx||0)+4)}`, best, C.pos)}
+      ${recapCard("WORST WINDOW", `${ixLbl(worst.startIdx||0)}→${ixLbl((worst.startIdx||0)+4)}`, worst, C.neg)}
+      ${recapCard("MARKET OPEN", "09:30→10:30", marketOpen, C.text)}
+      ${recapCard("POWER HOUR", "15:00→16:00", powerHour, C.text)}
+    </div>
+  </div>`;
+}
+
+// Aggregate P&L by day of week with trade-count overlay + best/worst day cards.
+function _dayOfWeekChart(closed) {
+  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const stats = Array.from({length: 7}, () => ({pnl: 0, count: 0, wins: 0}));
+  for (const t of closed) {
+    const ds = t.entryDate || t.exitDate;
+    if (!ds) continue;
+    const d = new Date(ds + "T12:00:00");
+    if (isNaN(d)) continue;
+    const idx = d.getDay();
+    stats[idx].pnl += (t.realizedPnl || 0);
+    stats[idx].count++;
+    if ((t.realizedPnl || 0) > 0) stats[idx].wins++;
+  }
+  // Only show weekdays
+  const visible = [1, 2, 3, 4, 5];
+  const total = visible.reduce((a, i) => a + stats[i].count, 0);
+  if (total < 5) return "";
+
+  const W = 760, H = 220, PAD = {t: 18, r: 38, b: 28, l: 48};
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+  const N = visible.length;
+  const barW = cw / N * 0.6;
+  const maxAbs = Math.max(1, ...visible.map(i => Math.abs(stats[i].pnl)));
+  const maxCount = Math.max(1, ...visible.map(i => stats[i].count));
+  const zeroY = PAD.t + ch / 2;
+  const halfCh = ch / 2;
+
+  const bars = visible.map((di, j) => {
+    const s = stats[di];
+    if (s.count === 0) return "";
+    const cx = PAD.l + (j + 0.5) * (cw / N);
+    const h = Math.abs(s.pnl) / maxAbs * halfCh;
+    const y = s.pnl >= 0 ? zeroY - h : zeroY;
+    const color = s.pnl >= 0 ? C.pos : C.neg;
+    const tip = `${days[di]} · ${s.count} trades · ${fmt$(s.pnl)} · ${Math.round(s.wins/s.count*100)}% wr`;
+    return `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" fill-opacity="0.85"><title>${escapeHtml(tip)}</title></rect>`;
+  }).join("");
+
+  const linePoints = visible.map((di, j) => {
+    const cx = PAD.l + (j + 0.5) * (cw / N);
+    const y = PAD.t + ch - (stats[di].count / maxCount) * ch;
+    return `${cx.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+
+  const xLabels = visible.map((di, j) => {
+    const cx = PAD.l + (j + 0.5) * (cw / N);
+    return `<text x="${cx.toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="10" fill="${C.textSec}" text-anchor="middle">${days[di]}</text>`;
+  }).join("");
+
+  const yPnlLabels = [maxAbs, 0, -maxAbs].map(v => {
+    const y = zeroY - (v / maxAbs) * halfCh;
+    return `<text x="${(PAD.l - 4).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="end">${fmt$(v)}</text>`;
+  }).join("");
+  const yCountLabels = [maxCount, 0].map(v => {
+    const y = PAD.t + ch - (v / maxCount) * ch;
+    return `<text x="${(PAD.l + cw + 4).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="9" fill="${C.textMut};font-style:italic" text-anchor="start">${v}</text>`;
+  }).join("");
+
+  // Best/worst day cards
+  const dayRanked = visible.map(di => ({ day: days[di], ...stats[di], wr: stats[di].count ? Math.round(stats[di].wins/stats[di].count*100) : 0 })).filter(d => d.count > 0).sort((a, b) => b.pnl - a.pnl);
+  const best = dayRanked[0];
+  const worst = dayRanked[dayRanked.length - 1];
+  function recap(label, d, color) {
+    if (!d) return "";
+    return `<div class="card" style="padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:10px;color:${C.textSec};font-weight:600">${label}</div>
+        <div style="font-size:11px;color:${color};font-weight:600">${d.day}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${d.pnl>=0?C.pos:C.neg};font-weight:600">${fmt$(d.pnl)}</div>
+        <div style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${d.wr}% wr · ${d.count}t · ${fmt$(d.pnl/d.count)}/t</div>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">AGGREGATE P&L vs DAY OF WEEK (entry)</div>
+      <div style="display:flex;gap:8px;align-items:center;font-size:9px;color:${C.textMut}">
+        <span><span style="display:inline-block;width:8px;height:8px;background:${C.pos};margin-right:3px;vertical-align:middle"></span>P&L $</span>
+        <span><span style="display:inline-block;width:8px;height:2px;background:${C.warn};margin-right:3px;vertical-align:middle"></span># trades</span>
+      </div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace">
+      <line x1="${PAD.l}" y1="${zeroY}" x2="${PAD.l + cw}" y2="${zeroY}" stroke="${C.border}" stroke-width="0.5"/>
+      ${bars}
+      <polyline points="${linePoints}" fill="none" stroke="${C.warn}" stroke-width="1.5" opacity="0.7"/>
+      ${xLabels}
+      ${yPnlLabels}
+      ${yCountLabels}
+    </svg>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px">
+      ${recap("BEST DAY", best, C.pos)}
+      ${recap("WORST DAY", worst, C.neg)}
+    </div>
+  </div>`;
+}
+
 // ── SESSIONS (win rate / P&L by time-of-day the trade was ENTERED) ──────────
 function renderStatsSessions(closed) {
   const withTime = closed.filter(t => t.entryTime && sessionBucket(t.entryTime));
@@ -6920,6 +7143,8 @@ function renderStatsSessions(closed) {
   }
 
   return `
+    ${_timeOfDayChart(closed)}
+    ${_dayOfWeekChart(closed)}
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;margin-bottom:10px">WIN RATE BY ENTRY SESSION (US Eastern)</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
       ${withTime.length ? order.map(card).join("") : `<div style="font-size:11px;color:${C.textMut};padding:8px">No trades with entry-time recorded.</div>`}
