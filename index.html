@@ -5793,6 +5793,8 @@ function renderStatsMAEMFE(closed) {
   const avgLeft = leftOnTable.length ? leftOnTable.reduce((a,b)=>a+b,0)/leftOnTable.length : null;
 
   return `
+    ${_maeMfeScatterPanel(closed)}
+
     <div class="g2" style="margin-bottom:12px">
       ${kpiCard("Avg MAE — Winners", avgMAE(winners)!==null?"$"+avgMAE(winners).toFixed(0):"—", C.pos, "Worst drawdown on winning trades")}
       ${kpiCard("Avg MAE — Losers", avgMAE(losers)!==null?"$"+avgMAE(losers).toFixed(0):"—", C.neg, "Worst drawdown on losing trades")}
@@ -5809,9 +5811,254 @@ function renderStatsMAEMFE(closed) {
     ${distTable(closed, getMAE, "MAE DISTRIBUTION")}
     ${distTable(closed, getMFE, "MFE DISTRIBUTION")}
     ${optStopHTML}
+    ${_tpSlGridPanel(closed)}
 
     ${insightText("If most winners experience MAE under $100 but your stops are wider, you could tighten stops without losing winners. MFE efficiency below 50% means you're capturing less than half of the available move.")}
   `;
+}
+
+// Scatter panel: two SVG plots side-by-side.
+//   Left:  MAE % of premium  vs  Realized P&L % of premium
+//   Right: MFE % of premium  vs  Realized P&L % of premium
+// Each dot is one trade, colored by win/loss. Quadrant lines drawn at 0.
+// % framing normalizes across trade sizes (a -$1000 MAE on $1000 premium NQ
+// trade is the same severity as a -$200 MAE on $200 premium NVDA trade).
+function _maeMfeScatterPanel(closed) {
+  const data = closed.map(t => {
+    const prem = t.premiumCollected || 0;
+    if (!prem) return null;
+    const mae = getMAE(t);
+    const mfe = getMFE(t);
+    if (mae == null && mfe == null) return null;
+    const pnl = t.realizedPnl || 0;
+    return {
+      id: t.id,
+      ticker: t.ticker,
+      premium: prem,
+      pnlPctOfPrem: (pnl / prem) * 100,
+      maePctOfPrem: mae != null ? -(mae / prem) * 100 : null, // negate so deeper drawdown = more negative on x-axis
+      mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null,
+      isWin: pnl > 0,
+      tradeType: t.tradeType,
+    };
+  }).filter(Boolean);
+
+  if (!data.length) {
+    return `<div class="card" style="padding:14px;margin-bottom:12px;opacity:.6;font-size:11px;color:${C.textSec}">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:6px">MAE / MFE — TRADE SCATTER</div>
+      No trades have MAE/MFE data yet. /NQ trades populate via Databento backfill (see Settings → Backfill); equity trades populate live via the spread-quote tracker.
+    </div>`;
+  }
+
+  const maeData = data.filter(d => d.maePctOfPrem != null);
+  const mfeData = data.filter(d => d.mfePctOfPrem != null);
+
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+    ${_renderScatter({
+      title: "MAE % vs OUTCOME",
+      subtitle: "X = worst drawdown (% of premium) · Y = realized P&L (% of premium)",
+      data: maeData.map(d => ({...d, x: d.maePctOfPrem, y: d.pnlPctOfPrem})),
+      xLabel: "MAE % of premium",
+      yLabel: "Realized P&L % of premium",
+      insight: _maeScatterInsight(maeData),
+    })}
+    ${_renderScatter({
+      title: "MFE % vs OUTCOME",
+      subtitle: "X = best peak profit (% of premium) · Y = realized P&L (% of premium)",
+      data: mfeData.map(d => ({...d, x: d.mfePctOfPrem, y: d.pnlPctOfPrem})),
+      xLabel: "MFE % of premium",
+      yLabel: "Realized P&L % of premium",
+      insight: _mfeScatterInsight(mfeData),
+    })}
+  </div>`;
+}
+
+function _renderScatter({title, subtitle, data, xLabel, yLabel, insight}) {
+  const W = 460, H = 280, PAD = {t: 10, r: 14, b: 32, l: 42};
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+  if (!data.length) {
+    return `<div class="card" style="padding:12px;font-size:11px;color:${C.textSec}">
+      <div style="font-size:10px;color:${C.textSec};font-weight:600;margin-bottom:6px">${title}</div>
+      No data yet.
+    </div>`;
+  }
+  // Symmetric x and y bounds for visual sanity. Cap extreme outliers visually.
+  const xs = data.map(d => d.x), ys = data.map(d => d.y);
+  const xMin = Math.min(0, Math.min(...xs)), xMax = Math.max(0, Math.max(...xs));
+  const yMin = Math.min(0, Math.min(...ys)), yMax = Math.max(0, Math.max(...ys));
+  // Pad axes by 10% each side.
+  const xr = (xMax - xMin) || 1, yr = (yMax - yMin) || 1;
+  const x0 = xMin - xr * 0.05, x1 = xMax + xr * 0.05;
+  const y0 = yMin - yr * 0.05, y1 = yMax + yr * 0.05;
+  const sx = v => PAD.l + ((v - x0) / (x1 - x0)) * cw;
+  const sy = v => PAD.t + ch - ((v - y0) / (y1 - y0)) * ch;
+  const x0px = sx(0).toFixed(1), y0px = sy(0).toFixed(1);
+
+  const dots = data.map(d => {
+    const color = d.isWin ? C.pos : C.neg;
+    const cx = sx(d.x).toFixed(1), cy = sy(d.y).toFixed(1);
+    const tip = `${d.ticker} ${d.tradeType||""} · prem $${Math.round(d.premium)} · MAE ${d.maePctOfPrem!=null?d.maePctOfPrem.toFixed(0)+"%":"—"} · MFE ${d.mfePctOfPrem!=null?d.mfePctOfPrem.toFixed(0)+"%":"—"} · P&L ${d.pnlPctOfPrem.toFixed(0)}%`;
+    return `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}" fill-opacity="0.5" stroke="${color}" stroke-width="0.5"><title>${escapeHtml(tip)}</title></circle>`;
+  }).join("");
+
+  // Axis tick labels at min/0/max
+  const tickFmt = v => (v >= 0 ? "+" : "") + v.toFixed(0) + "%";
+  const xTicks = [x0, 0, x1].map(v => `<text x="${sx(v).toFixed(1)}" y="${(H - 14).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${tickFmt(v)}</text>`).join("");
+  const yTicks = [y1, 0, y0].map(v => `<text x="${(PAD.l - 4).toFixed(1)}" y="${(sy(v) + 3).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="end">${tickFmt(v)}</text>`).join("");
+
+  return `<div class="card" style="padding:12px">
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:2px">${title}</div>
+    <div style="font-size:9px;color:${C.textMut};margin-bottom:6px">${subtitle} · ${data.length} trades</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+      <rect x="${PAD.l}" y="${PAD.t}" width="${cw}" height="${ch}" fill="none" stroke="${C.border}" stroke-width="0.5"/>
+      <line x1="${x0px}" y1="${PAD.t}" x2="${x0px}" y2="${PAD.t + ch}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
+      <line x1="${PAD.l}" y1="${y0px}" x2="${PAD.l + cw}" y2="${y0px}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
+      ${dots}
+      ${xTicks}
+      ${yTicks}
+    </svg>
+    ${insight ? `<div style="font-size:10px;color:${C.textSec};margin-top:6px;line-height:1.4">${insight}</div>` : ""}
+  </div>`;
+}
+
+function _maeScatterInsight(data) {
+  if (data.length < 5) return "";
+  // Of trades that hit deep MAE, what fraction recovered to win?
+  const buckets = [50, 100, 150, 200];
+  const lines = buckets.map(b => {
+    const breached = data.filter(d => d.maePctOfPrem <= -b);
+    if (!breached.length) return null;
+    const recovered = breached.filter(d => d.isWin).length;
+    const pct = Math.round((recovered / breached.length) * 100);
+    return `Of trades that hit −${b}% MAE: <b style="color:${pct>=50?C.pos:C.neg}">${pct}%</b> still won (${recovered}/${breached.length}).`;
+  }).filter(Boolean);
+  return lines.join("<br>");
+}
+
+function _mfeScatterInsight(data) {
+  if (data.length < 5) return "";
+  // How much MFE did winners actually capture vs leave on the table?
+  const wins = data.filter(d => d.isWin && d.mfePctOfPrem > 0);
+  if (!wins.length) return "";
+  const captureRatios = wins.map(d => d.pnlPctOfPrem / d.mfePctOfPrem);
+  const avgCapture = Math.round((captureRatios.reduce((a,b)=>a+b,0) / captureRatios.length) * 100);
+  return `Winners captured an average of <b style="color:${C.text}">${avgCapture}%</b> of their MFE peak (closing earlier leaves money on the table; closing later risks the gain).`;
+}
+
+// TP/SL grid simulator. For each combination, replay every trade:
+//   - If MAE breached the SL threshold AND MFE peak happened AFTER the MAE
+//     trough → SL fires, P&L = -SL% × premium
+//   - Elif MFE breached TP threshold → TP fires, P&L = +TP% × premium
+//   - Else → keep actual realized P&L
+//
+// Note: this uses only the per-trade MAE/MFE summary (not the per-minute curve)
+// so it's an approximation. The offline optimizer in nq-research uses minute-
+// level curves for higher precision. For most trades the answers match.
+function _tpSlGridPanel(closed) {
+  const trades = closed.map(t => {
+    const prem = t.premiumCollected || 0;
+    if (!prem) return null;
+    const mae = getMAE(t);
+    const mfe = getMFE(t);
+    if (mae == null || mfe == null) return null;
+    const realized = t.realizedPnl || 0;
+    // Timestamp comparison: which extreme happened first?
+    const maeTs = t._autoMAE?.ts || t._autoMAE?.date;
+    const mfeTs = t._autoMFE?.ts || t._autoMFE?.date;
+    const maeFirst = (!maeTs || !mfeTs) ? true : new Date(maeTs) <= new Date(mfeTs);
+    return { premium: prem, mae, mfe, realized, maeFirst };
+  }).filter(Boolean);
+
+  if (trades.length < 5) return "";
+
+  const slPcts = [50, 75, 100, 150, 200, 300, 500];
+  const tpPcts = [25, 50, 75];
+
+  function simulate(slPct, tpPct) {
+    let net = 0, wins = 0, losses = 0, slHits = 0, tpHits = 0, holds = 0, worst = Infinity;
+    for (const t of trades) {
+      const slThresh = (slPct / 100) * t.premium;   // dollars of loss that triggers SL
+      const tpThresh = (tpPct / 100) * t.premium;   // dollars of gain that triggers TP
+      const wouldSl = t.mae >= slThresh;
+      const wouldTp = t.mfe >= tpThresh;
+      let pnl;
+      if (wouldSl && wouldTp) {
+        pnl = t.maeFirst ? -slThresh : +tpThresh;
+      } else if (wouldSl) {
+        pnl = -slThresh;
+        slHits++;
+      } else if (wouldTp) {
+        pnl = +tpThresh;
+        tpHits++;
+      } else {
+        pnl = t.realized;
+        holds++;
+      }
+      if (wouldSl && wouldTp) {
+        if (t.maeFirst) slHits++; else tpHits++;
+      }
+      net += pnl;
+      if (pnl > 0) wins++; else if (pnl < 0) losses++;
+      if (pnl < worst) worst = pnl;
+    }
+    return { net, wins, losses, slHits, tpHits, holds, worst, n: trades.length };
+  }
+
+  const rows = [];
+  for (const sl of slPcts) {
+    for (const tp of tpPcts) {
+      const r = simulate(sl, tp);
+      rows.push({ sl, tp, ...r });
+    }
+  }
+
+  // Baseline: no rules — sum of actual P&L
+  const baselineNet = trades.reduce((s, t) => s + t.realized, 0);
+  const baselineWorst = trades.reduce((m, t) => Math.min(m, t.realized), Infinity);
+  const baselineWins = trades.filter(t => t.realized > 0).length;
+
+  // Top 5 by net, top 5 by best worst-case (least painful)
+  const topNet = [...rows].sort((a, b) => b.net - a.net).slice(0, 5);
+  const topWorst = [...rows].sort((a, b) => b.worst - a.worst).slice(0, 5);
+
+  const fmtRow = r => `<tr class="trow">
+    <td style="font-variant-numeric:tabular-nums">−${r.sl}%</td>
+    <td style="font-variant-numeric:tabular-nums">+${r.tp}%</td>
+    <td style="font-variant-numeric:tabular-nums;color:${r.net>=0?C.pos:C.neg}">${r.net>=0?"+$":"-$"}${Math.abs(r.net).toFixed(0)}</td>
+    <td style="font-variant-numeric:tabular-nums">${r.wins}/${r.losses}</td>
+    <td style="font-variant-numeric:tabular-nums">${r.slHits}/${r.tpHits}/${r.holds}</td>
+    <td style="font-variant-numeric:tabular-nums;color:${C.neg}">-$${Math.abs(r.worst).toFixed(0)}</td>
+  </tr>`;
+
+  return sectionHdr("TP / SL — WHAT-IF SIMULATOR") + `
+    <div class="card" style="padding:12px;margin-bottom:8px">
+      <div style="font-size:10px;color:${C.textSec};margin-bottom:8px">
+        For each rule, replay all ${trades.length} trades with MAE/MFE data. SL/TP as % of premium.
+        Columns: rule · NET · W/L · (SL hits / TP hits / holds) · worst trade.
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:${C.bgCard||"rgba(255,255,255,0.03)"};border:1px solid ${C.border};border-radius:3px;margin-bottom:8px">
+        <span style="font-size:11px;color:${C.textSec}">BASELINE (your actual exits, no rule):</span>
+        <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${baselineNet>=0?C.pos:C.neg}">
+          ${baselineNet>=0?"+$":"-$"}${Math.abs(baselineNet).toFixed(0)} · ${baselineWins}/${trades.length-baselineWins} W/L · worst -$${Math.abs(baselineWorst).toFixed(0)}
+        </span>
+      </div>
+      <div style="font-size:10px;color:${C.textSec};font-weight:600;margin:8px 0 4px">TOP 5 BY NET P&L:</div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr><th>SL</th><th>TP</th><th>NET</th><th>W/L</th><th>SL/TP/HOLD</th><th>WORST</th></tr></thead>
+        <tbody>${topNet.map(fmtRow).join("")}</tbody>
+      </table>
+      <div style="font-size:10px;color:${C.textSec};font-weight:600;margin:12px 0 4px">TOP 5 BY LEAST-CATASTROPHIC WORST TRADE:</div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr><th>SL</th><th>TP</th><th>NET</th><th>W/L</th><th>SL/TP/HOLD</th><th>WORST</th></tr></thead>
+        <tbody>${topWorst.map(fmtRow).join("")}</tbody>
+      </table>
+      <div style="font-size:9px;color:${C.textMut};margin-top:8px;font-style:italic">
+        Approximation: uses only MAE/MFE summary points (not minute curves). Order of first-touch
+        is inferred from <code>_autoMAE.date</code> vs <code>_autoMFE.date</code>; same-day defaults
+        to SL-fires-first (conservative). The offline optimizer in nq-research uses minute-by-minute
+        curves for more precise simulation.
+      </div>
+    </div>`;
 }
 
 // ── 5. STRATEGIES ───────────────────────────────────────────────────────────
@@ -9439,9 +9686,15 @@ function reconstructFlexTrades(csvText) {
       const dteMs = Date.parse(expiryISO+"T00:00:00") - Date.parse(entryISO+"T00:00:00");
       if (!isNaN(dteMs)) dte = Math.round(dteMs / 86400000);
     }
+    // Capture per-leg raw CME/IBKR symbols so the Databento backfill can query
+    // contracts directly without rebuilding the symbol from scratch (weekly NQ
+    // uses Q1A/Q2A/QN2... roots that a from-scratch builder doesn't know).
+    const shortSymbol = shorts.length ? shorts[0].sym : (legs[0] ? legs[0].sym : null);
+    const longSymbol = longs.length ? longs[0].sym : null;
     const t = {ticker, assetClass:ac, tradeType:label(legs,asset), status,
       entryDate:entryISO, entryTime:hhmm(odt), expiry:expiryISO,
       shortStrike:sStrike, longStrike:lStrike, contracts:Math.round(contracts),
+      shortSymbol, longSymbol,
       premiumCollected: ac==="Stock"?0:Math.abs(prem), legs:legs.length,
       dteAtEntry: dte,
       src:"ibkr", rolls:[], journal:[], screenshots:[], thesis:"", exitReason:"", lessonLearned:"", tpPrice:"", slPrice:"", chartLink:""};
@@ -9506,6 +9759,12 @@ function applyFlexReconstruction(recon) {
       if (a.mfe != null && a.mfe !== 0) t.mfe = a.mfe;
       if (a._autoMAE && a._autoMAE.pnl != null) t._autoMAE = a._autoMAE;
       if (a._autoMFE && a._autoMFE.pnl != null) t._autoMFE = a._autoMFE;
+      // Per-leg CME symbols (for Databento backfill). Prefer the freshly-
+      // reconstructed values, but fall back to preserved values if the new
+      // recon didn't set them (e.g. trade was reconstructed before this field
+      // was added).
+      if (!t.shortSymbol && a.shortSymbol) t.shortSymbol = a.shortSymbol;
+      if (!t.longSymbol && a.longSymbol) t.longSymbol = a.longSymbol;
       // Trade-type override: when the auto-classifier mis-labels something (e.g.
       // "Multi-leg" that's really a double put spread), user picks the correct
       // label in the diary and it sticks across all future syncs.
