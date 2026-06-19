@@ -5347,14 +5347,21 @@ function renderStats() {
     ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
     ["strategies","STRATEGIES"],["sessions","SESSIONS"],["sources","SOURCES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
   ];
-  const dateFilters = [["1w","1W"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"]];
+  const dateFilters = [["1d","1D"],["1w","1W"],["mtd","MTD"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"],["custom","CUSTOM"]];
   document.getElementById("stats-content").innerHTML = `
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       ${tabs.map(([k,l])=>`<button class="btn btn-g stats-pill${statsSubTab===k?" active":""}" onclick="setStatsTab('${k}',this)">${l}</button>`).join("")}
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:14px">
+    <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
       ${dateFilters.map(([k,l])=>`<button class="btn btn-g stats-date-pill${statsDateFilter===k?" active":""}" style="font-size:9px;padding:3px 8px;min-width:0" onclick="setStatsDateFilter('${k}',this)">${l}</button>`).join("")}
     </div>
+    <div id="stats-custom-range" style="${statsDateFilter==='custom'?'':'display:none;'}margin-bottom:14px;display:flex;gap:6px;align-items:center;font-size:10px;color:${C.textSec}">
+      <span>FROM</span>
+      <input id="stats-custom-from" type="date" value="${STATE.statsCustomFrom||''}" onchange="STATE.statsCustomFrom=this.value;save();renderStatsContent(true)" style="font-size:11px;padding:2px 6px">
+      <span>TO</span>
+      <input id="stats-custom-to" type="date" value="${STATE.statsCustomTo||''}" onchange="STATE.statsCustomTo=this.value;save();renderStatsContent(true)" style="font-size:11px;padding:2px 6px">
+    </div>
+    <div style="margin-bottom:8px"></div>
     <div id="stats-sub"></div>`;
   renderStatsContent(true);
 }
@@ -5362,15 +5369,32 @@ function setStatsDateFilter(filter, btn) {
   statsDateFilter = filter;
   document.querySelectorAll(".stats-date-pill").forEach(b=>b.classList.remove("active"));
   if (btn) btn.classList.add("active");
+  const cr = document.getElementById("stats-custom-range");
+  if (cr) cr.style.display = filter === "custom" ? "flex" : "none";
   renderStatsContent(true);
 }
 function filterTradesByDate(trades) {
   if (statsDateFilter === "all") return trades;
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  // Custom range: read from STATE.statsCustomFrom / statsCustomTo (set by the date pickers)
+  if (statsDateFilter === "custom") {
+    const from = STATE.statsCustomFrom;
+    const to = STATE.statsCustomTo;
+    if (!from && !to) return trades; // no range set yet
+    return trades.filter(t => {
+      const d = t.exitDate || t.entryDate;
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+  }
   let cutoff;
   switch(statsDateFilter) {
+    case "1d": cutoff = new Date(et); cutoff.setDate(cutoff.getDate() - 1); break;
     case "1w": cutoff = new Date(et); cutoff.setDate(cutoff.getDate() - 7); break;
+    case "mtd": cutoff = new Date(et.getFullYear(), et.getMonth(), 1); break;
     case "1m": cutoff = new Date(et); cutoff.setMonth(cutoff.getMonth() - 1); break;
     case "3m": cutoff = new Date(et); cutoff.setMonth(cutoff.getMonth() - 3); break;
     case "ytd": cutoff = new Date(et.getFullYear(), 0, 1); break;
@@ -5888,16 +5912,20 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
     return s[i];
   }
   const xs = data.map(d => d.x), ys = data.map(d => d.y);
-  // Bound on the 5th/95th percentile + a sensible 0 anchor on the relevant side
-  let x0 = pct(xs, 0.03), x1 = pct(xs, 0.97);
-  let y0 = pct(ys, 0.03), y1 = pct(ys, 0.97);
-  // Always include 0 line on both axes (the meaningful breakeven)
-  x0 = Math.min(x0, 0); x1 = Math.max(x1, 0);
-  y0 = Math.min(y0, 0); y1 = Math.max(y1, 0);
-  // Pad
-  const xr = (x1 - x0) || 1, yr = (y1 - y0) || 1;
-  x0 -= xr * 0.05; x1 += xr * 0.05;
-  y0 -= yr * 0.05; y1 += yr * 0.05;
+  let x0, x1, y0, y1;
+  const zoom = (window._scatterZoom || {})[kind];
+  if (zoom) {
+    ({x0, x1, y0, y1} = zoom);
+  } else {
+    // Bound on the 3rd/97th percentile + always include 0 anchor
+    x0 = pct(xs, 0.03); x1 = pct(xs, 0.97);
+    y0 = pct(ys, 0.03); y1 = pct(ys, 0.97);
+    x0 = Math.min(x0, 0); x1 = Math.max(x1, 0);
+    y0 = Math.min(y0, 0); y1 = Math.max(y1, 0);
+    const xr = (x1 - x0) || 1, yr = (y1 - y0) || 1;
+    x0 -= xr * 0.05; x1 += xr * 0.05;
+    y0 -= yr * 0.05; y1 += yr * 0.05;
+  }
 
   const sx = v => PAD.l + ((Math.max(x0, Math.min(x1, v)) - x0) / (x1 - x0)) * cw;
   const sy = v => PAD.t + ch - ((Math.max(y0, Math.min(y1, v)) - y0) / (y1 - y0)) * ch;
@@ -5936,22 +5964,106 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
     {x: PAD.l + cw * 0.75, y: PAD.t + ch - 6, text: "had a winner, gave it back"},
   ];
 
+  const zoomed = !!zoom;
   return `<div class="card" style="padding:12px">
-    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:2px">${title}</div>
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:2px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600">${title}</div>
+      ${zoomed ? `<button onclick="_scatterResetZoom('${kind}')" style="font-size:9px;padding:2px 8px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">RESET ZOOM</button>` : `<span style="font-size:9px;color:${C.textMut};font-style:italic">drag to zoom</span>`}
+    </div>
     <div style="font-size:10px;color:${C.text};margin-bottom:6px;line-height:1.4">${howToRead}</div>
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace">
+    <svg id="scatter-${kind}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+      data-x0="${x0}" data-x1="${x1}" data-y0="${y0}" data-y1="${y1}"
+      onmousedown="_scatterMouseDown(event,'${kind}')"
+      onmousemove="_scatterMouseMove(event,'${kind}')"
+      onmouseup="_scatterMouseUp(event,'${kind}')"
+      onmouseleave="_scatterMouseUp(event,'${kind}')"
+      style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace;cursor:crosshair;user-select:none">
       <rect x="${PAD.l}" y="${PAD.t}" width="${cw}" height="${ch}" fill="none" stroke="${C.border}" stroke-width="0.5"/>
       <line x1="${x0px}" y1="${PAD.t}" x2="${x0px}" y2="${PAD.t + ch}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
       <line x1="${PAD.l}" y1="${y0px}" x2="${PAD.l + cw}" y2="${y0px}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
-      ${qLabels.map(q => `<text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" font-size="${qFontSize}" fill="${qFontColor}" text-anchor="middle" opacity="0.55">${q.text}</text>`).join("")}
+      ${qLabels.map(q => `<text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" font-size="${qFontSize}" fill="${qFontColor}" text-anchor="middle" opacity="0.55" pointer-events="none">${q.text}</text>`).join("")}
       ${dots}
       ${xTicks}
       ${yTicks}
-      <text x="${(PAD.l + cw / 2).toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${kind === "mae" ? "MAE (worst drawdown, % of premium) — left = deeper" : "MFE (best peak, % of premium) — right = bigger"}</text>
-      <text x="14" y="${(PAD.t + ch / 2).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle" transform="rotate(-90 14 ${(PAD.t + ch / 2).toFixed(1)})">Realized P&L (% of premium)</text>
+      <text x="${(PAD.l + cw / 2).toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle" pointer-events="none">${kind === "mae" ? "MAE (worst drawdown, % of premium) — left = deeper" : "MFE (best peak, % of premium) — right = bigger"}</text>
+      <text x="14" y="${(PAD.t + ch / 2).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle" transform="rotate(-90 14 ${(PAD.t + ch / 2).toFixed(1)})" pointer-events="none">Realized P&L (% of premium)</text>
+      <rect id="rubber-${kind}" style="display:none;pointer-events:none" fill="rgba(47,129,247,0.15)" stroke="rgba(47,129,247,0.7)" stroke-width="1" stroke-dasharray="3,2"/>
     </svg>
     ${insight ? `<div style="font-size:10px;color:${C.textSec};margin-top:6px;line-height:1.5">${insight}</div>` : ""}
   </div>`;
+}
+
+// Drag-to-zoom mouse handlers for the scatter charts.
+// Zoom state lives in window._scatterZoom[kind] = {x0,x1,y0,y1} (data coords).
+window._scatterZoom = window._scatterZoom || {};
+window._scatterDrag = window._scatterDrag || {};
+
+function _scatterPx(e, svg) {
+  // Convert client mouse coords → SVG viewBox coords (W=460, H=320).
+  const r = svg.getBoundingClientRect();
+  return {
+    x: ((e.clientX - r.left) / r.width) * 460,
+    y: ((e.clientY - r.top) / r.height) * 320,
+  };
+}
+
+function _scatterMouseDown(e, kind) {
+  const svg = document.getElementById("scatter-" + kind);
+  if (!svg) return;
+  const p = _scatterPx(e, svg);
+  window._scatterDrag[kind] = { x: p.x, y: p.y };
+  const rb = document.getElementById("rubber-" + kind);
+  if (rb) {
+    rb.setAttribute("x", p.x); rb.setAttribute("y", p.y);
+    rb.setAttribute("width", 0); rb.setAttribute("height", 0);
+    rb.style.display = "block";
+  }
+}
+
+function _scatterMouseMove(e, kind) {
+  const d = window._scatterDrag[kind];
+  if (!d) return;
+  const svg = document.getElementById("scatter-" + kind);
+  const p = _scatterPx(e, svg);
+  const rb = document.getElementById("rubber-" + kind);
+  if (rb) {
+    rb.setAttribute("x", Math.min(d.x, p.x));
+    rb.setAttribute("y", Math.min(d.y, p.y));
+    rb.setAttribute("width", Math.abs(p.x - d.x));
+    rb.setAttribute("height", Math.abs(p.y - d.y));
+  }
+}
+
+function _scatterMouseUp(e, kind) {
+  const d = window._scatterDrag[kind];
+  if (!d) return;
+  window._scatterDrag[kind] = null;
+  const svg = document.getElementById("scatter-" + kind);
+  if (!svg) return;
+  const p = _scatterPx(e, svg);
+  const dx = Math.abs(p.x - d.x), dy = Math.abs(p.y - d.y);
+  const rb = document.getElementById("rubber-" + kind);
+  if (rb) rb.style.display = "none";
+  if (dx < 8 || dy < 8) return; // too small — treat as a click (lets dot onclick fire normally)
+
+  // Convert pixel rect → data-coord rect (using bounds stamped on svg dataset)
+  const x0 = parseFloat(svg.dataset.x0), x1 = parseFloat(svg.dataset.x1);
+  const y0 = parseFloat(svg.dataset.y0), y1 = parseFloat(svg.dataset.y1);
+  const PAD = {t: 22, r: 16, b: 42, l: 48};
+  const cw = 460 - PAD.l - PAD.r, ch = 320 - PAD.t - PAD.b;
+  const px2x = px => x0 + ((Math.max(PAD.l, Math.min(PAD.l + cw, px)) - PAD.l) / cw) * (x1 - x0);
+  const py2y = py => y0 + (1 - (Math.max(PAD.t, Math.min(PAD.t + ch, py)) - PAD.t) / ch) * (y1 - y0);
+  const nx0 = Math.min(px2x(d.x), px2x(p.x));
+  const nx1 = Math.max(px2x(d.x), px2x(p.x));
+  const ny0 = Math.min(py2y(d.y), py2y(p.y));
+  const ny1 = Math.max(py2y(d.y), py2y(p.y));
+  window._scatterZoom[kind] = { x0: nx0, x1: nx1, y0: ny0, y1: ny1 };
+  renderStatsContent(true);
+}
+
+function _scatterResetZoom(kind) {
+  delete window._scatterZoom[kind];
+  renderStatsContent(true);
 }
 
 // Click handler for scatter dots — opens the trade in the Diary tab
