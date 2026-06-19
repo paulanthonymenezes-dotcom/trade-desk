@@ -4216,8 +4216,20 @@ function renderTrades() {
 }
 
 function renderDiary() {
-  const t = STATE.trades.find(x=>x.id===currentDiaryId);
-  if (!t) return;
+  // Tolerate both number and string IDs (scatter dot onclick passes a number
+  // literal; some legacy code paths set it as a string).
+  const t = STATE.trades.find(x => x.id == currentDiaryId);
+  if (!t) {
+    // Surface the failure instead of silently leaving the detail panel blank.
+    const el = document.getElementById("diary-detail-panel");
+    if (el) {
+      el.innerHTML = `<div style="padding:40px;text-align:center;color:${C.warn};font-size:12px">
+        Trade not found (id=${escapeHtml(String(currentDiaryId))}).<br>
+        <span style="color:${C.textSec};font-size:10px">It may have been removed or the journal is out of sync with the Stats data.</span>
+      </div>`;
+    }
+    return;
+  }
   const q = STATE.quotes[t.ticker];
   const dl = daysLeft(t.expiry);
   const statusColors = {Open:C.pos,Closed:"#6b7280",Rolled:C.warn,Expired:"#8b5cf6"};
@@ -5968,16 +5980,18 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
   return `<div class="card" style="padding:12px">
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:2px">
       <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600">${title}</div>
-      ${zoomed ? `<button onclick="_scatterResetZoom('${kind}')" style="font-size:9px;padding:2px 8px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">RESET ZOOM</button>` : `<span style="font-size:9px;color:${C.textMut};font-style:italic">drag to zoom</span>`}
+      <div style="display:flex;gap:4px;align-items:center">
+        <button onclick="_scatterZoomBtn('${kind}', 'in')" title="Zoom in (or scroll up on chart)" style="font-size:11px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.textSec};border-radius:3px;cursor:pointer;line-height:1">+</button>
+        <button onclick="_scatterZoomBtn('${kind}', 'out')" title="Zoom out (or scroll down on chart)" style="font-size:11px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.textSec};border-radius:3px;cursor:pointer;line-height:1">−</button>
+        ${zoomed ? `<button onclick="_scatterResetZoom('${kind}')" style="font-size:9px;padding:2px 8px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">RESET</button>` : `<span style="font-size:9px;color:${C.textMut};font-style:italic">scroll on chart to zoom</span>`}
+      </div>
     </div>
     <div style="font-size:10px;color:${C.text};margin-bottom:6px;line-height:1.4">${howToRead}</div>
     <svg id="scatter-${kind}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
       data-x0="${x0}" data-x1="${x1}" data-y0="${y0}" data-y1="${y1}"
-      onmousedown="_scatterMouseDown(event,'${kind}')"
-      onmousemove="_scatterMouseMove(event,'${kind}')"
-      onmouseup="_scatterMouseUp(event,'${kind}')"
-      onmouseleave="_scatterMouseUp(event,'${kind}')"
-      style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace;cursor:crosshair;user-select:none">
+      onwheel="_scatterWheel(event,'${kind}')"
+      ondblclick="_scatterResetZoom('${kind}')"
+      style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace;user-select:none">
       <rect x="${PAD.l}" y="${PAD.t}" width="${cw}" height="${ch}" fill="none" stroke="${C.border}" stroke-width="0.5"/>
       <line x1="${x0px}" y1="${PAD.t}" x2="${x0px}" y2="${PAD.t + ch}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
       <line x1="${PAD.l}" y1="${y0px}" x2="${PAD.l + cw}" y2="${y0px}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
@@ -5987,19 +6001,18 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
       ${yTicks}
       <text x="${(PAD.l + cw / 2).toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle" pointer-events="none">${kind === "mae" ? "MAE (worst drawdown, % of premium) — left = deeper" : "MFE (best peak, % of premium) — right = bigger"}</text>
       <text x="14" y="${(PAD.t + ch / 2).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle" transform="rotate(-90 14 ${(PAD.t + ch / 2).toFixed(1)})" pointer-events="none">Realized P&L (% of premium)</text>
-      <rect id="rubber-${kind}" style="display:none;pointer-events:none" fill="rgba(47,129,247,0.15)" stroke="rgba(47,129,247,0.7)" stroke-width="1" stroke-dasharray="3,2"/>
     </svg>
     ${insight ? `<div style="font-size:10px;color:${C.textSec};margin-top:6px;line-height:1.5">${insight}</div>` : ""}
   </div>`;
 }
 
-// Drag-to-zoom mouse handlers for the scatter charts.
 // Zoom state lives in window._scatterZoom[kind] = {x0,x1,y0,y1} (data coords).
+// Controls: scroll-wheel on the chart (zooms at cursor), +/− buttons (center
+// zoom), double-click on chart to reset. No rubber-band — clicks always go
+// straight to the dot's onclick handler now.
 window._scatterZoom = window._scatterZoom || {};
-window._scatterDrag = window._scatterDrag || {};
 
 function _scatterPx(e, svg) {
-  // Convert client mouse coords → SVG viewBox coords (W=460, H=320).
   const r = svg.getBoundingClientRect();
   return {
     x: ((e.clientX - r.left) / r.width) * 460,
@@ -6007,57 +6020,41 @@ function _scatterPx(e, svg) {
   };
 }
 
-function _scatterMouseDown(e, kind) {
+// Compute new bounds zoomed around (focalX, focalY) by `factor` (>1 = zoom out, <1 = zoom in).
+function _zoomBoundsAround(x0, x1, y0, y1, focalX, focalY, factor) {
+  return {
+    x0: focalX - (focalX - x0) * factor,
+    x1: focalX + (x1 - focalX) * factor,
+    y0: focalY - (focalY - y0) * factor,
+    y1: focalY + (y1 - focalY) * factor,
+  };
+}
+
+function _scatterWheel(e, kind) {
+  e.preventDefault();
   const svg = document.getElementById("scatter-" + kind);
   if (!svg) return;
   const p = _scatterPx(e, svg);
-  window._scatterDrag[kind] = { x: p.x, y: p.y };
-  const rb = document.getElementById("rubber-" + kind);
-  if (rb) {
-    rb.setAttribute("x", p.x); rb.setAttribute("y", p.y);
-    rb.setAttribute("width", 0); rb.setAttribute("height", 0);
-    rb.style.display = "block";
-  }
-}
-
-function _scatterMouseMove(e, kind) {
-  const d = window._scatterDrag[kind];
-  if (!d) return;
-  const svg = document.getElementById("scatter-" + kind);
-  const p = _scatterPx(e, svg);
-  const rb = document.getElementById("rubber-" + kind);
-  if (rb) {
-    rb.setAttribute("x", Math.min(d.x, p.x));
-    rb.setAttribute("y", Math.min(d.y, p.y));
-    rb.setAttribute("width", Math.abs(p.x - d.x));
-    rb.setAttribute("height", Math.abs(p.y - d.y));
-  }
-}
-
-function _scatterMouseUp(e, kind) {
-  const d = window._scatterDrag[kind];
-  if (!d) return;
-  window._scatterDrag[kind] = null;
-  const svg = document.getElementById("scatter-" + kind);
-  if (!svg) return;
-  const p = _scatterPx(e, svg);
-  const dx = Math.abs(p.x - d.x), dy = Math.abs(p.y - d.y);
-  const rb = document.getElementById("rubber-" + kind);
-  if (rb) rb.style.display = "none";
-  if (dx < 8 || dy < 8) return; // too small — treat as a click (lets dot onclick fire normally)
-
-  // Convert pixel rect → data-coord rect (using bounds stamped on svg dataset)
   const x0 = parseFloat(svg.dataset.x0), x1 = parseFloat(svg.dataset.x1);
   const y0 = parseFloat(svg.dataset.y0), y1 = parseFloat(svg.dataset.y1);
   const PAD = {t: 22, r: 16, b: 42, l: 48};
   const cw = 460 - PAD.l - PAD.r, ch = 320 - PAD.t - PAD.b;
-  const px2x = px => x0 + ((Math.max(PAD.l, Math.min(PAD.l + cw, px)) - PAD.l) / cw) * (x1 - x0);
-  const py2y = py => y0 + (1 - (Math.max(PAD.t, Math.min(PAD.t + ch, py)) - PAD.t) / ch) * (y1 - y0);
-  const nx0 = Math.min(px2x(d.x), px2x(p.x));
-  const nx1 = Math.max(px2x(d.x), px2x(p.x));
-  const ny0 = Math.min(py2y(d.y), py2y(p.y));
-  const ny1 = Math.max(py2y(d.y), py2y(p.y));
-  window._scatterZoom[kind] = { x0: nx0, x1: nx1, y0: ny0, y1: ny1 };
+  const focalX = x0 + ((Math.max(PAD.l, Math.min(PAD.l + cw, p.x)) - PAD.l) / cw) * (x1 - x0);
+  const focalY = y0 + (1 - (Math.max(PAD.t, Math.min(PAD.t + ch, p.y)) - PAD.t) / ch) * (y1 - y0);
+  // deltaY > 0 means scroll DOWN (wheel toward user) → zoom OUT in standard chart convention.
+  const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+  window._scatterZoom[kind] = _zoomBoundsAround(x0, x1, y0, y1, focalX, focalY, factor);
+  renderStatsContent(true);
+}
+
+function _scatterZoomBtn(kind, dir) {
+  const svg = document.getElementById("scatter-" + kind);
+  if (!svg) return;
+  const x0 = parseFloat(svg.dataset.x0), x1 = parseFloat(svg.dataset.x1);
+  const y0 = parseFloat(svg.dataset.y0), y1 = parseFloat(svg.dataset.y1);
+  const focalX = (x0 + x1) / 2, focalY = (y0 + y1) / 2;
+  const factor = dir === "out" ? 1.3 : 1 / 1.3;
+  window._scatterZoom[kind] = _zoomBoundsAround(x0, x1, y0, y1, focalX, focalY, factor);
   renderStatsContent(true);
 }
 
