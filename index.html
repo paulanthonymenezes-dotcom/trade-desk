@@ -6233,6 +6233,95 @@ function _maeMfeScatterPanel(closed) {
       data: mfeData.map(d => ({...d, x: d.mfePctOfPrem, y: d.pnlPctOfPrem})),
       insight: _mfeScatterInsight(mfeData),
     })}
+  </div>
+  ${_maeOutcomeHistogram(maeData)}`;
+}
+
+// "How low did my green ones go?" — for each MAE-depth bucket, side-by-side
+// bars showing how many trades WON vs LOST at that drawdown level.
+// Directly answers the user's question that the scatter chart couldn't,
+// because the scatter's color = final outcome which made deep-MAE winners
+// hide as "just green dots in the upper-left."
+function _maeOutcomeHistogram(data) {
+  if (!data.length) return "";
+  // Define buckets by deepest MAE %. Edge of each bucket = inclusive on left.
+  const buckets = [
+    {label: "0 to -25%",   min: 0,    max: 25},
+    {label: "-25 to -50%", min: 25,   max: 50},
+    {label: "-50 to -100%",min: 50,   max: 100},
+    {label: "-100 to -150%", min: 100, max: 150},
+    {label: "-150 to -200%", min: 150, max: 200},
+    {label: "-200%+",      min: 200,  max: Infinity},
+  ];
+  const stats = buckets.map(b => {
+    // maePctOfPrem is NEGATIVE (deeper drawdown = more negative). Convert to positive depth.
+    const inB = data.filter(d => {
+      const depth = -d.maePctOfPrem;
+      return depth >= b.min && depth < b.max;
+    });
+    return {
+      ...b,
+      wins: inB.filter(d => d.isWin).length,
+      losses: inB.filter(d => !d.isWin).length,
+      total: inB.length,
+    };
+  });
+  const maxBar = Math.max(1, ...stats.flatMap(s => [s.wins, s.losses]));
+
+  const W = 760, H = 240, PAD = {t:18, r:18, b:36, l:48};
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+  const bucketW = cw / buckets.length;
+  const barW = bucketW * 0.35; // two bars per bucket, slim
+  const innerGap = bucketW * 0.05;
+
+  const bars = stats.map((s, i) => {
+    const x0 = PAD.l + i * bucketW;
+    const winH = (s.wins / maxBar) * ch;
+    const lossH = (s.losses / maxBar) * ch;
+    const winX = x0 + bucketW / 2 - barW - innerGap / 2;
+    const lossX = x0 + bucketW / 2 + innerGap / 2;
+    return `
+      ${s.wins ? `<rect x="${winX.toFixed(1)}" y="${(PAD.t + ch - winH).toFixed(1)}" width="${barW.toFixed(1)}" height="${winH.toFixed(1)}" fill="${C.pos}" fill-opacity="0.85"><title>${s.label} — ${s.wins} winners (recovered from drawdown)</title></rect>
+         <text x="${(winX + barW/2).toFixed(1)}" y="${(PAD.t + ch - winH - 4).toFixed(1)}" font-size="9" fill="${C.pos}" text-anchor="middle" font-weight="600">${s.wins}</text>` : ''}
+      ${s.losses ? `<rect x="${lossX.toFixed(1)}" y="${(PAD.t + ch - lossH).toFixed(1)}" width="${barW.toFixed(1)}" height="${lossH.toFixed(1)}" fill="${C.neg}" fill-opacity="0.85"><title>${s.label} — ${s.losses} losers (stayed underwater)</title></rect>
+         <text x="${(lossX + barW/2).toFixed(1)}" y="${(PAD.t + ch - lossH - 4).toFixed(1)}" font-size="9" fill="${C.neg}" text-anchor="middle" font-weight="600">${s.losses}</text>` : ''}
+    `;
+  }).join("");
+
+  const xLabels = stats.map((s, i) => {
+    const cx = PAD.l + (i + 0.5) * bucketW;
+    return `<text x="${cx.toFixed(1)}" y="${(H - 18).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${s.label}</text>
+            <text x="${cx.toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="${C.textMut}" text-anchor="middle">n=${s.total}</text>`;
+  }).join("");
+
+  // Insight line — find the deepest bucket with any winners + the cross-over depth
+  const deepestWinBucket = [...stats].reverse().find(s => s.wins > 0);
+  let insightHtml = "";
+  if (deepestWinBucket) {
+    const totalWinners = stats.reduce((a,s) => a + s.wins, 0);
+    const totalLosers = stats.reduce((a,s) => a + s.losses, 0);
+    const deepRecoverPct = totalWinners ? Math.round(stats.filter(s => s.min >= 100).reduce((a,s) => a + s.wins, 0) / totalWinners * 100) : 0;
+    insightHtml = `<div style="font-size:11px;color:${C.text};margin-top:8px;line-height:1.6">
+      <b>Your green ones went deep:</b> deepest MAE bucket with a recovered winner: <b style="color:${C.pos}">${deepestWinBucket.label}</b> (${deepestWinBucket.wins} recovered, ${deepestWinBucket.losses} didn't).
+      <b style="color:${C.text}">${deepRecoverPct}%</b> of your ${totalWinners} winners breached -100% MAE before recovering — you're regularly sitting through "full premium loss" drawdowns and getting bailed out.
+    </div>`;
+  }
+
+  return `<div class="card" style="padding:14px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">HOW LOW DID MY GREEN ONES GO? — Wins vs Losses by MAE Depth</div>
+      <div style="display:flex;gap:8px;align-items:center;font-size:9px;color:${C.textMut}">
+        <span><span style="display:inline-block;width:8px;height:8px;background:${C.pos};margin-right:3px;vertical-align:middle"></span>recovered to WIN</span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:${C.neg};margin-right:3px;vertical-align:middle"></span>stayed down — LOST</span>
+      </div>
+    </div>
+    <div style="font-size:10px;color:${C.text};margin-bottom:8px;line-height:1.4">Each bucket = a band of "how far underwater your trade went." Green bar = trades that recovered to a winner. Red bar = trades that stayed underwater and lost. The deeper the bucket, the worse the drawdown.</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace">
+      <line x1="${PAD.l}" y1="${(PAD.t + ch).toFixed(1)}" x2="${(PAD.l + cw).toFixed(1)}" y2="${(PAD.t + ch).toFixed(1)}" stroke="${C.border}" stroke-width="0.5"/>
+      ${bars}
+      ${xLabels}
+    </svg>
+    ${insightHtml}
   </div>`;
 }
 
