@@ -300,6 +300,7 @@ table{width:100%;border-collapse:collapse}
 .trow:hover{background:var(--bg-hover)}
 .iv-pill{display:inline-flex;align-items:center;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600}
 .stats-pill.active{background:var(--accent)!important;color:#fff!important;font-weight:600;border-color:var(--accent)!important}
+.stats-date-pill.active{background:var(--accent)!important;color:#fff!important;font-weight:700!important;border-color:var(--accent)!important}
 
 /* Koyfin theme overrides for index.html components */
 [data-theme="koyfin"] .btn-p{background:#2f81f7;color:#fff;font-weight:600}
@@ -563,6 +564,7 @@ table{width:100%;border-collapse:collapse}
 <nav id="left-sidebar">
   <button class="side-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span><span class="side-label">Pre-Market</span></button>
   <button class="side-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">Positions</span></button>
+  <button class="side-btn" onclick="switchTab('forward',this)"><span class="nav-icon">⇨</span><span class="side-label">Forward</span></button>
   <button class="side-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span><span class="side-label">Watchlist</span></button>
   <div style="height:1px;background:var(--border-subtle);margin:6px 14px"></div>
   <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">Diary</span></button>
@@ -676,6 +678,11 @@ table{width:100%;border-collapse:collapse}
     <div id="stats-content" style="max-width:1200px;margin:0 auto"></div>
   </div>
 
+  <!-- FORWARD TAB -->
+  <div id="tab-forward" class="section">
+    <div id="forward-content" style="max-width:1200px;margin:0 auto"></div>
+  </div>
+
   <!-- FORECAST TAB -->
   <div id="tab-forecast" class="section">
     <div id="forecast-content" style="max-width:1200px;margin:0 auto"></div>
@@ -722,6 +729,7 @@ table{width:100%;border-collapse:collapse}
 <nav id="bottom-nav">
   <button class="nav-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span>PRE</button>
   <button class="nav-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span>POS</button>
+  <button class="nav-btn" onclick="switchTab('forward',this)"><span class="nav-icon">⇨</span>FWD</button>
   <button class="nav-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>WATCH</button>
   <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
   <button class="nav-btn active" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
@@ -6476,7 +6484,7 @@ function _scatterOpenTrade(tradeId) {
   const mfePct = (mfe != null && prem) ? ((mfe / prem) * 100).toFixed(0) : null;
   const strikes = t.longStrike ? `${t.longStrike}/${t.shortStrike}` : `${t.shortStrike}`;
 
-  modal.innerHTML = `<div class="modal" style="max-width:520px">
+  modal.innerHTML = `<div class="modal" style="max-width:760px;width:90vw">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
       <div>
         <div style="font-size:14px;color:${C.text};font-weight:600">${escapeHtml(t.ticker||"?")} · ${escapeHtml(t.tradeType||"")}</div>
@@ -6515,7 +6523,7 @@ function _scatterOpenTrade(tradeId) {
 
     <!-- Compact chart with entry/exit/MAE/MFE markers -->
     <div id="preview-chart-wrap" style="border:1px solid ${C.border};border-radius:3px;margin-bottom:12px">
-      <div id="preview-chart-${t.id}" style="width:100%;height:200px;background:${C.bg}"></div>
+      <div id="preview-chart-${t.id}" style="width:100%;height:320px;background:${C.bg}"></div>
       <div id="preview-chart-status-${t.id}" style="padding:4px 8px;font-size:9px;color:${C.textMut};font-style:italic">Loading chart…</div>
     </div>
 
@@ -6568,7 +6576,7 @@ async function _renderPreviewChart(t) {
   })).filter(d => d.open != null && d.close != null);
 
   const chart = LightweightCharts.createChart(chartEl, {
-    width: chartEl.clientWidth || 480, height: 200,
+    width: chartEl.clientWidth || 720, height: 320,
     layout: { background: { color: C.bg }, textColor: C.textSec, fontFamily: "'IBM Plex Mono', monospace" },
     grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
     timeScale: { borderColor: C.borderVis },
@@ -8349,6 +8357,189 @@ function deleteRule(index) {
 
 function saveRuleFromAI(ruleText) {
   addRule(ruleText, "AI Coach");
+}
+
+// ── FORWARD TAB ─────────────────────────────────────────────────────────────
+// "What should I do next week?" — forward-looking coaching:
+//  - Open positions snapshot with current MAE-so-far and suggested action
+//  - AI Week Ahead review (similar to Trading Review but forward-focused)
+//  - (Future) Macro events from EODHD economic calendar
+function renderForward() {
+  const el = document.getElementById("forward-content");
+  if (!el) return;
+  const open = (STATE.trades || []).filter(t => t.status === "Open");
+  const closedRecent = (STATE.trades || []).filter(t => t.status !== "Open")
+    .sort((a,b) => (b.exitDate||"").localeCompare(a.exitDate||"")).slice(0, 30);
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
+      <div>
+        <div style="font-size:18px;color:${C.text};font-weight:600">⇨ Forward</div>
+        <div style="font-size:11px;color:${C.textSec};margin-top:2px">Look ahead: open positions, lessons from last 30 closed, macro calendar, AI week-ahead.</div>
+      </div>
+    </div>
+
+    ${_aiWeekAheadPanel(open, closedRecent)}
+
+    ${_openPositionsReview(open)}
+
+    <div class="card" style="padding:14px;margin-bottom:14px;opacity:0.55">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:8px">📅 MACRO CALENDAR — NEXT 7 DAYS</div>
+      <div style="font-size:11px;color:${C.textMut};font-style:italic">Coming soon — will surface NFP / CPI / FOMC / earnings windows from EODHD so you can size down before macro events.</div>
+    </div>
+  `;
+}
+
+// AI Week Ahead — forward-focused Claude call. Different prompt from the
+// backward-looking Trading Review: emphasizes "what to do" vs "what happened."
+function _aiWeekAheadPanel(open, closedRecent) {
+  const cacheKey = `_aiWeekAhead:${open.length}:${closedRecent.length}`;
+  const cached = _readReviewCache(cacheKey);
+  const ageStr = cached ? `· ${_relativeTime(cached.ts)} ago · cached` : "";
+  const body = cached
+    ? _renderTradingReviewBody(cached.data)
+    : `<div style="font-size:11px;color:${C.textSec};padding:20px 12px;text-align:center;line-height:1.6">
+        Click <b>Run Week Ahead</b> to generate AI-driven guidance: position adjustments, SL/TP for current open trades, lessons from recent losses to avoid this week.<br>
+        <span style="font-size:10px;color:${C.textMut}">Uses your ${open.length} open + last ${closedRecent.length} closed trades. Cached 6h.</span>
+      </div>`;
+  return `<div id="week-ahead-panel" class="card" style="padding:14px;margin-bottom:14px;border:1px solid ${C.accent}55">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:9px;background:${C.accent}33;color:${C.accent};padding:3px 7px;border-radius:3px;letter-spacing:0.06em;font-weight:700">AI</span>
+        <div style="font-size:14px;color:${C.text};font-weight:600">Week Ahead</div>
+        <div style="font-size:10px;color:${C.textMut};font-variant-numeric:tabular-nums">${open.length} open · ${closedRecent.length} recent ${ageStr}</div>
+      </div>
+      <button onclick="_runWeekAhead()" class="btn btn-p" style="padding:6px 14px;font-size:11px">${cached ? "Re-run" : "Run Week Ahead"}</button>
+    </div>
+    <div id="week-ahead-body">${body}</div>
+  </div>`;
+}
+
+async function _runWeekAhead() {
+  const body = document.getElementById("week-ahead-body");
+  if (!body) return;
+  const open = (STATE.trades || []).filter(t => t.status === "Open");
+  const closedRecent = (STATE.trades || []).filter(t => t.status !== "Open")
+    .sort((a,b) => (b.exitDate||"").localeCompare(a.exitDate||"")).slice(0, 30);
+  body.innerHTML = `<div style="color:${C.textSec};text-align:center;padding:20px">Generating week-ahead review… (10-20 sec)</div>`;
+
+  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
+  if (!ANTHROPIC_KEY) {
+    body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">Set <code>anthropic_api_key</code> in localStorage first.</div>`;
+    return;
+  }
+
+  // Build forward-focused context
+  const openSummary = open.length ? open.map(t => {
+    const dl = daysLeft(t.expiry);
+    return `  ${t.ticker} ${t.tradeType} ${t.shortStrike}${t.longStrike?"/"+t.longStrike:""} exp ${t.expiry} (${dl}d) · prem $${(t.premiumCollected||0).toFixed(0)} · ${t.contracts}x`;
+  }).join("\n") : "  (none — flat)";
+  const recentSummary = closedRecent.slice(0, 10).map(t =>
+    `  ${t.exitDate}: ${t.ticker} ${t.tradeType} → $${(t.realizedPnl||0).toFixed(0)}`).join("\n");
+
+  const ctx = `FORWARD-LOOKING CONTEXT — date: ${new Date().toISOString().slice(0,10)}
+
+OPEN POSITIONS (${open.length}):
+${openSummary}
+
+LAST 10 CLOSED TRADES:
+${recentSummary}
+
+Strategy: premium-selling on /NQ futures options + equity options (bull put spreads, bear call spreads).`;
+
+  const systemPrompt = `You are an expert options-trading coach producing a WEEK-AHEAD PLAN, not a post-mortem.
+
+The trader is a premium-seller. Focus on:
+- ACTIONABLE adjustments for current open positions (suggested SL/TP, roll candidates, close suggestions)
+- LESSONS from recent losses to avoid repeating this week
+- MACRO awareness (mention NFP/CPI/FOMC if any are imminent based on the current date)
+- POSITION-SIZING discipline for new trades
+
+Return ONLY a JSON object matching this schema. No markdown, no preamble.
+
+{
+  "coach_takeaway": "1-2 sentences — the single most important thing to do THIS WEEK.",
+  "insights": [
+    {
+      "title": "short label (e.g. 'Manage Open /NQ Position', 'Avoid Friday Entries', 'Macro: CPI Wed')",
+      "severity": "HIGH" | "MEDIUM" | "LOW",
+      "metric": "short headline (e.g. '+$1,500', '50% SL', 'CPI Wed')",
+      "trend": "actionable" | "watch" | "info",
+      "context_facts": ["fact 1", "fact 2"],
+      "next_action": "1-sentence concrete action",
+      "why_surfaced": "1-sentence data-driven reason"
+    }
+  ]
+}`;
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6-20250620",
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: ctx + "\n\nReturn ONLY the JSON object." }],
+      }),
+    });
+    const data = await resp.json();
+    const text = data.content?.[0]?.text || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      body.innerHTML = `<div style="color:${C.warn};padding:12px">AI response didn't include JSON. Raw:<br><pre style="font-size:10px;color:${C.textSec};white-space:pre-wrap">${escapeHtml(text).slice(0,600)}</pre></div>`;
+      return;
+    }
+    const review = JSON.parse(jsonMatch[0]);
+    const cacheKey = `_aiWeekAhead:${open.length}:${closedRecent.length}`;
+    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: review }));
+    body.innerHTML = _renderTradingReviewBody(review);
+  } catch (e) {
+    body.innerHTML = `<div style="color:${C.neg};padding:12px">Failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// Open positions table with current quote, days-to-expiry, suggested action.
+function _openPositionsReview(open) {
+  if (!open.length) {
+    return `<div class="card" style="padding:14px;margin-bottom:14px;opacity:0.6">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:8px">📋 OPEN POSITIONS REVIEW</div>
+      <div style="font-size:12px;color:${C.textMut};font-style:italic;text-align:center;padding:20px">You're flat — no open positions to manage.</div>
+    </div>`;
+  }
+  const rows = open.map(t => {
+    const dl = daysLeft(t.expiry);
+    const dteColor = dl <= 3 ? C.neg : dl <= 7 ? C.warn : C.text;
+    const mae = getMAE(t);
+    const maePct = (mae != null && t.premiumCollected) ? ((mae / t.premiumCollected) * 100).toFixed(0) + "%" : "—";
+    const strikes = t.longStrike ? `${t.longStrike}/${t.shortStrike}` : `${t.shortStrike}`;
+    return `<tr class="trow" onclick="openDiary(${t.id})" style="cursor:pointer">
+      <td style="font-size:11px;color:${C.text};font-weight:600">${escapeHtml(t.ticker||"?")}</td>
+      <td style="font-size:11px;color:${C.textSec}">${escapeHtml(t.tradeType||"")}</td>
+      <td style="font-size:11px;font-variant-numeric:tabular-nums">${strikes}</td>
+      <td style="font-size:11px;color:${dteColor};font-variant-numeric:tabular-nums">${dl}d</td>
+      <td style="font-size:11px;font-variant-numeric:tabular-nums">${fmt$(t.premiumCollected)}</td>
+      <td style="font-size:11px;color:${C.neg};font-variant-numeric:tabular-nums">${mae!=null?"-"+fmt$(mae):"—"} ${maePct}</td>
+      <td style="font-size:11px;color:${C.textSec}">${escapeHtml(t.entryDate||"?")}</td>
+    </tr>`;
+  }).join("");
+
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:10px">📋 OPEN POSITIONS REVIEW · ${open.length} active</div>
+    <table style="width:100%;font-size:11px;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid ${C.borderVis};color:${C.textSec};font-size:10px;text-align:left">
+          <th style="padding:6px">SYMBOL</th><th>TYPE</th><th>STRIKES</th><th>DTE</th><th>PREMIUM</th><th>MAE so far</th><th>ENTRY</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="font-size:10px;color:${C.textMut};margin-top:8px;font-style:italic">Click any row to open the trade in Diary for full thesis + exit options.</div>
+  </div>`;
 }
 
 function renderForecast() {
@@ -14084,7 +14275,7 @@ mktLoadAll();
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -14147,6 +14338,8 @@ function switchTab(tab, btn) {
     if (typeof renderStats === 'function') renderStats();
   } else if (tab === 'forecast') {
     if (typeof renderForecast === 'function') renderForecast();
+  } else if (tab === 'forward') {
+    if (typeof renderForward === 'function') renderForward();
   } else if (tab === 'premarket') {
     if (typeof renderMorningChecklist === 'function') renderMorningChecklist();
   }
