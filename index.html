@@ -6167,6 +6167,7 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
     const stroke = out ? color : color;
     const sw = out ? 1.2 : 0.6;
     return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" fill-opacity="${out?0.85:0.55}" stroke="${stroke}" stroke-width="${sw}" style="cursor:pointer"
+      onmousedown="event.stopPropagation()"
       onclick="_scatterOpenTrade(${d.id})"
       onmouseenter="_scatterHoverShow(event, ${d.id})"
       onmousemove="_scatterTooltipMove(event)"
@@ -6202,7 +6203,7 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
         <button onclick="_aiBreakdownScatter('${kind}')" title="Ask Claude to interpret this scatter" style="font-size:10px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">🤖 AI</button>
         <button onclick="_scatterZoomBtn('${kind}', 'in')" title="Zoom in (or scroll up on chart)" style="font-size:11px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.textSec};border-radius:3px;cursor:pointer;line-height:1">+</button>
         <button onclick="_scatterZoomBtn('${kind}', 'out')" title="Zoom out (or scroll down on chart)" style="font-size:11px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.textSec};border-radius:3px;cursor:pointer;line-height:1">−</button>
-        ${zoomed ? `<button onclick="_scatterResetZoom('${kind}')" style="font-size:9px;padding:2px 8px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">RESET</button>` : `<span style="font-size:9px;color:${C.textMut};font-style:italic">scroll on chart to zoom</span>`}
+        ${zoomed ? `<button onclick="_scatterResetZoom('${kind}')" style="font-size:9px;padding:2px 8px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">RESET</button>` : `<span style="font-size:9px;color:${C.textMut};font-style:italic">scroll to zoom · drag to pan</span>`}
       </div>
     </div>
     <div style="font-size:10px;color:${C.text};margin-bottom:6px;line-height:1.4">${howToRead}</div>
@@ -6210,7 +6211,11 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
       data-x0="${x0}" data-x1="${x1}" data-y0="${y0}" data-y1="${y1}"
       onwheel="_scatterWheel(event,'${kind}')"
       ondblclick="_scatterResetZoom('${kind}')"
-      style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace;user-select:none">
+      onmousedown="_scatterPanStart(event,'${kind}')"
+      onmousemove="_scatterPanMove(event,'${kind}')"
+      onmouseup="_scatterPanEnd(event,'${kind}')"
+      onmouseleave="_scatterPanEnd(event,'${kind}')"
+      style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace;user-select:none;cursor:grab">
       <rect x="${PAD.l}" y="${PAD.t}" width="${cw}" height="${ch}" fill="none" stroke="${C.border}" stroke-width="0.5"/>
       <line x1="${x0px}" y1="${PAD.t}" x2="${x0px}" y2="${PAD.t + ch}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
       <line x1="${PAD.l}" y1="${y0px}" x2="${PAD.l + cw}" y2="${y0px}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
@@ -6279,6 +6284,61 @@ function _scatterZoomBtn(kind, dir) {
 
 function _scatterResetZoom(kind) {
   delete window._scatterZoom[kind];
+  renderStatsContent(true);
+}
+
+// Click-drag pan. Dots' onmousedown calls event.stopPropagation() so dot
+// clicks don't trigger pan — left-click on background area starts the drag,
+// move shifts the zoom bounds, release commits a single re-render.
+window._scatterPan = window._scatterPan || {};
+
+function _scatterPanStart(e, kind) {
+  // Only left-click pans. Right-click reserved for browser menu, middle for
+  // future use (e.g. select). Dot clicks already stop propagation.
+  if (e.button !== 0) return;
+  const svg = document.getElementById("scatter-" + kind);
+  if (!svg) return;
+  const p = _scatterPx(e, svg);
+  window._scatterPan[kind] = {
+    startX: p.x, startY: p.y,
+    x0: parseFloat(svg.dataset.x0), x1: parseFloat(svg.dataset.x1),
+    y0: parseFloat(svg.dataset.y0), y1: parseFloat(svg.dataset.y1),
+    moved: false,
+  };
+  svg.style.cursor = "grabbing";
+}
+
+function _scatterPanMove(e, kind) {
+  const d = window._scatterPan[kind];
+  if (!d) return;
+  const svg = document.getElementById("scatter-" + kind);
+  const p = _scatterPx(e, svg);
+  if (!d.moved && (Math.abs(p.x - d.startX) > 3 || Math.abs(p.y - d.startY) > 3)) {
+    d.moved = true; // crossed the threshold — definitely a drag, not a stray click
+  }
+}
+
+function _scatterPanEnd(e, kind) {
+  const d = window._scatterPan[kind];
+  if (!d) return;
+  delete window._scatterPan[kind];
+  const svg = document.getElementById("scatter-" + kind);
+  if (!svg) return;
+  svg.style.cursor = "grab";
+  if (!d.moved) return; // wasn't actually a drag
+  const p = _scatterPx(e, svg);
+  const dxPx = p.x - d.startX, dyPx = p.y - d.startY;
+  const PAD = {t: 22, r: 16, b: 42, l: 48};
+  const cw = 460 - PAD.l - PAD.r, ch = 320 - PAD.t - PAD.b;
+  // Pixel delta → data delta. X: drag-right shows MORE-LEFT data (so shift
+  // bounds LEFT). Y: drag-down shows MORE-UPPER data (shift bounds UP) —
+  // Y-axis is inverted in screen coords.
+  const dxData = -(dxPx / cw) * (d.x1 - d.x0);
+  const dyData = +(dyPx / ch) * (d.y1 - d.y0);
+  window._scatterZoom[kind] = {
+    x0: d.x0 + dxData, x1: d.x1 + dxData,
+    y0: d.y0 + dyData, y1: d.y1 + dyData,
+  };
   renderStatsContent(true);
 }
 
@@ -6357,6 +6417,8 @@ function _scatterOpenTrade(tradeId) {
 // Floating tooltip for scatter dot HOVER (shows rich trade summary without
 // requiring a click). Single shared div, lazy-created, repositioned on mousemove.
 function _scatterHoverShow(e, tradeId) {
+  // Suppress tooltip while user is mid-pan — noise during drag.
+  if (window._scatterPan && Object.keys(window._scatterPan).length) return;
   const t = (STATE.trades || []).find(x => x.id == tradeId);
   if (!t) return;
   let tip = document.getElementById("scatter-tooltip");
