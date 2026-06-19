@@ -5496,6 +5496,8 @@ function renderStatsOverview(closed) {
   const byEntry = buildCompactBreakdown(closed, t=>t.entryType||"Unknown");
 
   return `
+    ${_insightsRow(closed, wins, losses, avgWin, avgLoss)}
+
     <!-- KPI Cards - 3 columns -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px">
       ${kpiCard("Win Rate", wr+"%", wr>=60?C.pos:wr>=50?C.warn:C.neg)}
@@ -5505,6 +5507,8 @@ function renderStatsOverview(closed) {
       ${kpiCard("Avg Loss", "-$"+Math.abs(avgLoss).toFixed(0), C.neg)}
       ${kpiCard("Avg P&L/Trade", fmt$(avgPnl), avgPnl>=0?C.pos:C.neg)}
     </div>
+
+    ${_dailyPnlCalendar(closed)}
 
     <!-- Two-column layout: Equity Curve + Monthly P&L side by side -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
@@ -5577,6 +5581,154 @@ function renderStatsOverview(closed) {
       ${statBreakdownCard(buildCompactBreakdown(closed, t=>t.assetClass||"Options"), "BY ASSET CLASS")}
     </div>` : ""}
   `;
+}
+
+// ── Auto-insights row (TradesViz-style pattern detection) ────────────────────
+// Currently surfaces: Risk/Reward Leak, Weak Trading Day. Each card includes a
+// "Next:" action so the insight is operative, not just diagnostic.
+function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
+  const cards = [];
+
+  // RISK/REWARD LEAK — flag when avg loss is much bigger than avg win
+  if (avgWin > 0 && avgLoss < 0) {
+    const ratio = Math.abs(avgLoss) / avgWin;
+    if (ratio >= 1.5) {
+      // Recoverable = what you'd have NETTED if each loss had been size of avg win
+      const recoverable = (Math.abs(avgLoss) - avgWin) * losses.length;
+      const sev = ratio >= 3 ? "HIGH" : ratio >= 2 ? "MEDIUM" : "LOW";
+      const sevC = sev === "HIGH" ? C.neg : sev === "MEDIUM" ? C.warn : C.textSec;
+      cards.push(`<div class="card" style="padding:12px;border-left:3px solid ${sevC}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.06em">RISK / REWARD LEAK</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${sevC};font-weight:600;margin-top:2px">${ratio.toFixed(1)}×</div>
+          </div>
+          <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
+        </div>
+        <div style="font-size:11px;color:${C.text};line-height:1.5;margin-bottom:8px">
+          Avg loss <b style="color:${C.neg}">${fmt$(avgLoss)}</b> is <b>${ratio.toFixed(1)}×</b> avg win <b style="color:${C.pos}">${fmt$(avgWin)}</b>.
+          ${ratio > 1.5 ? `If each loss were the size of avg win, you'd recover <b style="color:${C.pos}">${fmt$(recoverable)}</b>.` : ""}
+        </div>
+        <div style="font-size:11px;color:${C.text};padding-top:6px;border-top:1px solid ${C.border}">
+          <span style="color:${C.accent}">▶ Next:</span> Audit the ${losses.length} losers — cap loss size first. Finding more winners is secondary.
+        </div>
+      </div>`);
+    }
+  }
+
+  // WEAK TRADING DAY — group by day-of-week (entry date), find worst with N ≥ 5
+  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const dayStats = Array.from({length:7}, () => ({wins:0,count:0,pnl:0}));
+  closed.forEach(t => {
+    const ds = t.entryDate || t.exitDate;
+    if (!ds) return;
+    const d = new Date(ds+"T12:00:00").getDay();
+    dayStats[d].count++;
+    dayStats[d].pnl += (t.realizedPnl||0);
+    if ((t.realizedPnl||0) > 0) dayStats[d].wins++;
+  });
+  const eligible = dayStats.map((s,i) => ({day:i, ...s})).filter(s => s.count >= 5);
+  if (eligible.length >= 3) {
+    const worst = eligible.slice().sort((a,b) => (a.pnl/a.count) - (b.pnl/b.count))[0];
+    const otherPnl = eligible.filter(s => s.day !== worst.day).reduce((a,s)=>a+s.pnl,0);
+    const otherCount = eligible.filter(s => s.day !== worst.day).reduce((a,s)=>a+s.count,0);
+    const otherAvg = otherCount ? otherPnl / otherCount : 0;
+    const worstAvg = worst.count ? worst.pnl / worst.count : 0;
+    if (worstAvg < otherAvg - 5) {
+      const wr = worst.count ? Math.round(worst.wins/worst.count*100) : 0;
+      cards.push(`<div class="card" style="padding:12px;border-left:3px solid ${C.warn}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.06em">WEAK TRADING DAY</div>
+            <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${C.warn};font-weight:600;margin-top:2px">${days[worst.day]}</div>
+          </div>
+          <span style="font-size:9px;background:${C.warn}22;color:${C.warn};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${worst.count} TRADES</span>
+        </div>
+        <div style="font-size:11px;color:${C.text};line-height:1.5;margin-bottom:8px">
+          ${days[worst.day]} entries net <b style="color:${worst.pnl>=0?C.pos:C.neg}">${fmt$(worst.pnl)}</b> · avg <b style="color:${worstAvg>=0?C.pos:C.neg}">${fmt$(worstAvg)}/trade</b> · win rate <b>${wr}%</b>.<br>
+          Other days avg: <b style="color:${otherAvg>=0?C.pos:C.neg}">${fmt$(otherAvg)}/trade</b>.
+        </div>
+        <div style="font-size:11px;color:${C.text};padding-top:6px;border-top:1px solid ${C.border}">
+          <span style="color:${C.accent}">▶ Next:</span> Size down or stay flat on ${days[worst.day]} until the pattern improves.
+        </div>
+      </div>`);
+    }
+  }
+
+  if (!cards.length) return "";
+  return `<div style="display:grid;grid-template-columns:repeat(${cards.length>1?2:1},1fr);gap:8px;margin-bottom:14px">${cards.join("")}</div>`;
+}
+
+// ── Daily P&L Calendar (TradesViz-style heatmap) ─────────────────────────────
+// Shows last 3 months as month-grids; each day cell colored by realized P&L
+// (intensity scales with magnitude). Hover for trade count + amount.
+function _dailyPnlCalendar(closed) {
+  if (!closed.length) return "";
+  const byDate = {};
+  closed.forEach(t => {
+    if (!t.exitDate) return;
+    if (!byDate[t.exitDate]) byDate[t.exitDate] = { pnl: 0, count: 0 };
+    byDate[t.exitDate].pnl += (t.realizedPnl||0);
+    byDate[t.exitDate].count++;
+  });
+  if (!Object.keys(byDate).length) return "";
+
+  const now = new Date();
+  const months = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ year: d.getFullYear(), month: d.getMonth() });
+  }
+
+  let maxAbs = 1;
+  Object.values(byDate).forEach(v => { maxAbs = Math.max(maxAbs, Math.abs(v.pnl)); });
+
+  function dayCell(year, month, day) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const data = byDate[ds];
+    if (!data) {
+      return `<div style="aspect-ratio:1;padding:3px;background:transparent;border:1px solid ${C.border};border-radius:2px;font-size:9px;color:${C.textMut};text-align:right">${day}</div>`;
+    }
+    const intensity = Math.min(0.85, (Math.abs(data.pnl) / maxAbs) * 0.7 + 0.15);
+    const isPos = data.pnl >= 0;
+    const bg = isPos ? `rgba(46,160,67,${intensity})` : `rgba(248,81,73,${intensity})`;
+    const tip = `${ds} · ${data.count} trade${data.count>1?'s':''} · ${fmt$(data.pnl)}`;
+    return `<div title="${tip}" style="aspect-ratio:1;padding:3px;background:${bg};border:1px solid ${isPos?C.pos:C.neg};border-radius:2px;font-size:9px;color:#fff;display:flex;flex-direction:column;justify-content:space-between">
+      <div style="text-align:right;opacity:0.7">${day}</div>
+      <div style="font-variant-numeric:tabular-nums;font-weight:600;font-size:9px;text-align:center">${fmt$(data.pnl)}</div>
+    </div>`;
+  }
+
+  function monthGrid(year, month) {
+    const monthName = new Date(year, month, 1).toLocaleString('en-US', { month:'long', year:'numeric' });
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    let monthTotal = 0, monthCount = 0;
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push('<div></div>');
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push(dayCell(year, month, d));
+      const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      if (byDate[ds]) { monthTotal += byDate[ds].pnl; monthCount += byDate[ds].count; }
+    }
+    return `<div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <div style="font-size:11px;color:${C.text};font-weight:600">${monthName}</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:11px;color:${monthTotal>=0?C.pos:C.neg}">${fmt$(monthTotal)} · ${monthCount}t</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">
+        ${['S','M','T','W','T','F','S'].map(d=>`<div style="font-size:8px;color:${C.textMut};text-align:center;padding:2px 0">${d}</div>`).join('')}
+        ${cells.join('')}
+      </div>
+    </div>`;
+  }
+
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:10px">DAILY P&L CALENDAR — last 3 months</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+      ${months.map(m => monthGrid(m.year, m.month)).join('')}
+    </div>
+  </div>`;
 }
 
 // ── 2. RISK ─────────────────────────────────────────────────────────────────
