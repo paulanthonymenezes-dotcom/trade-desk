@@ -5597,13 +5597,17 @@ function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
       const recoverable = (Math.abs(avgLoss) - avgWin) * losses.length;
       const sev = ratio >= 3 ? "HIGH" : ratio >= 2 ? "MEDIUM" : "LOW";
       const sevC = sev === "HIGH" ? C.neg : sev === "MEDIUM" ? C.warn : C.textSec;
+      const rrlCtx = `RISK/REWARD LEAK STATS: ratio=${ratio.toFixed(2)}x, avg win=$${avgWin.toFixed(0)}, avg loss=$${avgLoss.toFixed(0)}, ${wins.length} winners / ${losses.length} losers, recoverable if loss capped at avg-win = $${recoverable.toFixed(0)}. Severity: ${sev}.`;
       cards.push(`<div class="card" style="padding:12px;border-left:3px solid ${sevC}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div>
             <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.06em">RISK / REWARD LEAK</div>
             <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${sevC};font-weight:600;margin-top:2px">${ratio.toFixed(1)}×</div>
           </div>
-          <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button onclick="_aiBreakdown('Risk/Reward Leak', ${JSON.stringify(rrlCtx)}, 'Explain why this ratio is showing up given premium-selling strategies on /NQ. What specific changes should I make to my trade management to bring this ratio down? Be concrete about position-sizing rules, hard stop levels, or trade selection filters.')" title="Ask Claude to explain + suggest fixes" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
+          </div>
         </div>
         <div style="font-size:11px;color:${C.text};line-height:1.5;margin-bottom:8px">
           Avg loss <b style="color:${C.neg}">${fmt$(avgLoss)}</b> is <b>${ratio.toFixed(1)}×</b> avg win <b style="color:${C.pos}">${fmt$(avgWin)}</b>.
@@ -5636,13 +5640,17 @@ function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
     const worstAvg = worst.count ? worst.pnl / worst.count : 0;
     if (worstAvg < otherAvg - 5) {
       const wr = worst.count ? Math.round(worst.wins/worst.count*100) : 0;
+      const wdCtx = `WEAK TRADING DAY STATS: worst day=${days[worst.day]}, ${worst.count} trades on that day netted $${worst.pnl.toFixed(0)} (avg $${worstAvg.toFixed(0)}/trade, win rate ${wr}%). Other days avg $${otherAvg.toFixed(0)}/trade. Day distribution: ${eligible.map(s=>`${days[s.day]}=$${s.pnl.toFixed(0)}/${s.count}t`).join(', ')}.`;
       cards.push(`<div class="card" style="padding:12px;border-left:3px solid ${C.warn}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div>
             <div style="font-variant-numeric:tabular-nums;font-size:10px;color:${C.textSec};letter-spacing:0.06em">WEAK TRADING DAY</div>
             <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${C.warn};font-weight:600;margin-top:2px">${days[worst.day]}</div>
           </div>
-          <span style="font-size:9px;background:${C.warn}22;color:${C.warn};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${worst.count} TRADES</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button onclick="_aiBreakdown('Weak Trading Day', ${JSON.stringify(wdCtx)}, 'Why might ${days[worst.day]} be the worst trading day in this account? Consider macro calendar effects (NFP on Fridays, settlement Mondays, etc.) and what specific rule changes I should adopt around this day.')" title="Ask Claude to explain why" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <span style="font-size:9px;background:${C.warn}22;color:${C.warn};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${worst.count} TRADES</span>
+          </div>
         </div>
         <div style="font-size:11px;color:${C.text};line-height:1.5;margin-bottom:8px">
           ${days[worst.day]} entries net <b style="color:${worst.pnl>=0?C.pos:C.neg}">${fmt$(worst.pnl)}</b> · avg <b style="color:${worstAvg>=0?C.pos:C.neg}">${fmt$(worstAvg)}/trade</b> · win rate <b>${wr}%</b>.<br>
@@ -6158,7 +6166,11 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
     const r = out ? 4 : 3.2;
     const stroke = out ? color : color;
     const sw = out ? 1.2 : 0.6;
-    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" fill-opacity="${out?0.85:0.55}" stroke="${stroke}" stroke-width="${sw}" style="cursor:pointer" onclick="_scatterOpenTrade(${d.id})"><title>${escapeHtml(tip)}</title></circle>`;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" fill-opacity="${out?0.85:0.55}" stroke="${stroke}" stroke-width="${sw}" style="cursor:pointer"
+      onclick="_scatterOpenTrade(${d.id})"
+      onmouseenter="_scatterHoverShow(event, ${d.id})"
+      onmousemove="_scatterTooltipMove(event)"
+      onmouseleave="_scatterHoverHide()"><title>${escapeHtml(tip)}</title></circle>`;
   }).join("");
 
   const tickFmt = v => (v >= 0 ? "+" : "") + v.toFixed(0) + "%";
@@ -6187,6 +6199,7 @@ function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insig
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:2px">
       <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600">${title}</div>
       <div style="display:flex;gap:4px;align-items:center">
+        <button onclick="_aiBreakdownScatter('${kind}')" title="Ask Claude to interpret this scatter" style="font-size:10px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">🤖 AI</button>
         <button onclick="_scatterZoomBtn('${kind}', 'in')" title="Zoom in (or scroll up on chart)" style="font-size:11px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.textSec};border-radius:3px;cursor:pointer;line-height:1">+</button>
         <button onclick="_scatterZoomBtn('${kind}', 'out')" title="Zoom out (or scroll down on chart)" style="font-size:11px;padding:1px 7px;background:transparent;border:1px solid ${C.borderVis};color:${C.textSec};border-radius:3px;cursor:pointer;line-height:1">−</button>
         ${zoomed ? `<button onclick="_scatterResetZoom('${kind}')" style="font-size:9px;padding:2px 8px;background:transparent;border:1px solid ${C.borderVis};color:${C.accent};border-radius:3px;cursor:pointer">RESET</button>` : `<span style="font-size:9px;color:${C.textMut};font-style:italic">scroll on chart to zoom</span>`}
@@ -6269,15 +6282,229 @@ function _scatterResetZoom(kind) {
   renderStatsContent(true);
 }
 
-// Click handler for scatter dots — opens the trade in the Diary tab with
-// full details (thesis, exit review, MAE/MFE, journal, screenshots, etc.)
+// Click handler for scatter dots — opens an INLINE preview modal showing
+// the trade's key details (so the user doesn't have to nav away from Stats).
+// Modal has an "OPEN FULL DIARY" button for the full thesis/journal/exit view.
 function _scatterOpenTrade(tradeId) {
-  if (typeof tradeId !== "number") return;
-  if (typeof openDiary === "function") openDiary(tradeId);
-  else if (typeof currentDiaryId !== "undefined") {
-    currentDiaryId = tradeId;
-    if (typeof switchTab === "function") switchTab("diary");
-    if (typeof renderDiary === "function") renderDiary();
+  if (typeof tradeId !== "number" && typeof tradeId !== "string") return;
+  const t = (STATE.trades || []).find(x => x.id == tradeId);
+  if (!t) { alert("Trade not found (id=" + tradeId + ")"); return; }
+
+  let modal = document.getElementById("trade-preview-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "trade-preview-modal";
+    modal.className = "overlay";
+    modal.style.display = "none";
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
+    document.body.appendChild(modal);
+  }
+
+  const pnl = t.realizedPnl || 0;
+  const prem = t.premiumCollected || 0;
+  const mae = getMAE(t);
+  const mfe = getMFE(t);
+  const pnlPct = prem ? ((pnl / prem) * 100).toFixed(0) : "—";
+  const maePct = (mae != null && prem) ? ((mae / prem) * 100).toFixed(0) : null;
+  const mfePct = (mfe != null && prem) ? ((mfe / prem) * 100).toFixed(0) : null;
+  const strikes = t.longStrike ? `${t.longStrike}/${t.shortStrike}` : `${t.shortStrike}`;
+
+  modal.innerHTML = `<div class="modal" style="max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+      <div>
+        <div style="font-size:14px;color:${C.text};font-weight:600">${escapeHtml(t.ticker||"?")} · ${escapeHtml(t.tradeType||"")}</div>
+        <div style="font-size:10px;color:${C.textSec};margin-top:2px;font-variant-numeric:tabular-nums">${strikes} · ${t.contracts||1}× · exp ${escapeHtml(t.expiry||"?")}</div>
+      </div>
+      <button onclick="document.getElementById('trade-preview-modal').style.display='none'" style="background:none;border:none;color:${C.textSec};font-size:22px;cursor:pointer;line-height:1">&times;</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
+      <div style="background:${C.bg};padding:8px;border-radius:3px;border:1px solid ${C.border}">
+        <div style="font-size:9px;color:${C.textSec};letter-spacing:0.05em">REALIZED P&L</div>
+        <div style="font-size:14px;color:${pnl>=0?C.pos:C.neg};font-weight:600;font-variant-numeric:tabular-nums">${fmt$(pnl)}</div>
+        <div style="font-size:9px;color:${C.textMut};font-variant-numeric:tabular-nums">${pnlPct}% of prem</div>
+      </div>
+      <div style="background:${C.bg};padding:8px;border-radius:3px;border:1px solid ${C.border}">
+        <div style="font-size:9px;color:${C.textSec};letter-spacing:0.05em">MAE</div>
+        <div style="font-size:14px;color:${C.neg};font-weight:600;font-variant-numeric:tabular-nums">${mae!=null?"-"+fmt$(mae):"—"}</div>
+        <div style="font-size:9px;color:${C.textMut};font-variant-numeric:tabular-nums">${maePct!=null?"-"+maePct+"% of prem":""}</div>
+      </div>
+      <div style="background:${C.bg};padding:8px;border-radius:3px;border:1px solid ${C.border}">
+        <div style="font-size:9px;color:${C.textSec};letter-spacing:0.05em">MFE</div>
+        <div style="font-size:14px;color:${C.pos};font-weight:600;font-variant-numeric:tabular-nums">${mfe!=null?"+"+fmt$(mfe):"—"}</div>
+        <div style="font-size:9px;color:${C.textMut};font-variant-numeric:tabular-nums">${mfePct!=null?"+"+mfePct+"% of prem":""}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:11px;color:${C.text};margin-bottom:12px;font-variant-numeric:tabular-nums">
+      <span style="color:${C.textSec}">Premium</span><span>${fmt$(prem)}</span>
+      <span style="color:${C.textSec}">Status</span><span>${escapeHtml(t.status||"?")}</span>
+      <span style="color:${C.textSec}">Entry</span><span>${escapeHtml(t.entryDate||"?")} ${escapeHtml(t.entryTime||"")}</span>
+      <span style="color:${C.textSec}">Exit</span><span>${escapeHtml(t.exitDate||"—")} ${escapeHtml(t.exitTime||"")}</span>
+      ${t.shortSymbol ? `<span style="color:${C.textSec}">Symbol</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px">${escapeHtml(t.shortSymbol)}${t.longSymbol?" / "+escapeHtml(t.longSymbol):""}</span>` : ""}
+      ${t.thesis ? `<span style="color:${C.textSec}">Thesis</span><span style="font-style:italic;color:${C.text}">${escapeHtml(t.thesis)}</span>` : ""}
+      ${t.lessonLearned ? `<span style="color:${C.textSec}">Lesson</span><span style="font-style:italic;color:${C.text}">${escapeHtml(t.lessonLearned)}</span>` : ""}
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button onclick="document.getElementById('trade-preview-modal').style.display='none';openDiary(${t.id})" class="btn btn-p" style="flex:1;padding:8px">OPEN FULL DIARY →</button>
+      <button onclick="document.getElementById('trade-preview-modal').style.display='none'" class="btn btn-g" style="padding:8px 14px">CLOSE</button>
+    </div>
+  </div>`;
+  modal.style.display = "flex";
+}
+
+// Floating tooltip for scatter dot HOVER (shows rich trade summary without
+// requiring a click). Single shared div, lazy-created, repositioned on mousemove.
+function _scatterHoverShow(e, tradeId) {
+  const t = (STATE.trades || []).find(x => x.id == tradeId);
+  if (!t) return;
+  let tip = document.getElementById("scatter-tooltip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "scatter-tooltip";
+    tip.style.cssText = `position:fixed;z-index:10000;pointer-events:none;background:${C.bgCard||"#161b22"};border:1px solid ${C.borderVis};border-radius:4px;padding:10px 12px;font-size:11px;color:${C.text};box-shadow:0 4px 16px rgba(0,0,0,0.6);max-width:280px;line-height:1.5;display:none`;
+    document.body.appendChild(tip);
+  }
+  const pnl = t.realizedPnl || 0;
+  const prem = t.premiumCollected || 0;
+  const mae = getMAE(t);
+  const mfe = getMFE(t);
+  const pnlPct = prem ? ((pnl / prem) * 100).toFixed(0) : "—";
+  const maePct = (mae != null && prem) ? "-" + ((mae / prem) * 100).toFixed(0) + "%" : "—";
+  const mfePct = (mfe != null && prem) ? "+" + ((mfe / prem) * 100).toFixed(0) + "%" : "—";
+  const strikes = t.longStrike ? `${t.longStrike}/${t.shortStrike}` : `${t.shortStrike||""}`;
+  tip.innerHTML = `
+    <div style="font-weight:600;font-size:12px;margin-bottom:2px;font-variant-numeric:tabular-nums">${escapeHtml(t.ticker||"?")} · ${escapeHtml(t.tradeType||"")}</div>
+    <div style="color:${C.textSec};font-size:10px;margin-bottom:8px;font-variant-numeric:tabular-nums">${strikes} · ${t.contracts||1}× · exp ${escapeHtml(t.expiry||"?")}</div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-variant-numeric:tabular-nums;font-size:10px">
+      <span style="color:${C.textSec}">Premium</span><span>${fmt$(prem)}</span>
+      <span style="color:${C.textSec}">Realized</span><span style="color:${pnl>=0?C.pos:C.neg};font-weight:600">${fmt$(pnl)} (${pnlPct}%)</span>
+      <span style="color:${C.textSec}">MAE</span><span style="color:${C.neg}">${mae!=null?"-"+fmt$(mae):"—"} (${maePct})</span>
+      <span style="color:${C.textSec}">MFE</span><span style="color:${C.pos}">${mfe!=null?"+"+fmt$(mfe):"—"} (${mfePct})</span>
+      <span style="color:${C.textSec}">Period</span><span>${escapeHtml(t.entryDate||"?")} → ${escapeHtml(t.exitDate||"?")}</span>
+    </div>
+    <div style="color:${C.textMut};font-size:9px;margin-top:6px;font-style:italic">click for full preview</div>
+  `;
+  _scatterTooltipMove(e);
+  tip.style.display = "block";
+}
+
+function _scatterTooltipMove(e) {
+  const tip = document.getElementById("scatter-tooltip");
+  if (!tip || tip.style.display === "none") return;
+  const w = tip.offsetWidth || 280, h = tip.offsetHeight || 140;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > window.innerWidth - 10) x = e.clientX - w - 14;
+  if (y + h > window.innerHeight - 10) y = e.clientY - h - 14;
+  tip.style.left = Math.max(4, x) + "px";
+  tip.style.top = Math.max(4, y) + "px";
+}
+
+function _scatterHoverHide() {
+  const tip = document.getElementById("scatter-tooltip");
+  if (tip) tip.style.display = "none";
+}
+
+// Scatter-specific AI helper — summarizes the visible dots into a compact
+// context string and asks Claude for trade-management implications.
+function _aiBreakdownScatter(kind) {
+  const closed = (STATE.trades || []).filter(t => t.status !== "Open");
+  const data = closed.map(t => {
+    const prem = t.premiumCollected || 0;
+    if (!prem) return null;
+    const mae = getMAE(t), mfe = getMFE(t), pnl = t.realizedPnl || 0;
+    return {
+      ticker: t.ticker, type: t.tradeType, prem, pnl,
+      pnlPct: (pnl / prem) * 100,
+      maePct: mae != null ? -(mae / prem) * 100 : null,
+      mfePct: mfe != null ? (mfe / prem) * 100 : null,
+      win: pnl > 0,
+    };
+  }).filter(d => d && (kind === "mae" ? d.maePct != null : d.mfePct != null));
+  if (!data.length) { alert("No trades with MAE/MFE data yet — run the Databento backfill first."); return; }
+  // Compute rollups so the prompt is data-dense but compact
+  const wins = data.filter(d => d.win);
+  const losses = data.filter(d => !d.win);
+  const buckets = [50, 100, 150, 200];
+  let bucketLines = "";
+  if (kind === "mae") {
+    bucketLines = buckets.map(b => {
+      const inB = data.filter(d => d.maePct <= -b);
+      if (!inB.length) return null;
+      const w = inB.filter(d => d.win).length;
+      return `  hit -${b}% MAE or worse: ${w}/${inB.length} (${Math.round(w/inB.length*100)}%) recovered to win`;
+    }).filter(Boolean).join("\n");
+  } else {
+    const cap = wins.map(d => d.pnlPct / d.mfePct);
+    const avgCap = cap.length ? Math.round(cap.reduce((a,b)=>a+b,0)/cap.length*100) : 0;
+    bucketLines = `  winners captured ${avgCap}% of MFE peak on average`;
+  }
+  const ctx = `${kind.toUpperCase()} SCATTER STATS (n=${data.length}, ${wins.length}W / ${losses.length}L):\n${bucketLines}\nMostly /NQ credit spreads. Premium-selling distribution: high win rate, fat-tailed losses.`;
+  const q = kind === "mae"
+    ? "What SL level should I use given this MAE distribution? Quantify the trade-off: tighter SL kills winners but caps catastrophic losses. Give me a specific % of premium to use as my SL and explain why."
+    : "Am I exiting winners too early given this MFE capture rate? What TP rule (% of premium, % of MFE peak, or other) would optimize my expectancy without leaving too much on the table?";
+  _aiBreakdown(kind === "mae" ? "MAE Scatter — Optimal SL" : "MFE Scatter — Exit Timing", ctx, q);
+}
+
+// AI breakdown modal — call Claude with a card-specific prompt + relevant data,
+// stream the response. Used by the "🤖 AI" buttons on each insight card so
+// the user can get a deeper, contextual analysis on demand.
+async function _aiBreakdown(title, contextSummary, userQuestion) {
+  let modal = document.getElementById("ai-breakdown-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "ai-breakdown-modal";
+    modal.className = "overlay";
+    modal.style.display = "none";
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
+    document.body.appendChild(modal);
+  }
+  const renderShell = (bodyHtml) => `<div class="modal" style="max-width:640px;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:13px;color:${C.text};font-weight:600">🤖 AI Breakdown — ${escapeHtml(title)}</div>
+      <button onclick="document.getElementById('ai-breakdown-modal').style.display='none'" style="background:none;border:none;color:${C.textSec};font-size:22px;cursor:pointer">&times;</button>
+    </div>
+    <div style="font-size:10px;color:${C.textMut};margin-bottom:10px;font-style:italic">Context shared: ${escapeHtml(contextSummary).slice(0,200)}${contextSummary.length>200?"…":""}</div>
+    <div id="ai-breakdown-body" style="font-size:12px;color:${C.text};line-height:1.6">${bodyHtml}</div>
+  </div>`;
+  modal.innerHTML = renderShell(`<div style="color:${C.textSec}">Asking Claude…</div>`);
+  modal.style.display = "flex";
+
+  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
+  if (!ANTHROPIC_KEY) {
+    modal.innerHTML = renderShell(`<div style="color:${C.warn}">No Anthropic API key. Set it in Settings → AI to enable AI breakdowns.</div>`);
+    return;
+  }
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6-20250620",
+        max_tokens: 1500,
+        system: "You are an expert options-trading coach. Be direct, specific, and data-driven. Surface the SO-WHAT in 2–3 sentences, then give 2–4 concrete actions the trader can take. Use ** for bold headers. Don't hedge.",
+        messages: [{ role: "user", content: contextSummary + "\n\n" + userQuestion }],
+      }),
+    });
+    const data = await resp.json();
+    if (data.content && data.content[0]) {
+      // Minimal markdown: **bold** → <b>, line breaks → <br>
+      const html = data.content[0].text
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+        .replace(/\n/g, "<br>");
+      modal.innerHTML = renderShell(html);
+    } else {
+      modal.innerHTML = renderShell(`<div style="color:${C.neg}">API error: ${escapeHtml(JSON.stringify(data).slice(0,300))}</div>`);
+    }
+  } catch (e) {
+    modal.innerHTML = renderShell(`<div style="color:${C.neg}">Request failed: ${escapeHtml(e.message)}</div>`);
   }
 }
 
@@ -9409,16 +9636,16 @@ function confirmRoll() {
 // ── Diary ─────────────────────────────────────────────────────────────────────
 function openDiary(id) {
   currentDiaryId = id;
-  // If we're already on diary tab, just show detail in right panel
+  // Already on diary tab — just refresh the detail panel
   if (document.getElementById("tab-diary").classList.contains("active")) {
     renderDiary();
     return;
   }
-  // Otherwise switch to diary tab first
-  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
-  document.getElementById("tab-diary").classList.add("active");
-  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
-  document.querySelectorAll(".nav-btn")[3].classList.add("active");
+  // Use the canonical tab switcher (handles display:none + active classes
+  // properly across both sidebar and mobile nav — manual DOM mutation here
+  // missed the display:none reset, leaving the diary panel hidden behind
+  // its CSS rule and looking "blank" to the user).
+  if (typeof switchTab === "function") switchTab("diary");
   renderDiaryList();
   renderDiary();
 }
