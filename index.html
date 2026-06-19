@@ -5496,6 +5496,8 @@ function renderStatsOverview(closed) {
   const byEntry = buildCompactBreakdown(closed, t=>t.entryType||"Unknown");
 
   return `
+    ${_tradingReviewPanel(closed)}
+
     ${_insightsRow(closed, wins, losses, avgWin, avgLoss)}
 
     <!-- KPI Cards - 3 columns -->
@@ -6568,6 +6570,236 @@ async function _aiBreakdown(title, contextSummary, userQuestion) {
   } catch (e) {
     modal.innerHTML = renderShell(`<div style="color:${C.neg}">Request failed: ${escapeHtml(e.message)}</div>`);
   }
+}
+
+// ── AI TRADING REVIEW — main-page coaching insights (TradesViz-style) ────────
+// Sends a structured trade summary to Claude, asks for 2-4 ranked insights
+// returned as JSON, renders them as cards at the top of Stats Overview.
+// Cached in localStorage per (date filter, trade count) with 6h TTL so the
+// page load is cheap; "Run Review" button forces a fresh call.
+
+const _REVIEW_TTL_MS = 6 * 60 * 60 * 1000;
+
+const _REVIEW_SYSTEM_PROMPT = `You are an expert options-trading coach producing a structured TRADING REVIEW.
+
+The trader is a premium-seller on NQ futures options and equity options (bull put spreads, bear call spreads, iron condors, short puts). You're looking at their REAL recent trade data and surfacing what they should ACT on this week.
+
+Identify 2-4 patterns worth flagging. Each insight should be ACTIONABLE — name the problem, the data behind it, give a concrete next step. Be DIRECT and DATA-DRIVEN. Don't hedge. No "consider exploring" — instead say "do X". Sort insights by severity (HIGH first).
+
+Return ONLY a JSON object matching this exact schema. No markdown fences, no preamble, no explanation outside the JSON.
+
+{
+  "coach_takeaway": "1-2 sentence summary of the single most important thing the trader should fix THIS WEEK.",
+  "insights": [
+    {
+      "title": "short label (e.g. 'Risk/Reward Leak', 'Loss Concentration in NQ', 'Friday Bleed')",
+      "severity": "HIGH" | "MEDIUM" | "LOW",
+      "metric": "short headline number (e.g. '7.0x', '$5,302', '38%')",
+      "trend": "worsening" | "improving" | "stable",
+      "context_facts": ["Avg Win: $701", "Avg Loss: $4,902", "Recoverable: $63,010"],
+      "next_action": "1-sentence concrete action",
+      "why_surfaced": "1-sentence data-driven explanation citing specific numbers"
+    }
+  ]
+}`;
+
+function _buildReviewSummary(closed) {
+  if (!closed.length) return "No closed trades in scope.";
+  const wins = closed.filter(t => (t.realizedPnl||0) > 0);
+  const losses = closed.filter(t => (t.realizedPnl||0) <= 0);
+  const totalPnl = closed.reduce((s,t) => s + (t.realizedPnl||0), 0);
+  const avgWin = wins.length ? wins.reduce((s,t) => s + (t.realizedPnl||0), 0) / wins.length : 0;
+  const avgLoss = losses.length ? losses.reduce((s,t) => s + (t.realizedPnl||0), 0) / losses.length : 0;
+  const rrRatio = avgWin > 0 ? Math.abs(avgLoss) / avgWin : 0;
+  const recoverable = losses.length ? (Math.abs(avgLoss) - avgWin) * losses.length : 0;
+
+  // By symbol (top 10 by absolute P&L impact, helps surface concentration)
+  const bySymbol = {};
+  closed.forEach(t => {
+    const k = t.ticker || 'unknown';
+    if (!bySymbol[k]) bySymbol[k] = { n:0, wins:0, pnl:0 };
+    bySymbol[k].n++;
+    bySymbol[k].pnl += (t.realizedPnl||0);
+    if ((t.realizedPnl||0) > 0) bySymbol[k].wins++;
+  });
+  const topSymbols = Object.entries(bySymbol).sort((a,b) => Math.abs(b[1].pnl) - Math.abs(a[1].pnl)).slice(0, 8);
+
+  // By day of week
+  const dows = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const byDow = Array.from({length: 7}, () => ({ n:0, wins:0, pnl:0 }));
+  closed.forEach(t => {
+    if (!t.entryDate) return;
+    const d = new Date(t.entryDate + "T12:00:00").getDay();
+    byDow[d].n++;
+    byDow[d].pnl += (t.realizedPnl||0);
+    if ((t.realizedPnl||0) > 0) byDow[d].wins++;
+  });
+
+  // By session
+  const byHour = {};
+  closed.forEach(t => {
+    if (!t.entryTime) return;
+    const h = parseInt(t.entryTime.split(":")[0], 10);
+    if (isNaN(h)) return;
+    if (!byHour[h]) byHour[h] = { n:0, wins:0, pnl:0 };
+    byHour[h].n++;
+    byHour[h].pnl += (t.realizedPnl||0);
+    if ((t.realizedPnl||0) > 0) byHour[h].wins++;
+  });
+
+  // Top 5 losers
+  const topLosers = [...losses].sort((a,b) => (a.realizedPnl||0) - (b.realizedPnl||0)).slice(0, 5);
+
+  return `TRADING REVIEW DATA — ${closed.length} closed trades (filter: ${statsDateFilter}).
+
+KPIs:
+  Total P&L: $${totalPnl.toFixed(0)}
+  Win rate: ${Math.round(wins.length/closed.length*100)}% (${wins.length}W / ${losses.length}L)
+  Avg Win: $${avgWin.toFixed(0)}
+  Avg Loss: $${avgLoss.toFixed(0)}
+  Risk/Reward ratio: ${rrRatio.toFixed(2)}x
+  Recoverable (if losses capped at avg win): $${recoverable.toFixed(0)}
+
+By symbol (top 8 by impact):
+${topSymbols.map(([k,v]) => `  ${k}: ${v.n} trades, ${Math.round(v.wins/v.n*100)}% WR, $${v.pnl.toFixed(0)} P&L`).join("\n")}
+
+By day-of-week:
+${byDow.map((s,i) => s.n ? `  ${dows[i]}: ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)}` : null).filter(Boolean).join("\n")}
+
+By hour-of-entry (ET):
+${Object.entries(byHour).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([h,s]) => `  ${String(h).padStart(2,"0")}:00 — ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)}`).join("\n")}
+
+Top 5 worst trades:
+${topLosers.map(t => `  ${t.ticker} ${t.tradeType} ${t.entryDate}: $${(t.realizedPnl||0).toFixed(0)} (premium $${(t.premiumCollected||0).toFixed(0)})`).join("\n")}`;
+}
+
+function _relativeTime(ts) {
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return min + "m";
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + "h";
+  return Math.floor(hr / 24) + "d";
+}
+
+function _readReviewCache(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.ts > _REVIEW_TTL_MS) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+function _tradingReviewPanel(closed) {
+  const cacheKey = `_aiTradingReview:${statsDateFilter}:${closed.length}`;
+  const cached = _readReviewCache(cacheKey);
+  const tradeCount = closed.length;
+  const ageStr = cached ? `· ${_relativeTime(cached.ts)} ago · cached` : "";
+  const body = cached
+    ? _renderTradingReviewBody(cached.data)
+    : `<div style="font-size:11px;color:${C.textSec};padding:20px 12px;text-align:center;line-height:1.6">
+        Click <b>Run Review</b> to generate AI coaching insights from your ${tradeCount} trades in this date range.<br>
+        <span style="font-size:10px;color:${C.textMut}">Results cached for 6h. Re-run anytime.</span>
+      </div>`;
+  return `<div id="trading-review-panel" class="card" style="padding:14px;margin-bottom:14px;border:1px solid ${C.accent}55;background:${C.bgCard||C.bg}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:9px;background:${C.accent}33;color:${C.accent};padding:3px 7px;border-radius:3px;letter-spacing:0.06em;font-weight:700">AI</span>
+        <div style="font-size:14px;color:${C.text};font-weight:600">Trading Review</div>
+        <div style="font-size:10px;color:${C.textMut};font-variant-numeric:tabular-nums">${tradeCount} trades ${ageStr}</div>
+      </div>
+      <button onclick="_runTradingReview()" class="btn btn-p" style="padding:6px 14px;font-size:11px">${cached ? "Re-run Review" : "Run Review"}</button>
+    </div>
+    <div id="trading-review-body">${body}</div>
+  </div>`;
+}
+
+async function _runTradingReview() {
+  const body = document.getElementById("trading-review-body");
+  if (!body) return;
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  if (!closed.length) { body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">No closed trades in the current date filter.</div>`; return; }
+  body.innerHTML = `<div style="color:${C.textSec};text-align:center;padding:20px">Generating review… (10-20 sec)</div>`;
+
+  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
+  if (!ANTHROPIC_KEY) {
+    body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">No Anthropic API key in localStorage. Set <code>anthropic_api_key</code> first.</div>`;
+    return;
+  }
+
+  const summary = _buildReviewSummary(closed);
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6-20250620",
+        max_tokens: 2000,
+        system: _REVIEW_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: summary + "\n\nReturn ONLY the JSON object." }],
+      }),
+    });
+    const data = await resp.json();
+    const text = data.content?.[0]?.text || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      body.innerHTML = `<div style="color:${C.warn};padding:12px">AI response didn't include JSON. Raw:<br><pre style="font-size:10px;color:${C.textSec};white-space:pre-wrap;margin-top:6px">${escapeHtml(text).slice(0,600)}</pre></div>`;
+      return;
+    }
+    const review = JSON.parse(jsonMatch[0]);
+    const cacheKey = `_aiTradingReview:${statsDateFilter}:${closed.length}`;
+    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: review }));
+    body.innerHTML = _renderTradingReviewBody(review);
+  } catch (e) {
+    body.innerHTML = `<div style="color:${C.neg};padding:12px">Failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function _renderTradingReviewBody(review) {
+  const takeaway = review.coach_takeaway || "";
+  const insights = Array.isArray(review.insights) ? review.insights : [];
+  const cols = Math.min(insights.length, 2);
+  return `
+    ${takeaway ? `<div style="background:${C.accent}11;border:1px solid ${C.accent}33;border-radius:4px;padding:12px;margin-bottom:14px">
+      <div style="font-size:9px;color:${C.accent};letter-spacing:0.06em;font-weight:700;margin-bottom:6px">COACH TAKEAWAY</div>
+      <div style="font-size:13px;color:${C.text};line-height:1.5">${escapeHtml(takeaway)}</div>
+    </div>` : ""}
+    ${insights.length ? `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:10px">
+      ${insights.map(_renderInsightCard).join("")}
+    </div>` : `<div style="color:${C.textMut};font-style:italic;padding:12px">No insights returned.</div>`}
+  `;
+}
+
+function _renderInsightCard(ins) {
+  const sev = (ins.severity || "LOW").toUpperCase();
+  const sevColor = sev === "HIGH" ? C.neg : sev === "MEDIUM" ? C.warn : C.textSec;
+  const trend = ins.trend || "stable";
+  const trendBadge = trend === "worsening" ? `<span style="font-size:9px;color:${C.neg};margin-left:6px">worsening ↗</span>`
+                   : trend === "improving" ? `<span style="font-size:9px;color:${C.pos};margin-left:6px">improving ↘</span>`
+                   : `<span style="font-size:9px;color:${C.textSec};margin-left:6px">stable →</span>`;
+  return `<div class="card" style="padding:12px;border-left:3px solid ${sevColor}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <div style="font-size:13px;color:${C.text};font-weight:600">${escapeHtml(ins.title || "")}</div>
+        ${ins.metric ? `<div style="font-size:13px;color:${sevColor};font-weight:600;font-variant-numeric:tabular-nums">${escapeHtml(ins.metric)}</div>` : ""}
+        ${trendBadge}
+      </div>
+      <span style="font-size:9px;background:${sevColor}22;color:${sevColor};padding:2px 7px;border-radius:3px;letter-spacing:0.06em;font-weight:700">${sev}</span>
+    </div>
+    ${Array.isArray(ins.context_facts) && ins.context_facts.length ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;font-size:10px;font-variant-numeric:tabular-nums;color:${C.textSec}">
+      ${ins.context_facts.map(f => `<span>${escapeHtml(String(f))}</span>`).join("")}
+    </div>` : ""}
+    ${ins.next_action ? `<div style="font-size:11px;color:${C.text};margin-bottom:6px;line-height:1.5"><span style="color:${C.accent};font-weight:600">▶ Next:</span> ${escapeHtml(ins.next_action)}</div>` : ""}
+    ${ins.why_surfaced ? `<div style="font-size:10px;color:${C.textSec};font-style:italic;padding-top:6px;border-top:1px solid ${C.border}">Why this surfaced: ${escapeHtml(ins.why_surfaced)}</div>` : ""}
+  </div>`;
 }
 
 function _maeScatterInsight(data) {
