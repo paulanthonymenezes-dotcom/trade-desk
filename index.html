@@ -5855,26 +5855,24 @@ function _maeMfeScatterPanel(closed) {
 
   return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
     ${_renderScatter({
-      title: "MAE % vs OUTCOME",
-      subtitle: "X = worst drawdown (% of premium) · Y = realized P&L (% of premium)",
+      title: "MAE vs OUTCOME — \"did deep drawdowns recover?\"",
+      howToRead: `Each dot = 1 trade. <b>X</b>: how far underwater the trade went (left = deeper). <b>Y</b>: where it actually finished (top = profit). Click any dot to open it. ${maeData.length} trades plotted.`,
+      kind: "mae",
       data: maeData.map(d => ({...d, x: d.maePctOfPrem, y: d.pnlPctOfPrem})),
-      xLabel: "MAE % of premium",
-      yLabel: "Realized P&L % of premium",
       insight: _maeScatterInsight(maeData),
     })}
     ${_renderScatter({
-      title: "MFE % vs OUTCOME",
-      subtitle: "X = best peak profit (% of premium) · Y = realized P&L (% of premium)",
+      title: "MFE vs OUTCOME — \"did you capture the peak?\"",
+      howToRead: `Each dot = 1 trade. <b>X</b>: best unrealized profit it ever hit (right = bigger peak). <b>Y</b>: where it actually finished. Diagonal = perfect capture; dots below diagonal = gave back gains. ${mfeData.length} trades plotted.`,
+      kind: "mfe",
       data: mfeData.map(d => ({...d, x: d.mfePctOfPrem, y: d.pnlPctOfPrem})),
-      xLabel: "MFE % of premium",
-      yLabel: "Realized P&L % of premium",
       insight: _mfeScatterInsight(mfeData),
     })}
   </div>`;
 }
 
-function _renderScatter({title, subtitle, data, xLabel, yLabel, insight}) {
-  const W = 460, H = 280, PAD = {t: 10, r: 14, b: 32, l: 42};
+function _renderScatter({title, howToRead, data, kind /* "mae" | "mfe" */, insight}) {
+  const W = 460, H = 320, PAD = {t: 22, r: 16, b: 42, l: 48};
   const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
   if (!data.length) {
     return `<div class="card" style="padding:12px;font-size:11px;color:${C.textSec}">
@@ -5882,43 +5880,91 @@ function _renderScatter({title, subtitle, data, xLabel, yLabel, insight}) {
       No data yet.
     </div>`;
   }
-  // Symmetric x and y bounds for visual sanity. Cap extreme outliers visually.
+  // Use percentile-based bounds to keep extreme outliers from squashing the chart.
+  // Then clip outlier dots to the edges (rendered with an arrow marker).
+  function pct(arr, p) {
+    const s = [...arr].sort((a, b) => a - b);
+    const i = Math.max(0, Math.min(s.length - 1, Math.floor((s.length - 1) * p)));
+    return s[i];
+  }
   const xs = data.map(d => d.x), ys = data.map(d => d.y);
-  const xMin = Math.min(0, Math.min(...xs)), xMax = Math.max(0, Math.max(...xs));
-  const yMin = Math.min(0, Math.min(...ys)), yMax = Math.max(0, Math.max(...ys));
-  // Pad axes by 10% each side.
-  const xr = (xMax - xMin) || 1, yr = (yMax - yMin) || 1;
-  const x0 = xMin - xr * 0.05, x1 = xMax + xr * 0.05;
-  const y0 = yMin - yr * 0.05, y1 = yMax + yr * 0.05;
-  const sx = v => PAD.l + ((v - x0) / (x1 - x0)) * cw;
-  const sy = v => PAD.t + ch - ((v - y0) / (y1 - y0)) * ch;
+  // Bound on the 5th/95th percentile + a sensible 0 anchor on the relevant side
+  let x0 = pct(xs, 0.03), x1 = pct(xs, 0.97);
+  let y0 = pct(ys, 0.03), y1 = pct(ys, 0.97);
+  // Always include 0 line on both axes (the meaningful breakeven)
+  x0 = Math.min(x0, 0); x1 = Math.max(x1, 0);
+  y0 = Math.min(y0, 0); y1 = Math.max(y1, 0);
+  // Pad
+  const xr = (x1 - x0) || 1, yr = (y1 - y0) || 1;
+  x0 -= xr * 0.05; x1 += xr * 0.05;
+  y0 -= yr * 0.05; y1 += yr * 0.05;
+
+  const sx = v => PAD.l + ((Math.max(x0, Math.min(x1, v)) - x0) / (x1 - x0)) * cw;
+  const sy = v => PAD.t + ch - ((Math.max(y0, Math.min(y1, v)) - y0) / (y1 - y0)) * ch;
+  const isOut = (x, y) => x < x0 || x > x1 || y < y0 || y > y1;
   const x0px = sx(0).toFixed(1), y0px = sy(0).toFixed(1);
 
   const dots = data.map(d => {
     const color = d.isWin ? C.pos : C.neg;
+    const out = isOut(d.x, d.y);
     const cx = sx(d.x).toFixed(1), cy = sy(d.y).toFixed(1);
-    const tip = `${d.ticker} ${d.tradeType||""} · prem $${Math.round(d.premium)} · MAE ${d.maePctOfPrem!=null?d.maePctOfPrem.toFixed(0)+"%":"—"} · MFE ${d.mfePctOfPrem!=null?d.mfePctOfPrem.toFixed(0)+"%":"—"} · P&L ${d.pnlPctOfPrem.toFixed(0)}%`;
-    return `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}" fill-opacity="0.5" stroke="${color}" stroke-width="0.5"><title>${escapeHtml(tip)}</title></circle>`;
+    const tip = `${d.ticker} ${d.tradeType||""} · prem $${Math.round(d.premium)} · MAE ${d.maePctOfPrem!=null?d.maePctOfPrem.toFixed(0)+"%":"—"} · MFE ${d.mfePctOfPrem!=null?d.mfePctOfPrem.toFixed(0)+"%":"—"} · P&L ${d.pnlPctOfPrem.toFixed(0)}% — click to open`;
+    const r = out ? 4 : 3.2;
+    const stroke = out ? color : color;
+    const sw = out ? 1.2 : 0.6;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" fill-opacity="${out?0.85:0.55}" stroke="${stroke}" stroke-width="${sw}" style="cursor:pointer" onclick="_scatterOpenTrade(${d.id})"><title>${escapeHtml(tip)}</title></circle>`;
   }).join("");
 
-  // Axis tick labels at min/0/max
   const tickFmt = v => (v >= 0 ? "+" : "") + v.toFixed(0) + "%";
-  const xTicks = [x0, 0, x1].map(v => `<text x="${sx(v).toFixed(1)}" y="${(H - 14).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${tickFmt(v)}</text>`).join("");
-  const yTicks = [y1, 0, y0].map(v => `<text x="${(PAD.l - 4).toFixed(1)}" y="${(sy(v) + 3).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="end">${tickFmt(v)}</text>`).join("");
+  // Axis labels (always show min, 0, max)
+  const xT = [x0, 0, x1];
+  const yT = [y1, 0, y0];
+  const xTicks = xT.map(v => `<text x="${sx(v).toFixed(1)}" y="${(H - 24).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${tickFmt(v)}</text>`).join("");
+  const yTicks = yT.map(v => `<text x="${(PAD.l - 4).toFixed(1)}" y="${(sy(v) + 3).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="end">${tickFmt(v)}</text>`).join("");
+
+  // Quadrant labels overlaid faintly — explains what each region means
+  const qFontColor = C.textMut, qFontSize = 9;
+  const qLabels = kind === "mae" ? [
+    {x: PAD.l + cw * 0.25, y: PAD.t + 14, text: "← deeper drawdown, still won"},
+    {x: PAD.l + cw * 0.75, y: PAD.t + 14, text: "shallow MAE, won →"},
+    {x: PAD.l + cw * 0.25, y: PAD.t + ch - 6, text: "← deeper drawdown, LOST"},
+    {x: PAD.l + cw * 0.75, y: PAD.t + ch - 6, text: "shallow, then lost"},
+  ] : [
+    {x: PAD.l + cw * 0.25, y: PAD.t + 14, text: "small peak, captured most ↗"},
+    {x: PAD.l + cw * 0.75, y: PAD.t + 14, text: "big peak — how much did you take?"},
+    {x: PAD.l + cw * 0.25, y: PAD.t + ch - 6, text: "barely up, lost"},
+    {x: PAD.l + cw * 0.75, y: PAD.t + ch - 6, text: "had a winner, gave it back"},
+  ];
 
   return `<div class="card" style="padding:12px">
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:2px">${title}</div>
-    <div style="font-size:9px;color:${C.textMut};margin-bottom:6px">${subtitle} · ${data.length} trades</div>
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    <div style="font-size:10px;color:${C.text};margin-bottom:6px;line-height:1.4">${howToRead}</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace">
       <rect x="${PAD.l}" y="${PAD.t}" width="${cw}" height="${ch}" fill="none" stroke="${C.border}" stroke-width="0.5"/>
       <line x1="${x0px}" y1="${PAD.t}" x2="${x0px}" y2="${PAD.t + ch}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
       <line x1="${PAD.l}" y1="${y0px}" x2="${PAD.l + cw}" y2="${y0px}" stroke="${C.border}" stroke-width="1" stroke-dasharray="2,2"/>
+      ${qLabels.map(q => `<text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" font-size="${qFontSize}" fill="${qFontColor}" text-anchor="middle" opacity="0.55">${q.text}</text>`).join("")}
       ${dots}
       ${xTicks}
       ${yTicks}
+      <text x="${(PAD.l + cw / 2).toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${kind === "mae" ? "MAE (worst drawdown, % of premium) — left = deeper" : "MFE (best peak, % of premium) — right = bigger"}</text>
+      <text x="14" y="${(PAD.t + ch / 2).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle" transform="rotate(-90 14 ${(PAD.t + ch / 2).toFixed(1)})">Realized P&L (% of premium)</text>
     </svg>
-    ${insight ? `<div style="font-size:10px;color:${C.textSec};margin-top:6px;line-height:1.4">${insight}</div>` : ""}
+    ${insight ? `<div style="font-size:10px;color:${C.textSec};margin-top:6px;line-height:1.5">${insight}</div>` : ""}
   </div>`;
+}
+
+// Click handler for scatter dots — opens the trade in the Diary tab
+function _scatterOpenTrade(tradeId) {
+  if (!tradeId) return;
+  switchTab('diary');
+  setTimeout(() => {
+    if (typeof openDiaryTrade === 'function') openDiaryTrade(tradeId);
+    else if (typeof currentDiaryId !== 'undefined') {
+      currentDiaryId = tradeId;
+      if (typeof renderDiary === 'function') renderDiary();
+    }
+  }, 100);
 }
 
 function _maeScatterInsight(data) {
