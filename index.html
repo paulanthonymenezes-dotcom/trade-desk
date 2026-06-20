@@ -301,6 +301,16 @@ table{width:100%;border-collapse:collapse}
 .iv-pill{display:inline-flex;align-items:center;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600}
 .stats-pill.active{background:var(--accent)!important;color:#fff!important;font-weight:600;border-color:var(--accent)!important}
 .stats-date-pill.active{background:var(--accent)!important;color:#fff!important;font-weight:700!important;border-color:var(--accent)!important}
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  #login-gate, nav, #bottom-nav, #app-sidebar, .stats-pill, .stats-date-pill,
+  .stats-export-row, #ai-key-setup, .overlay, button { display: none !important; }
+  #main, #tab-stats, #stats-content, #stats-sub, .section { display: block !important; width: 100% !important; max-width: none !important; padding: 0 !important; margin: 0 !important; }
+  .card { background: #fff !important; border: 1px solid #888 !important; color: #000 !important; page-break-inside: avoid; }
+  text { fill: #000 !important; }
+  rect[fill*="rgba(46,160,67"] { fill: #2ea043 !important; }
+  rect[fill*="rgba(248,81,73"] { fill: #f85149 !important; }
+}
 
 /* Koyfin theme overrides for index.html components */
 [data-theme="koyfin"] .btn-p{background:#2f81f7;color:#fff;font-weight:600}
@@ -5397,8 +5407,14 @@ function renderStats() {
   ];
   const dateFilters = [["1d","1D"],["1w","1W"],["mtd","MTD"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"],["custom","CUSTOM"]];
   document.getElementById("stats-content").innerHTML = `
-    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-      ${tabs.map(([k,l])=>`<button class="btn btn-g stats-pill${statsSubTab===k?" active":""}" onclick="setStatsTab('${k}',this)">${l}</button>`).join("")}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${tabs.map(([k,l])=>`<button class="btn btn-g stats-pill${statsSubTab===k?" active":""}" onclick="setStatsTab('${k}',this)">${l}</button>`).join("")}
+      </div>
+      <div class="stats-export-row" style="display:flex;gap:6px">
+        <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_exportStatsPDF()" title="Open print dialog — Save as PDF in your browser">📄 PDF</button>
+        <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_copyStatsForAI()" title="Copy a Markdown summary of all stats to clipboard — paste into Claude/ChatGPT">📋 COPY FOR AI</button>
+      </div>
     </div>
     <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
       ${dateFilters.map(([k,l])=>`<button class="btn btn-g stats-date-pill${statsDateFilter===k?" active":""}" style="font-size:9px;padding:3px 8px;min-width:0" onclick="setStatsDateFilter('${k}',this)">${l}</button>`).join("")}
@@ -7040,6 +7056,51 @@ function _aiBreakdownScatter(kind) {
 // AI breakdown modal — call Claude with a card-specific prompt + relevant data,
 // stream the response. Used by the "🤖 AI" buttons on each insight card so
 // the user can get a deeper, contextual analysis on demand.
+// ── Stats export ─────────────────────────────────────────────────────────────
+// Two ways to get the data out of the dashboard:
+//  - PDF via window.print() with @media print CSS that hides chrome and forces
+//    light background. User picks "Save as PDF" in the print dialog.
+//  - Markdown copy → clipboard. Dumps a compact, AI-friendly summary of all
+//    KPIs, insights, top trades, by-symbol/DOW/hour breakdowns. Paste into
+//    Claude/ChatGPT for deeper analysis.
+function _exportStatsPDF() { window.print(); }
+
+async function _copyStatsForAI() {
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  if (!closed.length) { alert("No closed trades in scope."); return; }
+  // Reuse the existing review summary builder — it already produces a dense,
+  // Claude-ready overview with KPIs, by-symbol/DOW/hour breakdowns, top losers.
+  const summary = typeof _buildReviewSummary === "function"
+    ? _buildReviewSummary(closed)
+    : `Trades: ${closed.length}, Net P&L: $${closed.reduce((s,t)=>s+(t.realizedPnl||0),0).toFixed(0)}`;
+
+  const dateLabel = typeof _dateFilterLabel === "function" ? _dateFilterLabel(closed) : statsDateFilter;
+  const fullText = `# Trading Desk Stats Export
+Generated: ${new Date().toISOString().slice(0,16).replace("T"," ")}
+Scope: ${dateLabel}
+
+${summary}
+
+---
+This dump is generated from the trader's IBKR-synced journal. Reply with patterns, risk concerns, and concrete actionable rules.`;
+
+  try {
+    await navigator.clipboard.writeText(fullText);
+    alert(`✓ Stats copied to clipboard (${fullText.length.toLocaleString()} chars). Paste into Claude/ChatGPT.`);
+  } catch (e) {
+    // Fallback for browsers that block clipboard API outside a user-gesture chain
+    const ta = document.createElement("textarea");
+    ta.value = fullText;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); alert("✓ Stats copied to clipboard."); }
+    catch { alert("Copy failed. Open browser console and run: copy(_buildReviewSummary(STATE.trades.filter(t=>t.status!=='Open')))"); }
+    finally { document.body.removeChild(ta); }
+  }
+}
+
 async function _aiBreakdown(title, contextSummary, userQuestion) {
   let modal = document.getElementById("ai-breakdown-modal");
   if (!modal) {
