@@ -3,7 +3,7 @@
 Run with: uvicorn backtesting.server:app --reload --port 8787
 """
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -628,73 +628,89 @@ async def proxy_mda(path: str, request: Request):
         return {"s": "error", "errmsg": str(e)}
 
 
-# ── EODHD Candle Proxy (no IP lock, replaces MDA for OHLCV) ──────────────
+# ── EODHD scrapped (2026-06-19): candle proxy was unused; earnings token was
+#    dead (401). Macro calendar now comes from RapidAPI below. ────────────────
 
-from backtesting.config import EODHD_API_TOKEN as _EODHD_TOKEN
+import os as _os
+import datetime as _dt
 
-_EODHD_BASE = "https://eodhd.com/api"
-_eodhd_candle_cache: dict = {}
-_EODHD_CANDLE_TTL = 300  # 5 min
+# Macro economic calendar via RapidAPI "Global Economic Calendar (Multi-Language)".
+# Free (BASIC) plan, but it has a LOW DAILY REQUEST QUOTA — so cache hard (6h) and
+# serve stale on 429. Key lives in the RAPIDAPI_KEY env var (never in source).
+_RAPIDAPI_CAL_HOST = "global-economic-calendar-api-multi-language.p.rapidapi.com"
+_macro_cal_cache: dict = {}
+_MACRO_CAL_TTL = 86400  # 24h — RapidAPI plan is quota-limited (~250/wk); once/day is plenty
 
 
-@app.get("/api/eodhd/candles/{ticker}")
-async def proxy_eodhd_candles(ticker: str, start: str = None, end: str = None):
-    """Proxy EODHD OHLCV candles. Returns MDA-compatible format {s,t,o,h,l,c,v}."""
+@app.get("/api/macro/calendar")
+async def proxy_macro_calendar(country: str = "US", days: int = 7):
+    """US macro economic calendar. Returns {s:"ok", events:[{type,date,importance,
+    actual,previous,estimate,unit,country}]} sorted by time, filtered to
+    [today, today+days]. `importance` is HIGH | MEDIUM | LOW straight from the API.
+
+    The RapidAPI BASIC plan has a small daily quota, so this caches for 6h and
+    serves the last good payload if the upstream returns 429.
+    """
+    key = _os.environ.get("RAPIDAPI_KEY", "")
+    if not key:
+        return {"s": "error", "errmsg": "RAPIDAPI_KEY not set on the server"}
+
     now = _time.time()
-    cache_key = f"eodhd_candle_{ticker}_{start}_{end}"
-    if _eodhd_candle_cache.get(cache_key) and (now - _eodhd_candle_cache.get(f"{cache_key}_ts", 0)) < _EODHD_CANDLE_TTL:
-        return _eodhd_candle_cache[cache_key]
+    cache_key = f"macro_{country}_{days}"
+    if _macro_cal_cache.get(cache_key) and (now - _macro_cal_cache.get(f"{cache_key}_ts", 0)) < _MACRO_CAL_TTL:
+        return _macro_cal_cache[cache_key]
 
-    params = {"api_token": _EODHD_TOKEN, "fmt": "json", "period": "d"}
-    if start:
-        params["from"] = start
-    if end:
-        params["to"] = end
-
-    url = f"{_EODHD_BASE}/eod/{ticker}.US"
+    today = _dt.datetime.utcnow().date()
+    end_day = today + _dt.timedelta(days=days)
+    url = f"https://{_RAPIDAPI_CAL_HOST}/api/v1/economic-calendar/events"
+    headers = {"x-rapidapi-host": _RAPIDAPI_CAL_HOST, "x-rapidapi-key": key}
+    # country_codes (plural) matches the keys returned by the /filters endpoint.
+    params = {"country_codes": country, "limit": 1000}
     try:
-        async with _httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(url, params=params)
-            rows = r.json()
-            if not isinstance(rows, list) or not rows:
-                return {"s": "no_data"}
-            # Convert EODHD format to MDA-compatible arrays
-            data = {
-                "s": "ok",
-                "t": [int(_time.mktime(_time.strptime(row["date"], "%Y-%m-%d"))) for row in rows],
-                "o": [row["open"] for row in rows],
-                "h": [row["high"] for row in rows],
-                "l": [row["low"] for row in rows],
-                "c": [row["close"] for row in rows],
-                "v": [row["volume"] for row in rows],
-            }
-            _eodhd_candle_cache[cache_key] = data
-            _eodhd_candle_cache[f"{cache_key}_ts"] = now
+        async with _httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(url, params=params, headers=headers)
+            if r.status_code == 429:
+                if _macro_cal_cache.get(cache_key):
+                    return _macro_cal_cache[cache_key]  # quota hit — serve stale
+                return {"s": "error", "errmsg": "RapidAPI daily quota exceeded (free plan)"}
+            body = r.json()
+            rows = body.get("data") if isinstance(body, dict) else body
+            if not isinstance(rows, list):
+                msg = body.get("message") if isinstance(body, dict) else "unexpected response shape"
+                return {"s": "error", "errmsg": msg or "unexpected response shape"}
+            # The API ignores country/date query params, so filter server-side:
+            # US + [today, today+days] + drop LOW-importance noise (bill auctions,
+            # CFTC positioning) — a premium seller only cares about HIGH/MEDIUM macro.
+            lo, hi = today.isoformat(), end_day.isoformat()
+            out = []
+            for e in rows:
+                if country and e.get("country_code") != country:
+                    continue
+                if (e.get("importance") or "").upper() == "LOW":
+                    continue
+                ts = (e.get("occurrence_time") or "")
+                day = ts[:10]
+                if not day or day < lo or day > hi:
+                    continue
+                loc = e.get("localization") or {}
+                out.append({
+                    "type": loc.get("long_name") or loc.get("short_name") or e.get("category") or "Event",
+                    "date": ts,
+                    "importance": e.get("importance"),
+                    "actual": e.get("actual"),
+                    "previous": e.get("previous"),
+                    "estimate": e.get("forecast"),
+                    "unit": e.get("unit"),
+                    "country": e.get("country_code"),
+                })
+            out.sort(key=lambda x: x["date"])
+            data = {"s": "ok", "events": out}
+            _macro_cal_cache[cache_key] = data
+            _macro_cal_cache[f"{cache_key}_ts"] = now
             return data
     except Exception as e:
-        if _eodhd_candle_cache.get(cache_key):
-            return _eodhd_candle_cache[cache_key]
-        return {"s": "error", "errmsg": str(e)}
-
-
-@app.get("/api/eodhd/earnings/{ticker}")
-async def proxy_eodhd_earnings(ticker: str):
-    """Fetch next earnings date from EODHD."""
-    try:
-        async with _httpx.AsyncClient(timeout=15) as client:
-            today = _time.strftime("%Y-%m-%d")
-            r = await client.get(
-                f"{_EODHD_BASE}/calendar/earnings",
-                params={"api_token": _EODHD_TOKEN, "fmt": "json", "symbols_short": f"{ticker}.US", "from": today},
-            )
-            rows = r.json()
-            if isinstance(rows, dict) and rows.get("earnings"):
-                rows = rows["earnings"]
-            if isinstance(rows, list) and rows:
-                next_date = rows[0].get("report_date") or rows[0].get("date")
-                return {"s": "ok", "date": next_date}
-            return {"s": "no_data"}
-    except Exception as e:
+        if _macro_cal_cache.get(cache_key):
+            return _macro_cal_cache[cache_key]
         return {"s": "error", "errmsg": str(e)}
 
 

@@ -2140,11 +2140,11 @@ function drawIVSparkline(history, width=60, height=24) {
 }
 
 async function fetchEarnings(ticker) {
+  // EODHD scrapped — earnings now come from MarketData.app (already wired via
+  // mdaFetch), matching markets.html. Returns null on miss so callers keep working.
   try {
-    const r = await fetch("/mkt/api/eodhd/earnings/" + ticker);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d.s === "ok" && d.date ? d.date : null;
+    const d = await mdaFetch("/stocks/earnings/" + ticker + "/?datekey=next");
+    return d.s === "ok" && d.reportDate ? d.reportDate[0] : null;
   } catch { return null; }
 }
 
@@ -6411,6 +6411,84 @@ function _openMaeBucketList(metric, minPct, maxPct, isWin, bucketLabel) {
   modal.style.display = "flex";
 }
 
+// Generic trade-list modal. Same table/row style as _openMaeBucketList, but the
+// caller supplies a pre-filtered list of trades + a title/subtitle. Used by the
+// clickable Strategy Ranking rows and Day-of-Week bars.
+function _openTradeListModal(title, subtitle, trades) {
+  if (!trades || !trades.length) return;
+  let modal = document.getElementById("trade-list-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "trade-list-modal";
+    modal.className = "overlay";
+    modal.style.display = "none";
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
+    document.body.appendChild(modal);
+  }
+  const sumPnl = trades.reduce((a, t) => a + (t.realizedPnl || 0), 0);
+  const rows = trades.slice().sort((a, b) => (b.realizedPnl || 0) - (a.realizedPnl || 0)).map(t => {
+    const prem = t.premiumCollected || 0;
+    const mae = getMAE(t), mfe = getMFE(t);
+    const maePct = (mae != null && prem) ? "-" + Math.round((mae / prem) * 100) + "%" : "—";
+    const mfePct = (mfe != null && prem) ? "+" + Math.round((mfe / prem) * 100) + "%" : "—";
+    const pnlPct = prem ? Math.round((t.realizedPnl || 0) / prem * 100) + "%" : "—";
+    const pnl = t.realizedPnl || 0;
+    return `<tr class="trow" onclick="document.getElementById('trade-list-modal').style.display='none';_scatterOpenTrade(${t.id})">
+      <td style="font-size:11px;color:${C.text};font-weight:600">${escapeHtml(t.ticker)}</td>
+      <td style="font-size:10px;color:${C.textSec}">${escapeHtml((t.tradeType||"").slice(0,18))}</td>
+      <td style="font-size:10px;font-variant-numeric:tabular-nums">${t.longStrike?t.longStrike+"/"+t.shortStrike:t.shortStrike||""}</td>
+      <td style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${escapeHtml(t.entryDate||"?")}</td>
+      <td style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${escapeHtml(t.exitDate||"?")}</td>
+      <td style="font-size:10px;font-variant-numeric:tabular-nums">${fmt$(prem)}</td>
+      <td style="font-size:10px;color:${C.neg};font-variant-numeric:tabular-nums">${maePct}</td>
+      <td style="font-size:10px;color:${C.pos};font-variant-numeric:tabular-nums">${mfePct}</td>
+      <td style="font-size:11px;color:${pnl>=0?C.pos:C.neg};font-weight:600;font-variant-numeric:tabular-nums;text-align:right">${fmt$(pnl)} (${pnlPct})</td>
+    </tr>`;
+  }).join("");
+  modal.innerHTML = `<div class="modal" style="max-width:920px;width:94vw;max-height:84vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div>
+        <div style="font-size:14px;color:${C.text};font-weight:600">${escapeHtml(title)}</div>
+        <div style="font-size:11px;color:${C.textSec};margin-top:2px">${escapeHtml(subtitle)} · net <span style="color:${sumPnl>=0?C.pos:C.neg};font-weight:600">${fmt$(sumPnl)}</span></div>
+      </div>
+      <button onclick="document.getElementById('trade-list-modal').style.display='none'" style="background:none;border:none;color:${C.textSec};font-size:22px;cursor:pointer">&times;</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid ${C.borderVis};color:${C.textSec};font-size:9px;text-align:left;letter-spacing:0.06em">
+          <th style="padding:6px">TICKER</th><th>TYPE</th><th>STRIKES</th><th>ENTRY</th><th>EXIT</th><th>PREM</th><th>MAE</th><th>MFE</th><th style="text-align:right">P&L</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="font-size:10px;color:${C.textMut};margin-top:8px;text-align:center;font-style:italic">Click any row to view its chart + full details</div>
+  </div>`;
+  modal.style.display = "flex";
+}
+
+// Strategy Ranking row click → list that strategy's trades. Re-derives the
+// strategy key exactly as renderStatsStrategies does so the grouping matches.
+function _openStrategyTradeList(stratKey) {
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const matches = closed.filter(t => (t.strategyType || (t.tradeType||"").replace('⭐ ','') || "Unknown") === stratKey);
+  const wins = matches.filter(t => (t.realizedPnl||0) > 0).length;
+  _openTradeListModal(stratKey, `${matches.length} trade${matches.length!==1?'s':''} · ${wins}W / ${matches.length-wins}L`, matches);
+}
+
+// Day-of-Week bar click → list trades entered on that weekday (matches _dayOfWeekChart).
+function _openDayOfWeekTradeList(dayIdx) {
+  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const matches = closed.filter(t => {
+    const ds = t.entryDate || t.exitDate;
+    if (!ds) return false;
+    const d = new Date(ds + "T12:00:00");
+    return !isNaN(d) && d.getDay() === dayIdx;
+  });
+  const wins = matches.filter(t => (t.realizedPnl||0) > 0).length;
+  _openTradeListModal(`${days[dayIdx]} — trades entered`, `${matches.length} trade${matches.length!==1?'s':''} · ${wins}W / ${matches.length-wins}L`, matches);
+}
+
 // COMPANION CHART: "How Green Did My Red Ones Go?" — for LOSING trades,
 // how high did MFE peak before the trade turned south? Each bar = count
 // of losers whose MFE peaked in that band. Directly visualizes money
@@ -7129,7 +7207,7 @@ async function _aiBreakdown(title, contextSummary, userQuestion) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6-20250620",
+        model: "claude-sonnet-4-6",
         max_tokens: 1500,
         system: "You are an expert options-trading coach. Be direct, specific, and data-driven. Surface the SO-WHAT in 2–3 sentences, then give 2–4 concrete actions the trader can take. Use ** for bold headers. Don't hedge.",
         messages: [{ role: "user", content: contextSummary + "\n\n" + userQuestion }],
@@ -7330,13 +7408,18 @@ async function _runTradingReview() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6-20250620",
+        model: "claude-sonnet-4-6",
         max_tokens: 2000,
         system: _REVIEW_SYSTEM_PROMPT,
         messages: [{ role: "user", content: summary + "\n\nReturn ONLY the JSON object." }],
       }),
     });
     const data = await resp.json();
+    if (!resp.ok || data.error) {
+      const em = data.error?.message || `HTTP ${resp.status}`;
+      body.innerHTML = `<div style="color:${C.neg};padding:12px">AI call failed: ${escapeHtml(em)}</div>`;
+      return;
+    }
     const text = data.content?.[0]?.text || "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -7605,7 +7688,7 @@ function renderStatsStrategies(closed) {
         const sumL = v.trades.filter(t=>(t.realizedPnl||0)<=0).reduce((s,t)=>s+(t.realizedPnl||0),0);
         const pf = sumL!==0 ? (sumW/Math.abs(sumL)).toFixed(2)+"x" : (sumW>0?"∞":"0");
         const avgHold = v.count ? Math.round(v.holdDays/v.count) : 0;
-        return `<div class="card" style="padding:10px 14px">
+        return `<div class="card" style="padding:10px 14px;cursor:pointer" onclick="_openStrategyTradeList(${escapeHtml(JSON.stringify(k))})" title="Click to list these trades">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-variant-numeric:tabular-nums;font-size:12px;color:${C.text}">${k}</span>
             <span style="font-variant-numeric:tabular-nums;font-size:11px;color:${v.pnl>=0?C.pos:C.neg}">${fmt$(v.pnl)}</span>
@@ -7835,8 +7918,12 @@ function _dayOfWeekChart(closed) {
     const h = Math.abs(s.pnl) / maxAbs * halfCh;
     const y = s.pnl >= 0 ? zeroY - h : zeroY;
     const color = s.pnl >= 0 ? C.pos : C.neg;
-    const tip = `${days[di]} · ${s.count} trades · ${fmt$(s.pnl)} · ${Math.round(s.wins/s.count*100)}% wr`;
-    return `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" fill-opacity="0.85"><title>${escapeHtml(tip)}</title></rect>`;
+    const tip = `${days[di]} · ${s.count} trades · ${fmt$(s.pnl)} · ${Math.round(s.wins/s.count*100)}% wr — click to list`;
+    // Transparent full-height hit area so the whole column is clickable even when
+    // the visible bar is near-zero height. The colored bar sits on top.
+    const hit = `<rect x="${(cx - cw/N/2).toFixed(1)}" y="${PAD.t}" width="${(cw/N).toFixed(1)}" height="${ch.toFixed(1)}" fill="transparent" style="cursor:pointer" onclick="_openDayOfWeekTradeList(${di})"><title>${escapeHtml(tip)}</title></rect>`;
+    const bar = `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" fill-opacity="0.85" style="cursor:pointer;pointer-events:none"><title>${escapeHtml(tip)}</title></rect>`;
+    return hit + bar;
   }).join("");
 
   const linePoints = visible.map((di, j) => {
@@ -8632,7 +8719,7 @@ ${ctx}`;
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: useSonnet ? "claude-sonnet-4-6-20250620" : "claude-haiku-4-5-20251001",
+        model: useSonnet ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001",
         max_tokens: useSonnet ? 2000 : 1200,
         system: "You are an expert options trading coach. Be direct, specific, data-driven. Use ** for bold headers. Keep responses concise but insightful.",
         messages: apiMessages
@@ -8722,7 +8809,7 @@ function saveRuleFromAI(ruleText) {
 // "What should I do next week?" — forward-looking coaching:
 //  - Open positions snapshot with current MAE-so-far and suggested action
 //  - AI Week Ahead review (similar to Trading Review but forward-focused)
-//  - (Future) Macro events from EODHD economic calendar
+//  - Macro events (US economic calendar via RapidAPI)
 function renderForward() {
   const el = document.getElementById("forward-content");
   if (!el) return;
@@ -8741,11 +8828,72 @@ function renderForward() {
 
     ${_openPositionsReview(open)}
 
-    <div class="card" style="padding:14px;margin-bottom:14px;opacity:0.55">
-      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:8px">📅 MACRO CALENDAR — NEXT 7 DAYS</div>
-      <div style="font-size:11px;color:${C.textMut};font-style:italic">Coming soon — will surface NFP / CPI / FOMC / earnings windows from EODHD so you can size down before macro events.</div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">📅 MACRO CALENDAR — NEXT 7 DAYS</div>
+        <div style="font-size:9px;color:${C.textMut}">US economic events · <span style="color:${C.warn}">●</span> high-impact</div>
+      </div>
+      <div id="macro-cal-body"><div style="font-size:11px;color:${C.textMut};font-style:italic">Loading macro calendar…</div></div>
     </div>
   `;
+  _loadMacroCalendar();
+}
+
+// Fetch the next 7 days of US economic events (RapidAPI Global Economic Calendar,
+// via the VPS proxy) and render them grouped by day. The proxy returns events
+// pre-filtered to US + the window, sorted by time, each tagged with the API's own
+// HIGH/MEDIUM/LOW importance. Degrades gracefully: a clear message instead of a
+// hung spinner if the proxy/key/quota can't serve it.
+async function _loadMacroCalendar() {
+  const body = document.getElementById("macro-cal-body");
+  if (!body) return;
+  try {
+    const r = await fetch(`/mkt/api/macro/calendar?country=US&days=7`);
+    if (!r.ok) { body.innerHTML = _macroCalMsg(`Calendar unavailable (HTTP ${r.status}).`); return; }
+    const d = await r.json();
+    if (d.s === "error") { body.innerHTML = _macroCalMsg(`Calendar unavailable: ${escapeHtml(d.errmsg || "error")}.`); return; }
+    const events = Array.isArray(d.events) ? d.events : [];
+    if (!events.length) { body.innerHTML = _macroCalMsg("No US economic events in the next 7 days."); return; }
+
+    const isHi = ev => (ev.importance || "").toUpperCase() === "HIGH";
+    const byDay = {};
+    for (const ev of events) {
+      const day = (ev.date || "").slice(0, 10);
+      if (!day) continue;
+      (byDay[day] = byDay[day] || []).push(ev);
+    }
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const blocks = Object.keys(byDay).sort().map(day => {
+      const dd = new Date(day + "T12:00:00");
+      const hdr = `${dayNames[dd.getDay()]} ${day.slice(5)}`;
+      const rows = byDay[day].map(ev => {
+        const imp = (ev.importance || "").toUpperCase();
+        const hi = imp === "HIGH", med = imp === "MEDIUM";
+        const dot = hi ? `<span style="color:${C.warn}">● </span>` : (med ? `<span style="color:${C.textSec}">● </span>` : "");
+        // occurrence_time is UTC; show local HH:MM so it lines up with the trading day.
+        const t = ev.date ? new Date(ev.date) : null;
+        const time = (t && !isNaN(t)) ? t.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "";
+        const u = ev.unit && ev.unit !== "UNKNOWN" ? ev.unit : "";
+        const fwd = ev.estimate != null ? `est ${ev.estimate}${u}` : (ev.previous != null ? `prev ${ev.previous}${u}` : "");
+        return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:10px">
+          <span style="color:${hi ? C.text : C.textSec}">${dot}${escapeHtml(ev.type || "—")}</span>
+          <span style="color:${C.textMut};font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:10px">${time ? time + " · " : ""}${escapeHtml(fwd)}</span>
+        </div>`;
+      }).join("");
+      return `<div style="margin-bottom:8px">
+        <div style="font-size:9px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;border-bottom:1px solid ${C.border};padding-bottom:3px;margin-bottom:3px">${hdr}</div>
+        ${rows}
+      </div>`;
+    }).join("");
+    const hiCount = events.filter(isHi).length;
+    body.innerHTML = blocks + `<div style="font-size:9px;color:${C.textMut};margin-top:4px">${events.length} events · ${hiCount} high-impact. Size down ahead of ● days.</div>`;
+  } catch (e) {
+    body.innerHTML = _macroCalMsg(`Failed to load: ${escapeHtml(e.message)}`);
+  }
+}
+
+function _macroCalMsg(msg) {
+  return `<div style="font-size:11px;color:${C.textMut};font-style:italic">${msg}</div>`;
 }
 
 // AI Week Ahead — forward-focused Claude call. Different prompt from the
@@ -8830,13 +8978,18 @@ Return ONLY a JSON object matching this schema. No markdown, no preamble.
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6-20250620",
+        model: "claude-sonnet-4-6",
         max_tokens: 2000,
         system: systemPrompt,
         messages: [{ role: "user", content: ctx + "\n\nReturn ONLY the JSON object." }],
       }),
     });
     const data = await resp.json();
+    if (!resp.ok || data.error) {
+      const em = data.error?.message || `HTTP ${resp.status}`;
+      body.innerHTML = `<div style="color:${C.neg};padding:12px">AI call failed: ${escapeHtml(em)}</div>`;
+      return;
+    }
     const text = data.content?.[0]?.text || "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
