@@ -5483,6 +5483,7 @@ function renderStats() {
       </div>
       <div class="stats-export-row" style="display:flex;gap:6px">
         <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_exportStatsPDF()" title="Open print dialog — Save as PDF in your browser">📄 PDF</button>
+        <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_exportStatsPDFCharts()" title="PDF report with the 5/30/4h NQ charts rendered in as images — for AI to review your price action">📄 PDF + CHARTS</button>
         <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_copyStatsForAI()" title="Copy a Markdown summary of all stats to clipboard — paste into Claude/ChatGPT">📋 COPY FOR AI</button>
         <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_downloadStatsReport()" title="Download a full stats report (worst time/day, hold-period, MAE/MFE, SL/TP options) — print it or feed to an AI">⬇ REPORT</button>
       </div>
@@ -7219,7 +7220,7 @@ function _aiBreakdownScatter(kind) {
 // own window. Save-as-PDF in the print dialog produces a real document. Scoped to
 // the current date filter. Covers KPIs, risk/R:R, MAE/MFE + SL/TP, sessions,
 // strategies, holding periods, and a full trades table.
-function _buildStatsReportHTML(closed) {
+function _buildStatsReportHTML(closed, chartsHTML = "") {
   const $ = n => (n < 0 ? "−$" : "$") + Math.abs(Math.round(n || 0)).toLocaleString();
   const pc = (a, b) => b ? Math.round(a / b * 100) + "%" : "—";
   const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -7382,6 +7383,8 @@ function _buildStatsReportHTML(closed) {
   <h2>Trade Log (${sorted.length})</h2>
   <table class="rep"><thead><tr><th>Entry</th><th>Exit</th><th>Ticker</th><th>Type</th><th class="r">Strikes</th><th class="r">Qty</th><th class="r">Premium</th><th class="r">MAE</th><th class="r">MFE</th><th class="r">P&L</th><th class="r">Hold</th></tr></thead><tbody>${tradeRows}</tbody></table>
 
+  ${chartsHTML}
+
   <div class="foot">Generated from IBKR-synced journal · MAE/MFE from Databento minute data · Trading Desk</div>
 </body></html>`;
 }
@@ -7393,6 +7396,30 @@ function _exportStatsPDF() {
   const w = window.open("", "_blank");
   if (!w) { alert("Pop-up blocked — allow pop-ups for this site to open the report."); return; }
   w.document.open(); w.document.write(html); w.document.close();
+}
+
+// Same report, but with the 5/30/4h NQ charts rendered in as images so an AI
+// (or you) can review the actual price action per trade.
+async function _exportStatsPDFCharts() {
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  if (!closed.length) { alert("No closed trades in scope for this date range."); return; }
+  const nq = closed.filter(t => (t.ticker || "").startsWith("/NQ") && t._candles);
+  if (!nq.length) { alert("No /NQ trades with chart data in this date range."); return; }
+  // Open the tab now, inside the click gesture, so the pop-up blocker allows it.
+  const w = window.open("", "_blank");
+  if (!w) { alert("Pop-up blocked — allow pop-ups for this site to open the report."); return; }
+  w.document.write(`<body style="font:14px ui-monospace,monospace;padding:40px;color:#333">Rendering ${nq.length} trades × 3 charts — keep this tab open…</body>`);
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;color:#fff;font:14px ui-monospace,monospace";
+  ov.textContent = `Rendering charts… 0/${nq.length}`;
+  document.body.appendChild(ov);
+  let chartsHTML = "";
+  try {
+    chartsHTML = await _buildReportCharts(closed, (d, n) => { ov.textContent = `Rendering charts… ${d}/${n}`; });
+  } catch (e) { /* fall back to a report without charts */ }
+  finally { ov.remove(); }
+  const html = _buildStatsReportHTML(closed, chartsHTML);
+  try { w.document.open(); w.document.write(html); w.document.close(); } catch (e) { alert("Report tab was closed before it finished."); }
 }
 
 async function _copyStatsForAI() {
@@ -9800,8 +9827,10 @@ function renderEntryExitCharts() {
   el.querySelectorAll("[data-res]").forEach(c => io.observe(c));
 }
 
-async function _eeRenderChart(t, chartEl, statusEl, res) {
+async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
   if (typeof LightweightCharts === "undefined") { if (statusEl) statusEl.textContent = "chart library loading…"; setTimeout(() => _eeRenderChart(t, chartEl, statusEl, res), 700); return; }
+  // Overlay flags: live toggles by default; the PDF report overrides them.
+  const showMAE = opts.showMAE ?? _eeShowMAE, showStops = opts.showStops ?? _eeShowStops, showProf = opts.showProfile ?? _eeShowProfile;
   const { isoFrom, isoTo } = _tradeChartPlan(t);
   const intraday = true;
   const yahooTicker = (typeof _yahooSymbolForChart === "function") ? _yahooSymbolForChart(t.ticker) : t.ticker;
@@ -9844,8 +9873,8 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   const _cred = t.premiumCollected || 0;
   const _exc = (pnl) => (_cred && typeof pnl === "number") ? ` (${pnl >= 0 ? "+" : "−"}${Math.abs(pnl / _cred * 100).toFixed(0)}%)` : "";
   const maeTs = t._autoMAE?.date || t._autoMAE?.ts, mfeTs = t._autoMFE?.date || t._autoMFE?.ts;
-  if (_eeShowMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MAE" + _exc(t._autoMAE?.pnl) }); }
-  if (_eeShowMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MFE" + _exc(t._autoMFE?.pnl) }); }
+  if (showMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MAE" + _exc(t._autoMAE?.pnl) }); }
+  if (showMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MFE" + _exc(t._autoMFE?.pnl) }); }
   // Entry/exit price as a colored tag on the y-axis ONLY — no line across the
   // candles (lineVisible:false). The IN / OUT arrows above mark the time.
   if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineVisible: false, axisLabelVisible: true, title: "" }); }
@@ -9859,7 +9888,7 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   // hit). The forward model lives in the Guardrails tab, at entry DTE.
   let slInfo = "";
   const sa = t._stopActual;
-  if (_eeShowStops && sa) {
+  if (showStops && sa) {
     const isPut = /put/i.test(t.tradeType || "");
     const drawActual = (L, color, label) => {
       if (!L || L.nq == null) return;
@@ -9878,7 +9907,7 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   // Prior-session market-profile levels (from _profile) — multi-day acceptance
   // and range context: POC + value area (violet), prior-day & overnight hi/lo (slate).
   const pf = t._profile;
-  if (_eeShowProfile && pf) {
+  if (showProf && pf) {
     const VIO = "#a78bfa", SLATE = "#7d8aa0";
     const pl = (price, color, style, label, width) => {
       if (price == null) return;
@@ -9898,6 +9927,59 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   const _resLbl = res === 240 ? "4-hour" : `${res}-min`;
   if (statusEl) statusEl.textContent = `${_resLbl} · ${data.length} bars · ${src} · IN ▲ OUT ▼ · MAE/MFE${slInfo}`;
   new ResizeObserver(() => chart.applyOptions({ width: chartEl.clientWidth })).observe(chartEl);
+  return chart;
+}
+
+// Render one trade's chart at a resolution off-screen and return a PNG data URL.
+// Used by the PDF report so an AI can see the price action. Always draws
+// entry/exit + MAE/MFE (ignores live toggles), no stop/profile clutter.
+async function _chartToImage(t, res) {
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-10000px;top:0;width:520px;height:300px";
+  document.body.appendChild(host);
+  let url = null;
+  try {
+    const chart = await _eeRenderChart(t, host, null, res, { showMAE: true, showStops: false, showProfile: false });
+    if (chart) {
+      // setTimeout (not rAF — rAF is paused in background tabs) lets the chart settle.
+      await new Promise(r => setTimeout(r, 60));
+      url = chart.takeScreenshot().toDataURL("image/png");
+      chart.remove();
+    }
+  } catch (e) { /* skip this chart */ }
+  host.remove();
+  return url;
+}
+
+// Build the per-trade charts section (5/30/4h images) for the PDF report.
+async function _buildReportCharts(closed, onProgress) {
+  const withC = closed.filter(t => (t.ticker || "").startsWith("/NQ") && t._candles)
+    .sort((a, b) => (b.exitDate || b.entryDate || "").localeCompare(a.exitDate || a.entryDate || ""));
+  if (!withC.length) return "";
+  let blocks = "", done = 0;
+  for (const t of withC) {
+    const imgs = [];
+    for (const [res, lbl] of [[5, "5-min"], [30, "30-min"], [240, "4-hour"]]) {
+      const url = await _chartToImage(t, res);
+      imgs.push(url
+        ? `<figure style="margin:0;flex:1 1 0"><figcaption style="font-size:9px;color:#6b7280;margin-bottom:2px">${lbl}</figcaption><img src="${url}" style="width:100%;border:1px solid #e5e7eb;border-radius:4px"></figure>`
+        : `<div style="flex:1 1 0;font-size:9px;color:#9ca3af">${lbl}: n/a</div>`);
+    }
+    const win = (t.realizedPnl || 0) >= 0;
+    const strikes = t.longStrike ? `${t.shortStrike}/${t.longStrike}` : (t.shortStrike || "");
+    const mae = t._autoMAE?.pnl, mfe = t._autoMFE?.pnl, cred = t.premiumCollected || 0;
+    const pct = v => (cred && typeof v === "number") ? ` (${v >= 0 ? "+" : "−"}${Math.abs(v / cred * 100).toFixed(0)}%)` : "";
+    blocks += `<div style="page-break-inside:avoid;margin:0 0 16px">
+      <div style="font-size:11px;font-weight:600;color:#111827">${esc(t.ticker || "")} · ${esc((t.tradeType || "").slice(0, 26))} · ${esc(String(strikes))}
+        <span style="color:${win ? "#16a34a" : "#dc2626"}"> · ${win ? "+" : "−"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}</span>
+        <span style="color:#6b7280;font-weight:400"> · ${esc(t.entryDate || "")}${t.entryTime ? " " + esc(t.entryTime) : ""} → ${esc(t.exitDate || "")}${t.exitTime ? " " + esc(t.exitTime) : ""}
+        ${typeof mae === "number" ? ` · MAE ${pct(mae)}` : ""}${typeof mfe === "number" ? ` · MFE ${pct(mfe)}` : ""}</span></div>
+      <div style="display:flex;gap:8px;margin-top:4px">${imgs.join("")}</div>
+    </div>`;
+    done++; if (onProgress) onProgress(done, withC.length);
+  }
+  return `<h2>NQ Charts — Entry &amp; Exit (${withC.length})</h2>
+    <div class="muted" style="margin-bottom:10px">Each trade: 5-min (execution) · 30-min (context) · 4-hour (big picture). Blue tag = entry, green/red = exit; dashed = MAE/MFE.</div>${blocks}`;
 }
 
 // AI Week Ahead — forward-focused Claude call. Different prompt from the
