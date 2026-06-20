@@ -9735,7 +9735,10 @@ function renderEntryExitCharts() {
     const strikes = t.longStrike ? `${t.shortStrike}/${t.longStrike}` : (t.shortStrike || "");
     const dt = t.entryDate + (t.entryTime ? " " + t.entryTime : "") + (t.exitDate ? " → " + t.exitDate + (t.exitTime ? " " + t.exitTime : "") : "");
     const pane = (res, label) => `<div style="flex:1 1 0;min-width:0">
-        <div style="font-size:9px;color:${C.textMut};padding:4px 10px 0;text-transform:uppercase;letter-spacing:0.5px">${label}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:9px;color:${C.textMut};padding:4px 10px 0;text-transform:uppercase;letter-spacing:0.5px">
+          <span>${label}</span>
+          <span style="font-variant-numeric:tabular-nums"><span style="color:${C.accent};font-weight:700">▬ IN</span> &nbsp;<span style="color:${win ? C.pos : C.neg};font-weight:700">▬ OUT</span></span>
+        </div>
         <div id="ee-chart-${t.id}-${res}" data-tid="${t.id}" data-res="${res}" style="height:420px;width:100%"></div>
         <div id="ee-status-${t.id}-${res}" style="font-size:9px;color:${C.textMut};padding:3px 10px 7px;font-variant-numeric:tabular-nums"></div>
       </div>`;
@@ -9832,7 +9835,7 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   const entryT = intraday ? (near(etToUnix(t.entryDate, t.entryTime)).time) : (t.entryDate ? dateToTime(t.entryDate) : null);
   const exitT = intraday ? (near(etToUnix(t.exitDate, t.exitTime)).time) : (t.exitDate ? dateToTime(t.exitDate) : null);
   const markers = [];
-  if (entryT) markers.push({ time: entryT, position: "belowBar", color: C.pos, shape: "arrowUp", text: "IN" });
+  if (entryT) markers.push({ time: entryT, position: "belowBar", color: C.accent, shape: "arrowUp", text: "IN" });
   if (exitT) { const w = (t.realizedPnl || 0) >= 0; markers.push({ time: exitT, position: "aboveBar", color: w ? C.pos : C.neg, shape: "arrowDown", text: `OUT ${w ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}` }); }
   if (markers.length) { markers.sort((a, b) => a.time - b.time); series.setMarkers(markers); }
 
