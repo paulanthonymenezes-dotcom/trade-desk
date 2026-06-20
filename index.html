@@ -5414,6 +5414,7 @@ function renderStats() {
       <div class="stats-export-row" style="display:flex;gap:6px">
         <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_exportStatsPDF()" title="Open print dialog — Save as PDF in your browser">📄 PDF</button>
         <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_copyStatsForAI()" title="Copy a Markdown summary of all stats to clipboard — paste into Claude/ChatGPT">📋 COPY FOR AI</button>
+        <button class="btn btn-g" style="font-size:10px;padding:5px 10px" onclick="_downloadStatsReport()" title="Download a full stats report (worst time/day, hold-period, MAE/MFE, SL/TP options) — print it or feed to an AI">⬇ REPORT</button>
       </div>
     </div>
     <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
@@ -7177,6 +7178,135 @@ This dump is generated from the trader's IBKR-synced journal. Reply with pattern
     catch { alert("Copy failed. Open browser console and run: copy(_buildReviewSummary(STATE.trades.filter(t=>t.status!=='Open')))"); }
     finally { document.body.removeChild(ta); }
   }
+}
+
+// Comprehensive, downloadable stats report (Markdown) — print it or feed it to an
+// AI. Leads with the actionable findings the trader asked for: worst time/day to
+// open, hold periods that lose, MAE/MFE, and SL/TP rule options.
+function _buildStatsReport(closed) {
+  const $ = n => "$" + Math.round(n).toLocaleString();
+  const dateLabel = typeof _dateFilterLabel === "function" ? _dateFilterLabel(closed) : statsDateFilter;
+  const wins = closed.filter(t => (t.realizedPnl || 0) > 0);
+  const losses = closed.filter(t => (t.realizedPnl || 0) <= 0);
+  const net = closed.reduce((s, t) => s + (t.realizedPnl || 0), 0);
+
+  // ── Worst time-of-day (entry hour, ET) ──
+  const dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const byHour = {}, byDow = {};
+  closed.forEach(t => {
+    const pnl = t.realizedPnl || 0;
+    if (t.entryTime) { const h = parseInt(t.entryTime.split(":")[0], 10); if (!isNaN(h)) { (byHour[h] = byHour[h] || { n: 0, w: 0, pnl: 0 }); byHour[h].n++; byHour[h].pnl += pnl; if (pnl > 0) byHour[h].w++; } }
+    if (t.entryDate) { const d = new Date(t.entryDate + "T12:00:00").getDay(); (byDow[d] = byDow[d] || { n: 0, w: 0, pnl: 0 }); byDow[d].n++; byDow[d].pnl += pnl; if (pnl > 0) byDow[d].w++; }
+  });
+  const worstHour = Object.entries(byHour).filter(([, v]) => v.n >= 2).sort((a, b) => a[1].pnl - b[1].pnl)[0];
+  const worstDow = Object.entries(byDow).filter(([, v]) => v.n >= 2).sort((a, b) => a[1].pnl - b[1].pnl)[0];
+
+  // ── Holding period vs outcome ──
+  const hpBuckets = [["intraday (0d)", 0, 0], ["1 day", 1, 1], ["2–3 days", 2, 3], ["4–7 days", 4, 7], ["8–14 days", 8, 14], ["15+ days", 15, 9999]];
+  const hp = hpBuckets.map(([label, lo, hi]) => ({ label, lo, hi, n: 0, w: 0, pnl: 0 }));
+  closed.forEach(t => {
+    if (!t.entryDate || !t.exitDate) return;
+    const days = Math.max(0, Math.ceil((new Date(t.exitDate) - new Date(t.entryDate)) / 86400000));
+    const b = hp.find(x => days >= x.lo && days <= x.hi); if (!b) return;
+    b.n++; b.pnl += (t.realizedPnl || 0); if ((t.realizedPnl || 0) > 0) b.w++;
+  });
+  const losingHolds = hp.filter(b => b.n >= 2 && b.pnl < 0);
+
+  // ── MAE/MFE data (same build as the scatter panel) ──
+  const data = closed.map(t => {
+    const prem = t.premiumCollected || 0; if (!prem) return null;
+    const mae = getMAE(t), mfe = getMFE(t); if (mae == null && mfe == null) return null;
+    const pnl = t.realizedPnl || 0;
+    return { premium: prem, pnlPctOfPrem: (pnl / prem) * 100, maePctOfPrem: mae != null ? -(mae / prem) * 100 : null, mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null, isWin: pnl > 0 };
+  }).filter(Boolean);
+  const wMae = data.filter(d => d.isWin && d.maePctOfPrem != null);
+  const lMfe = data.filter(d => !d.isWin && d.mfePctOfPrem != null);
+  const avgWinDraw = wMae.length ? wMae.reduce((a, d) => a + (-d.maePctOfPrem), 0) / wMae.length : null;
+  const avgLosePeak = lMfe.length ? lMfe.reduce((a, d) => a + d.mfePctOfPrem, 0) / lMfe.length : null;
+  const losersBreach25 = lMfe.filter(d => d.mfePctOfPrem >= 25).length;
+  const losersBreach50 = lMfe.filter(d => d.mfePctOfPrem >= 50).length;
+  const moneyLeftWin = data.filter(d => d.isWin).reduce((a, d) => a + Math.max(0, (d.mfePctOfPrem / 100) * d.premium - (d.pnlPctOfPrem / 100) * d.premium), 0);
+  const moneyLeftLose = lMfe.reduce((a, d) => a + Math.max(0, (d.mfePctOfPrem / 100) * d.premium), 0);
+
+  // ── SL/TP replay (same simulate as the guidance card) ──
+  const valid = data.filter(d => d.premium && d.maePctOfPrem != null && d.mfePctOfPrem != null);
+  function simulate(slPct, tpPct) {
+    let n2 = 0, wn = 0, ls = 0, worst = 0;
+    for (const d of valid) {
+      const sl = slPct == null ? null : -slPct, tp = tpPct == null ? null : +tpPct;
+      const wouldSl = sl != null && d.maePctOfPrem <= sl, wouldTp = tp != null && d.mfePctOfPrem >= tp;
+      let p = wouldSl ? sl : (wouldTp ? tp : d.pnlPctOfPrem);
+      const pnl = (p / 100) * d.premium; n2 += pnl; if (pnl > 0) wn++; else if (pnl < 0) ls++; if (pnl < worst) worst = pnl;
+    }
+    return { net: n2, wins: wn, losses: ls, worst };
+  }
+  let sltpBlock = "_Not enough trades with MAE+MFE data (need ≥10) to model SL/TP._";
+  if (valid.length >= 10) {
+    const base = simulate(null, null);
+    const slLevels = [50, 75, 100, 150, 200, 300], tpLevels = [25, 50, 75];
+    const slR = slLevels.map(sl => ({ tag: `Hard SL −${sl}%`, ...simulate(sl, null) }));
+    const tpR = tpLevels.map(tp => ({ tag: `Hard TP +${tp}%`, ...simulate(null, tp) }));
+    const line = r => `| ${r.tag} | ${$(r.net)} | ${(r.net - base.net) >= 0 ? "+" : ""}${$(r.net - base.net)} | ${r.wins}/${r.losses} | ${$(r.worst)} |`;
+    const bestSl = slR.slice().sort((a, b) => b.net - a.net)[0];
+    const bestTp = tpR.slice().sort((a, b) => b.net - a.net)[0];
+    const combo = simulate(parseInt(bestSl.tag.match(/\d+/)[0]), parseInt(bestTp.tag.match(/\d+/)[0]));
+    sltpBlock = `Replaying your **${valid.length}** trades (with MAE+MFE) under hard rules. "+vs base" = change vs your actual exits.
+
+| Rule | Net | +vs base | W/L | Worst single |
+|------|-----|----------|-----|--------------|
+| Baseline (actual exits) | ${$(base.net)} | — | — | — |
+${slR.map(line).join("\n")}
+${tpR.map(line).join("\n")}
+
+**Recommended options:**
+- 🛡️ **Conservative (cap the tail):** ${bestSl.tag} → ${(bestSl.net - base.net) >= 0 ? "+" : ""}${$(bestSl.net - base.net)} vs baseline, worst single trade ${$(bestSl.worst)}.
+- 🎯 **Lock gains:** ${bestTp.tag} → ${(bestTp.net - base.net) >= 0 ? "+" : ""}${$(bestTp.net - base.net)} vs baseline.
+- ⚖️ **Combined (${bestSl.tag} + ${bestTp.tag}):** net ${$(combo.net)} (${(combo.net - base.net) >= 0 ? "+" : ""}${$(combo.net - base.net)} vs baseline), worst ${$(combo.worst)}.
+- Pick the rule whose worst single trade you can stomach AND whose net beats baseline. SL is % of premium drawdown (MAE); TP is % of premium peak (MFE).`;
+  }
+
+  return `# Trading Stats Report
+**Scope:** ${dateLabel} · **${closed.length} closed trades** · Net ${$(net)} · ${Math.round(wins.length / closed.length * 100)}% win rate (${wins.length}W / ${losses.length}L)
+**Generated:** ${new Date().toISOString().slice(0, 16).replace("T", " ")}
+
+## ⭐ Key actionable findings
+- **Worst time to open:** ${worstHour ? `${String(worstHour[0]).padStart(2, "0")}:00 ET — ${$(worstHour[1].pnl)} over ${worstHour[1].n} trades (${Math.round(worstHour[1].w / worstHour[1].n * 100)}% WR)` : "n/a"}
+- **Worst day to open:** ${worstDow ? `${dows[worstDow[0]]} — ${$(worstDow[1].pnl)} over ${worstDow[1].n} trades (${Math.round(worstDow[1].w / worstDow[1].n * 100)}% WR)` : "n/a"}
+- **Holding periods that lose money:** ${losingHolds.length ? losingHolds.map(b => `${b.label} (${$(b.pnl)}, ${b.n} trades)`).join("; ") : "none stand out"}
+- **Money left on table:** ${$(moneyLeftWin)} from winners closed early · ${$(moneyLeftLose)} from losers that were green before dying
+- **MAE/MFE in one line:** winners survived an avg **${avgWinDraw != null ? "−" + Math.round(avgWinDraw) + "%" : "n/a"}** drawdown before recovering; losers peaked at avg **${avgLosePeak != null ? "+" + Math.round(avgLosePeak) + "%" : "n/a"}** before turning south.
+
+## 🛑 Stop-loss / Take-profit options
+${sltpBlock}
+
+## ⏱️ Holding period vs outcome
+| Hold | Trades | Win rate | P&L |
+|------|--------|----------|-----|
+${hp.filter(b => b.n).map(b => `| ${b.label} | ${b.n} | ${Math.round(b.w / b.n * 100)}% | ${$(b.pnl)} |`).join("\n")}
+
+## 📉 MAE / MFE detail
+- Winners' avg max drawdown before recovery: **${avgWinDraw != null ? "−" + Math.round(avgWinDraw) + "% of premium" : "n/a"}** → a stop tighter than this would've cut winners short.
+- Losers' avg peak unrealized profit: **${avgLosePeak != null ? "+" + Math.round(avgLosePeak) + "% of premium" : "n/a"}** before they turned into losers.
+- Losers that were up **+25%**: ${losersBreach25}/${lMfe.length} · up **+50%**: ${losersBreach50}/${lMfe.length} — these are TP-rule candidates.
+
+## 📊 Full breakdown
+${typeof _buildReviewSummary === "function" ? _buildReviewSummary(closed) : ""}
+
+---
+_Generated from the trader's IBKR-synced journal. For AI review: identify the 2–3 highest-impact rule changes (entry timing, hold-period discipline, and the SL/TP combo with the best net-vs-baseline that the trader can psychologically hold), and explain the tradeoffs._`;
+}
+
+function _downloadStatsReport() {
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  if (!closed.length) { alert("No closed trades in scope."); return; }
+  const md = _buildStatsReport(closed);
+  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `trading-stats-report_${new Date().toISOString().slice(0, 10)}.md`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function _aiBreakdown(title, contextSummary, userQuestion) {
