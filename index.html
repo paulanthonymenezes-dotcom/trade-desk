@@ -6234,7 +6234,9 @@ function _maeMfeScatterPanel(closed) {
       insight: _mfeScatterInsight(mfeData),
     })}
   </div>
-  ${_maeOutcomeHistogram(maeData)}`;
+  ${_slTpGuidanceCard(maeData)}
+  ${_maeOutcomeHistogram(maeData)}
+  ${_mfeOfLosersHistogram(mfeData)}`;
 }
 
 // "How low did my green ones go?" — for each MAE-depth bucket, side-by-side
@@ -6280,11 +6282,12 @@ function _maeOutcomeHistogram(data) {
     const lossH = (s.losses / maxBar) * ch;
     const winX = x0 + bucketW / 2 - barW - innerGap / 2;
     const lossX = x0 + bucketW / 2 + innerGap / 2;
+    // Bars are clickable — opens a modal listing the trades in this bucket+outcome.
     return `
-      ${s.wins ? `<rect x="${winX.toFixed(1)}" y="${(PAD.t + ch - winH).toFixed(1)}" width="${barW.toFixed(1)}" height="${winH.toFixed(1)}" fill="${C.pos}" fill-opacity="0.85"><title>${s.label} — ${s.wins} winners (recovered from drawdown)</title></rect>
-         <text x="${(winX + barW/2).toFixed(1)}" y="${(PAD.t + ch - winH - 4).toFixed(1)}" font-size="9" fill="${C.pos}" text-anchor="middle" font-weight="600">${s.wins}</text>` : ''}
-      ${s.losses ? `<rect x="${lossX.toFixed(1)}" y="${(PAD.t + ch - lossH).toFixed(1)}" width="${barW.toFixed(1)}" height="${lossH.toFixed(1)}" fill="${C.neg}" fill-opacity="0.85"><title>${s.label} — ${s.losses} losers (stayed underwater)</title></rect>
-         <text x="${(lossX + barW/2).toFixed(1)}" y="${(PAD.t + ch - lossH - 4).toFixed(1)}" font-size="9" fill="${C.neg}" text-anchor="middle" font-weight="600">${s.losses}</text>` : ''}
+      ${s.wins ? `<rect x="${winX.toFixed(1)}" y="${(PAD.t + ch - winH).toFixed(1)}" width="${barW.toFixed(1)}" height="${winH.toFixed(1)}" fill="${C.pos}" fill-opacity="0.85" style="cursor:pointer" onclick="_openMaeBucketList('mae',${s.min},${s.max},true,${escapeHtml(JSON.stringify(s.label))})"><title>${s.label} — ${s.wins} winners — click for list</title></rect>
+         <text x="${(winX + barW/2).toFixed(1)}" y="${(PAD.t + ch - winH - 4).toFixed(1)}" font-size="9" fill="${C.pos}" text-anchor="middle" font-weight="600" pointer-events="none">${s.wins}</text>` : ''}
+      ${s.losses ? `<rect x="${lossX.toFixed(1)}" y="${(PAD.t + ch - lossH).toFixed(1)}" width="${barW.toFixed(1)}" height="${lossH.toFixed(1)}" fill="${C.neg}" fill-opacity="0.85" style="cursor:pointer" onclick="_openMaeBucketList('mae',${s.min},${s.max},false,${escapeHtml(JSON.stringify(s.label))})"><title>${s.label} — ${s.losses} losers — click for list</title></rect>
+         <text x="${(lossX + barW/2).toFixed(1)}" y="${(PAD.t + ch - lossH - 4).toFixed(1)}" font-size="9" fill="${C.neg}" text-anchor="middle" font-weight="600" pointer-events="none">${s.losses}</text>` : ''}
     `;
   }).join("");
 
@@ -6322,6 +6325,235 @@ function _maeOutcomeHistogram(data) {
       ${xLabels}
     </svg>
     ${insightHtml}
+  </div>`;
+}
+
+// Bar-click handler — opens a modal listing every trade in the selected
+// MAE-depth bucket + outcome (won or lost). Each row click → opens the
+// trade in the preview modal (with chart + MAE/MFE markers).
+function _openMaeBucketList(metric, minPct, maxPct, isWin, bucketLabel) {
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const matches = closed.filter(t => {
+    const prem = t.premiumCollected;
+    if (!prem) return false;
+    const m = metric === "mae" ? getMAE(t) : getMFE(t);
+    if (m == null) return false;
+    const depthPct = (m / prem) * 100;
+    const inBucket = depthPct >= minPct && (maxPct === Infinity ? true : depthPct < maxPct);
+    if (!inBucket) return false;
+    const won = (t.realizedPnl || 0) > 0;
+    return isWin ? won : !won;
+  });
+  let modal = document.getElementById("mae-bucket-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "mae-bucket-modal";
+    modal.className = "overlay";
+    modal.style.display = "none";
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
+    document.body.appendChild(modal);
+  }
+  const sumPnl = matches.reduce((a, t) => a + (t.realizedPnl || 0), 0);
+  const headerColor = isWin ? C.pos : C.neg;
+  const rows = matches.sort((a, b) => (b.realizedPnl || 0) - (a.realizedPnl || 0)).map(t => {
+    const prem = t.premiumCollected || 0;
+    const mae = getMAE(t), mfe = getMFE(t);
+    const maePct = (mae != null && prem) ? "-" + Math.round((mae / prem) * 100) + "%" : "—";
+    const mfePct = (mfe != null && prem) ? "+" + Math.round((mfe / prem) * 100) + "%" : "—";
+    const pnlPct = prem ? Math.round((t.realizedPnl || 0) / prem * 100) + "%" : "—";
+    const pnl = t.realizedPnl || 0;
+    return `<tr class="trow" onclick="document.getElementById('mae-bucket-modal').style.display='none';_scatterOpenTrade(${t.id})">
+      <td style="font-size:11px;color:${C.text};font-weight:600">${escapeHtml(t.ticker)}</td>
+      <td style="font-size:10px;color:${C.textSec}">${escapeHtml((t.tradeType||"").slice(0,18))}</td>
+      <td style="font-size:10px;font-variant-numeric:tabular-nums">${t.longStrike?t.longStrike+"/"+t.shortStrike:t.shortStrike||""}</td>
+      <td style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${escapeHtml(t.entryDate||"?")}</td>
+      <td style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${escapeHtml(t.exitDate||"?")}</td>
+      <td style="font-size:10px;font-variant-numeric:tabular-nums">${fmt$(prem)}</td>
+      <td style="font-size:10px;color:${C.neg};font-variant-numeric:tabular-nums">${maePct}</td>
+      <td style="font-size:10px;color:${C.pos};font-variant-numeric:tabular-nums">${mfePct}</td>
+      <td style="font-size:11px;color:${pnl>=0?C.pos:C.neg};font-weight:600;font-variant-numeric:tabular-nums;text-align:right">${fmt$(pnl)} (${pnlPct})</td>
+    </tr>`;
+  }).join("");
+  modal.innerHTML = `<div class="modal" style="max-width:920px;width:94vw;max-height:84vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div>
+        <div style="font-size:14px;color:${C.text};font-weight:600">${escapeHtml(bucketLabel)} ${metric === "mae" ? "MAE" : "MFE"} bucket · ${isWin ? "Winners" : "Losers"}</div>
+        <div style="font-size:11px;color:${C.textSec};margin-top:2px">${matches.length} trade${matches.length!==1?'s':''} · net <span style="color:${sumPnl>=0?C.pos:C.neg};font-weight:600">${fmt$(sumPnl)}</span></div>
+      </div>
+      <button onclick="document.getElementById('mae-bucket-modal').style.display='none'" style="background:none;border:none;color:${C.textSec};font-size:22px;cursor:pointer">&times;</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid ${C.borderVis};color:${C.textSec};font-size:9px;text-align:left;letter-spacing:0.06em">
+          <th style="padding:6px">TICKER</th><th>TYPE</th><th>STRIKES</th><th>ENTRY</th><th>EXIT</th><th>PREM</th><th>MAE</th><th>MFE</th><th style="text-align:right">P&L</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="font-size:10px;color:${C.textMut};margin-top:8px;text-align:center;font-style:italic">Click any row to view its chart + full details</div>
+  </div>`;
+  modal.style.display = "flex";
+}
+
+// COMPANION CHART: "How Green Did My Red Ones Go?" — for LOSING trades,
+// how high did MFE peak before the trade turned south? Each bar = count
+// of losers whose MFE peaked in that band. Directly visualizes money
+// left on the table from losing trades.
+function _mfeOfLosersHistogram(data) {
+  const losers = data.filter(d => !d.isWin && d.mfePctOfPrem != null);
+  if (losers.length < 3) return "";
+  const buckets = [
+    {label: "0 to +25%",   min: 0,    max: 25},
+    {label: "+25 to +50%", min: 25,   max: 50},
+    {label: "+50 to +75%", min: 50,   max: 75},
+    {label: "+75 to +100%", min: 75,  max: 100},
+    {label: "+100%+",      min: 100,  max: Infinity},
+  ];
+  const stats = buckets.map(b => {
+    const inB = losers.filter(d => d.mfePctOfPrem >= b.min && d.mfePctOfPrem < b.max);
+    return { ...b, count: inB.length, totalMfeDollar: inB.reduce((a,d) => a + (d.mfePctOfPrem/100) * d.premium, 0) };
+  });
+  const maxBar = Math.max(1, ...stats.map(s => s.count));
+
+  const W = 760, H = 220, PAD = {t:18, r:18, b:36, l:48};
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+  const bucketW = cw / buckets.length;
+  const barW = bucketW * 0.55;
+
+  const bars = stats.map((s, i) => {
+    if (!s.count) return "";
+    const x0 = PAD.l + i * bucketW + (bucketW - barW) / 2;
+    const h = (s.count / maxBar) * ch;
+    const y = PAD.t + ch - h;
+    return `<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${C.warn}" fill-opacity="0.8" style="cursor:pointer" onclick="_openMaeBucketList('mfe',${s.min},${s.max},false,${escapeHtml(JSON.stringify(s.label))})"><title>${s.label} MFE — ${s.count} losers · ~${fmt$(s.totalMfeDollar)} of unrealized peak profit left on the table</title></rect>
+            <text x="${(x0 + barW/2).toFixed(1)}" y="${(y - 4).toFixed(1)}" font-size="9" fill="${C.warn}" text-anchor="middle" font-weight="600" pointer-events="none">${s.count}</text>`;
+  }).join("");
+
+  const xLabels = stats.map((s, i) => {
+    const cx = PAD.l + (i + 0.5) * bucketW;
+    return `<text x="${cx.toFixed(1)}" y="${(H - 18).toFixed(1)}" font-size="9" fill="${C.textSec}" text-anchor="middle">${s.label}</text>
+            <text x="${cx.toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="${C.textMut}" text-anchor="middle">n=${s.count}</text>`;
+  }).join("");
+
+  const totalLeft = stats.reduce((a,s) => a + s.totalMfeDollar, 0);
+  const breachedTP = losers.filter(d => d.mfePctOfPrem >= 25).length;
+  const insight = `<div style="font-size:11px;color:${C.text};margin-top:8px;line-height:1.6">
+    <b>How green your red ones went:</b> ${breachedTP}/${losers.length} losers (${Math.round(breachedTP/losers.length*100)}%) reached at least <b style="color:${C.pos}">+25% premium MFE</b> before turning south.
+    Total unrealized peak profit on losing trades: <b style="color:${C.warn}">${fmt$(totalLeft)}</b> — that's money you could have captured with a TP rule.
+  </div>`;
+
+  return `<div class="card" style="padding:14px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">HOW GREEN DID MY RED ONES GO? — Losers' MFE Distribution</div>
+      <div style="font-size:9px;color:${C.textMut}"><span style="display:inline-block;width:8px;height:8px;background:${C.warn};margin-right:3px;vertical-align:middle"></span>loser trades with peak unrealized profit in band</div>
+    </div>
+    <div style="font-size:10px;color:${C.text};margin-bottom:8px;line-height:1.4">For each LOSING trade, where did its peak unrealized profit (MFE) land? Bars to the right = trades that had real winners in them before turning south. <b>That's money left on the table.</b></div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',monospace">
+      <line x1="${PAD.l}" y1="${(PAD.t + ch).toFixed(1)}" x2="${(PAD.l + cw).toFixed(1)}" y2="${(PAD.t + ch).toFixed(1)}" stroke="${C.border}" stroke-width="0.5"/>
+      ${bars}
+      ${xLabels}
+    </svg>
+    ${insight}
+  </div>`;
+}
+
+// SL/TP GUIDANCE — the "so what" card. Simulates several SL and TP levels
+// over the user's actual data and shows what each rule would have netted
+// vs their baseline (no rule, actual exits). Plus money-left-on-the-table
+// summary so the user can SEE the TP value too.
+function _slTpGuidanceCard(data) {
+  // Need data with both premium + MAE + MFE + final outcome
+  const valid = data.filter(d => d.premium && d.maePctOfPrem != null && d.mfePctOfPrem != null);
+  if (valid.length < 10) return "";
+
+  // Replay each trade at a given SL/TP combo. SL hits → −SL% × premium loss.
+  // TP hits → +TP% × premium win. Neither → actual realized P&L. Pessimistic:
+  // assumes SL fires first if both would have triggered (we don't have minute
+  // timestamps in the data layer here — that's in the Parquet optimizer).
+  function simulate(slPct, tpPct) {
+    let net = 0, wins = 0, losses = 0, worst = 0;
+    for (const d of valid) {
+      const slThresh = slPct == null ? null : -slPct;     // pct of premium
+      const tpThresh = tpPct == null ? null : +tpPct;
+      const wouldSl = slThresh != null && d.maePctOfPrem <= slThresh;
+      const wouldTp = tpThresh != null && d.mfePctOfPrem >= tpThresh;
+      let pnlPct;
+      if (wouldSl && (!wouldTp /* assume SL first */ )) pnlPct = slThresh;
+      else if (wouldSl && wouldTp) pnlPct = slThresh; // pessimistic: SL fires first
+      else if (wouldTp) pnlPct = tpThresh;
+      else pnlPct = d.pnlPctOfPrem;
+      const pnl = (pnlPct / 100) * d.premium;
+      net += pnl;
+      if (pnl > 0) wins++; else if (pnl < 0) losses++;
+      if (pnl < worst) worst = pnl;
+    }
+    return { net, wins, losses, worst, n: valid.length };
+  }
+  const baseline = simulate(null, null);
+  // Test several SL alone, then several TP alone
+  const slLevels = [50, 75, 100, 150, 200, 300];
+  const tpLevels = [25, 50, 75];
+  const slResults = slLevels.map(sl => ({sl, ...simulate(sl, null)}));
+  const tpResults = tpLevels.map(tp => ({tp, ...simulate(null, tp)}));
+  // Money left on the table: winners
+  const winners = valid.filter(d => d.isWin);
+  const moneyLeftWin = winners.reduce((a, d) => {
+    const peakDollar = (d.mfePctOfPrem / 100) * d.premium;
+    const actual = (d.pnlPctOfPrem / 100) * d.premium;
+    return a + Math.max(0, peakDollar - actual);
+  }, 0);
+  const losers = valid.filter(d => !d.isWin);
+  const moneyLeftLose = losers.reduce((a, d) => {
+    const peakDollar = (d.mfePctOfPrem / 100) * d.premium;
+    return a + Math.max(0, peakDollar);
+  }, 0);
+
+  function row(label, range, r, isBaseline) {
+    const diff = r.net - baseline.net;
+    const diffColor = diff >= 0 ? C.pos : C.neg;
+    const wlPct = Math.round(r.wins / r.n * 100);
+    return `<tr class="trow" style="${isBaseline?`background:${C.bg};opacity:0.85`:''}">
+      <td style="padding:6px 8px;font-size:11px;color:${C.text};font-weight:${isBaseline?'600':'500'}">${label}</td>
+      <td style="font-size:10px;color:${C.textMut};font-variant-numeric:tabular-nums">${range}</td>
+      <td style="font-size:11px;color:${r.net>=0?C.pos:C.neg};font-weight:600;font-variant-numeric:tabular-nums">${fmt$(r.net)}</td>
+      <td style="font-size:10px;font-variant-numeric:tabular-nums">${isBaseline?'—':`<span style="color:${diffColor}">${diff>=0?'+':''}${fmt$(diff)}</span>`}</td>
+      <td style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${wlPct}% wr · ${r.wins}/${r.losses}</td>
+      <td style="font-size:10px;color:${C.neg};font-variant-numeric:tabular-nums">${fmt$(r.worst)}</td>
+    </tr>`;
+  }
+
+  return `<div class="card" style="padding:14px;margin-bottom:12px;border-left:3px solid ${C.accent}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:10px;color:${C.accent};letter-spacing:0.06em;font-weight:700">💡 WHAT TO DO WITH THIS — Suggested SL & TP rules</div>
+    </div>
+    <div style="font-size:11px;color:${C.text};margin-bottom:10px;line-height:1.5">
+      Replays your <b>${valid.length}</b> trades at different hard-rule levels. <b>+ vs Baseline</b> column shows how each rule would have changed total P&L vs your actual exits. Worst column shows the most painful single trade under each rule — pick a rule whose net is positive AND whose worst trade you could stomach.
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+      <thead>
+        <tr style="border-bottom:1px solid ${C.borderVis};color:${C.textSec};font-size:9px;text-align:left;letter-spacing:0.06em">
+          <th style="padding:6px 8px">RULE</th><th>THRESHOLD</th><th>NET</th><th>+ vs BASELINE</th><th>W/L</th><th>WORST TRADE</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${row("Baseline (your actual exits)", "—", baseline, true)}
+        ${slResults.map(r => row("Hard SL at −" + r.sl + "%", "stop on MAE ≤ -" + r.sl + "% premium", r)).join("")}
+        ${tpResults.map(r => row("Hard TP at +" + r.tp + "%", "close on MFE ≥ +" + r.tp + "% premium", r)).join("")}
+      </tbody>
+    </table>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:10px;border-top:1px solid ${C.border}">
+      <div>
+        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:4px">💸 MONEY LEFT ON TABLE — WINNERS</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:16px;color:${C.warn};font-weight:600">${fmt$(moneyLeftWin)}</div>
+        <div style="font-size:10px;color:${C.textMut};margin-top:2px">Sum across ${winners.length} winners of (MFE peak − your actual exit). Bigger = you closed winners early.</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:4px">💸 MONEY LEFT ON TABLE — LOSERS (had positive MFE)</div>
+        <div style="font-variant-numeric:tabular-nums;font-size:16px;color:${C.warn};font-weight:600">${fmt$(moneyLeftLose)}</div>
+        <div style="font-size:10px;color:${C.textMut};margin-top:2px">Sum across ${losers.length} losers of (MFE peak when they were still profitable). A TP rule would have captured this.</div>
+      </div>
+    </div>
   </div>`;
 }
 
