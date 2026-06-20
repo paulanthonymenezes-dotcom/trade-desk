@@ -9409,6 +9409,39 @@ function _eeToggleOverlay(which) {
   else { _eeShowStops = !_eeShowStops; localStorage.setItem("ee_stops", _eeShowStops ? "1" : "0"); }
   renderEntryExitCharts();
 }
+// Per-chart quick note → appended to the trade's diary journal (shows in Diary).
+function _eeToggleNote(tid) {
+  const box = document.getElementById("ee-note-" + tid);
+  if (!box) return;
+  const open = box.style.display !== "none";
+  box.style.display = open ? "none" : "block";
+  if (!open) { const ta = document.getElementById("ee-note-input-" + tid); if (ta) ta.focus(); }
+}
+async function _eeSaveNote(tid) {
+  const ta = document.getElementById("ee-note-input-" + tid);
+  const txt = ta && ta.value.trim();
+  if (!txt) return;
+  const t = (STATE.trades || []).find(x => x.id === tid);
+  if (!t) return;
+  t.journal = [...(t.journal || []), { text: txt, date: new Date().toISOString() }];
+  ta.value = "";
+  ta.disabled = true;
+  try { await save(); } catch (e) { /* save() already merges defensively */ }
+  ta.disabled = false;
+  // Refresh just this card's note area + the button count, without redrawing charts.
+  const btn = document.querySelector(`[onclick="_eeToggleNote(${tid})"]`);
+  if (btn) btn.textContent = `📝 Note (${t.journal.length})`;
+  const box = document.getElementById("ee-note-" + tid);
+  if (box) {
+    const recent = t.journal.slice(-3).map(j => `<div style="border-left:2px solid ${C.borderVis};padding-left:7px;margin-bottom:3px"><span style="color:${C.textMut}">${new Date(j.date).toLocaleString()}</span> — ${escapeHtml(j.text)}</div>`).join("");
+    box.innerHTML = `<div style="font-size:10px;color:${C.pos};margin-bottom:6px">✓ saved to Diary</div>
+      <div style="font-size:10px;color:${C.textSec};margin-bottom:6px;line-height:1.5">${recent}</div>
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <textarea id="ee-note-input-${tid}" placeholder="Add another note…" style="flex:1;height:46px;background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:12px;font-family:inherit;resize:vertical"></textarea>
+        <button onclick="_eeSaveNote(${tid})" class="btn btn-p" style="font-size:11px;padding:7px 14px;font-weight:600;white-space:nowrap">Save → Diary</button>
+      </div>`;
+  }
+}
 
 // Latest date the stored FirstRate candle data covers (ET). Prefers an explicit
 // stamp written by the extractor; else derives from the newest candle present so
@@ -9697,10 +9730,21 @@ function renderEntryExitCharts() {
         <div id="ee-chart-${t.id}-${res}" data-tid="${t.id}" data-res="${res}" style="height:420px;width:100%"></div>
         <div id="ee-status-${t.id}-${res}" style="font-size:9px;color:${C.textMut};padding:3px 10px 7px;font-variant-numeric:tabular-nums"></div>
       </div>`;
+    const noteN = (t.journal || []).length;
     return `<div class="card" style="padding:0;overflow:hidden;width:100%">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 12px;border-bottom:1px solid ${C.borderVis};background:${C.bg}">
         <div style="font-size:11px;color:${C.textSec}"><span style="color:${C.text};font-weight:600">${escapeHtml(t.ticker || "")}</span> · ${escapeHtml((t.tradeType || "").slice(0, 24))} · ${escapeHtml(String(strikes))} <span style="color:${C.textMut}">· ${escapeHtml(dt)}</span></div>
-        <div style="font-size:12px;font-weight:600;color:${win ? C.pos : C.neg};font-variant-numeric:tabular-nums">${win ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button onclick="_eeToggleNote(${t.id})" class="btn btn-g" style="font-size:10px;padding:4px 10px">📝 Note${noteN ? ` (${noteN})` : ""}</button>
+          <div style="font-size:12px;font-weight:600;color:${win ? C.pos : C.neg};font-variant-numeric:tabular-nums">${win ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}</div>
+        </div>
+      </div>
+      <div id="ee-note-${t.id}" style="display:none;padding:9px 12px;border-bottom:1px solid ${C.borderVis};background:${C.bgHover || C.bg}">
+        ${noteN ? `<div style="font-size:10px;color:${C.textSec};margin-bottom:6px;line-height:1.5">${(t.journal || []).slice(-3).map(j => `<div style="border-left:2px solid ${C.borderVis};padding-left:7px;margin-bottom:3px"><span style="color:${C.textMut}">${new Date(j.date).toLocaleString()}</span> — ${escapeHtml(j.text)}</div>`).join("")}</div>` : ""}
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <textarea id="ee-note-input-${t.id}" placeholder="Quick note — e.g. 'price dipped below support ~20 min in, should have exited'" style="flex:1;height:46px;background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:12px;font-family:inherit;resize:vertical"></textarea>
+          <button onclick="_eeSaveNote(${t.id})" class="btn btn-p" style="font-size:11px;padding:7px 14px;font-weight:600;white-space:nowrap">Save → Diary</button>
+        </div>
       </div>
       <div style="display:flex;gap:0;flex-wrap:wrap">
         ${pane(5, "5-min bars")}
