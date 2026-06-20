@@ -9196,7 +9196,8 @@ async function _loadFOMC() {
   const body = document.getElementById("fomc-body");
   if (!body) return;
   try {
-    const r = await fetch("/api/fomc");
+    const _d = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const r = await fetch("/api/fomc?d=" + _d);
     const d = await r.json();
     if (d.s !== "ok" || !d.text) { body.innerHTML = `<div style="font-size:11px;color:${C.textMut};font-style:italic">FOMC statement unavailable${d.errmsg ? ": " + escapeHtml(d.errmsg) : ""}.</div>`; return; }
     _fomcData = d;

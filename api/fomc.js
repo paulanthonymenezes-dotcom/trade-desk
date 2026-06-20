@@ -8,7 +8,8 @@ const UA = { "User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)" };
 function extractStatement(html) {
   // The press-release body sits under id="article"; take from there, strip tags.
   const i = html.indexOf('id="article"');
-  let body = i >= 0 ? html.slice(i) : html;
+  // slice past the end of the opening tag so the "id=\"article\">" remnant is gone
+  let body = i >= 0 ? html.slice(html.indexOf(">", i) + 1) : html;
   body = body.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "");
   let txt = body.replace(/<[^>]+>/g, " ");
   txt = txt
