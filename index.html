@@ -9401,6 +9401,14 @@ function _macroCalMsg(msg) {
 // ── ENTRY & EXIT CHARTS tab — every closed trade's chart on one page ─────────
 let _eeFilter = "all";
 function _eeSetFilter(f, btn) { _eeFilter = f; renderEntryExitCharts(); }
+// Overlay toggles — show/hide on ALL charts at once; preference persists.
+let _eeShowMAE = localStorage.getItem("ee_mae") !== "0";
+let _eeShowStops = localStorage.getItem("ee_stops") !== "0";
+function _eeToggleOverlay(which) {
+  if (which === "mae") { _eeShowMAE = !_eeShowMAE; localStorage.setItem("ee_mae", _eeShowMAE ? "1" : "0"); }
+  else { _eeShowStops = !_eeShowStops; localStorage.setItem("ee_stops", _eeShowStops ? "1" : "0"); }
+  renderEntryExitCharts();
+}
 
 // Latest date the stored FirstRate candle data covers (ET). Prefers an explicit
 // stamp written by the extractor; else derives from the newest candle present so
@@ -9679,6 +9687,7 @@ function renderEntryExitCharts() {
   trades = trades.slice().sort((a, b) => (b.exitDate || b.entryDate || "").localeCompare(a.exitDate || a.entryDate || ""));
 
   const pill = (f, label) => `<button onclick="_eeSetFilter('${f}',this)" class="btn btn-g stats-pill${_eeFilter === f ? " active" : ""}" style="font-size:10px;padding:5px 11px">${label}</button>`;
+  const tog = (on, label, key) => `<button onclick="_eeToggleOverlay('${key}')" class="btn btn-g stats-pill${on ? " active" : ""}" style="font-size:10px;padding:5px 11px" title="Show/hide on every chart">${on ? "● " : "○ "}${label}</button>`;
   const cards = trades.map(t => {
     const win = (t.realizedPnl || 0) >= 0;
     const strikes = t.longStrike ? `${t.shortStrike}/${t.longStrike}` : (t.shortStrike || "");
@@ -9707,10 +9716,13 @@ function renderEntryExitCharts() {
         <div style="font-size:18px;color:${C.text};font-weight:600">📈 Entry & Exit Charts</div>
         <div style="font-size:11px;color:${C.textSec};margin-top:2px">Every trade side-by-side — 5-min bars (left) + 30-min bars (right), with entry ▲ / exit ▼ and MAE/MFE lines, for spotting whether you're exiting before the collapse.</div>
       </div>
-      <div style="display:flex;gap:6px">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}
+        <span style="width:1px;height:16px;background:${C.borderVis};margin:0 3px"></span>
+        <span style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Overlays</span>
+        ${tog(_eeShowMAE, "MAE/MFE", "mae")}${tog(_eeShowStops, "−75/−100%", "stops")}</div>
     </div>
     ${_stopActualBanner()}
-    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> model lines + actual crossing (dotted) on each chart · set live stops in the 🛡️ Guardrails tab${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
+    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll${_eeShowStops ? ` · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> lines + actual crossing` : ""}${_eeShowMAE ? " · MAE/MFE" : ""} · set live stops in the 🛡️ Guardrails tab${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
     <div style="display:flex;flex-direction:column;gap:14px">${cards}</div>`
       : emptyState("ENTRY & EXIT CHARTS", "No closed trades in this filter.")}`;
 
@@ -9772,8 +9784,8 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   const _cred = t.premiumCollected || 0;
   const _exc = (pnl) => (_cred && typeof pnl === "number") ? ` (${pnl >= 0 ? "+" : "−"}${Math.abs(pnl / _cred * 100).toFixed(0)}%)` : "";
   const maeTs = t._autoMAE?.date || t._autoMAE?.ts, mfeTs = t._autoMFE?.date || t._autoMFE?.ts;
-  if (maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MAE" + _exc(t._autoMAE?.pnl) }); }
-  if (mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MFE" + _exc(t._autoMFE?.pnl) }); }
+  if (_eeShowMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MAE" + _exc(t._autoMAE?.pnl) }); }
+  if (_eeShowMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MFE" + _exc(t._autoMFE?.pnl) }); }
   if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "IN " + p.toFixed(0) }); }
   if (intraday && exitT) { const p = near(exitT).close; if (p != null) series.createPriceLine({ price: p, color: (t.realizedPnl || 0) >= 0 ? C.pos : C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "OUT " + p.toFixed(0) }); }
 
@@ -9781,7 +9793,7 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   // of credit lost (Black-76, IV calibrated to the entry credit, vol-expansion est.).
   let slInfo = "";
   const f0px = entryT ? near(entryT).close : null;
-  if (f0px != null) {
+  if (_eeShowStops && f0px != null) {
     const sl = _computeStopLevels(t, { F0: f0px });
     if (sl) {
       const draw = (L, color, style, label) => {
@@ -9801,7 +9813,7 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   // Actual crossing from the minute-by-minute P&L (data/cache/minute_pnl) — the
   // real underlying level + bar where the spread truly hit −100% of credit.
   const sa = t._stopActual;
-  if (sa) {
+  if (_eeShowStops && sa) {
     const isPut = /put/i.test(t.tradeType || "");
     if (sa.stop100 && sa.stop100.nq != null) {
       series.createPriceLine({ price: sa.stop100.nq, color: "#ff453a", lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: `actual -100% ${sa.stop100.nq.toFixed(0)}` });
