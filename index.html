@@ -7142,26 +7142,194 @@ function _aiBreakdownScatter(kind) {
 //  - Markdown copy → clipboard. Dumps a compact, AI-friendly summary of all
 //    KPIs, insights, top trades, by-symbol/DOW/hour breakdowns. Paste into
 //    Claude/ChatGPT for deeper analysis.
-function _exportStatsPDF() { window.print(); }
+// Business-report PDF: a clean, self-contained, light-themed report opened in its
+// own window. Save-as-PDF in the print dialog produces a real document. Scoped to
+// the current date filter. Covers KPIs, risk/R:R, MAE/MFE + SL/TP, sessions,
+// strategies, holding periods, and a full trades table.
+function _buildStatsReportHTML(closed) {
+  const $ = n => (n < 0 ? "−$" : "$") + Math.abs(Math.round(n || 0)).toLocaleString();
+  const pc = (a, b) => b ? Math.round(a / b * 100) + "%" : "—";
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const dateLabel = typeof _dateFilterLabel === "function" ? _dateFilterLabel(closed) : statsDateFilter;
+  const G = "#0a7d32", R = "#c0322b";
+  const clr = n => (n || 0) >= 0 ? G : R;
+
+  const wins = closed.filter(t => (t.realizedPnl || 0) > 0);
+  const losses = closed.filter(t => (t.realizedPnl || 0) <= 0);
+  const net = closed.reduce((s, t) => s + (t.realizedPnl || 0), 0);
+  const sumWin = wins.reduce((s, t) => s + (t.realizedPnl || 0), 0);
+  const sumLoss = losses.reduce((s, t) => s + (t.realizedPnl || 0), 0);
+  const avgWin = wins.length ? sumWin / wins.length : 0;
+  const avgLoss = losses.length ? sumLoss / losses.length : 0;
+  const rr = avgWin > 0 ? Math.abs(avgLoss) / avgWin : 0;
+  const pf = sumLoss !== 0 ? sumWin / Math.abs(sumLoss) : (sumWin > 0 ? Infinity : 0);
+  const totalPrem = closed.reduce((s, t) => s + (t.premiumCollected || 0), 0);
+  const expectancy = closed.length ? net / closed.length : 0;
+  const best = closed.reduce((m, t) => Math.max(m, t.realizedPnl || 0), -Infinity);
+  const worst = closed.reduce((m, t) => Math.min(m, t.realizedPnl || 0), Infinity);
+
+  const kpi = (label, val, sub, color) => `<div class="kpi"><div class="kl">${label}</div><div class="kv"${color ? ` style="color:${color}"` : ""}>${val}</div>${sub ? `<div class="ks">${sub}</div>` : ""}</div>`;
+  const kpis = [
+    kpi("Net P&L", $(net), `${closed.length} closed trades`, clr(net)),
+    kpi("Win Rate", pc(wins.length, closed.length), `${wins.length}W / ${losses.length}L`),
+    kpi("Avg Win", $(avgWin), "per winning trade", G),
+    kpi("Avg Loss", $(avgLoss), "per losing trade", R),
+    kpi("Risk : Reward", rr.toFixed(2) + "×", "avg loss ÷ avg win"),
+    kpi("Profit Factor", isFinite(pf) ? pf.toFixed(2) + "×" : "∞", "gross win ÷ gross loss"),
+    kpi("Expectancy", $(expectancy), "per trade"),
+    kpi("Premium Collected", $(totalPrem), "across all trades"),
+    kpi("Best / Worst", `<span style="color:${G}">${$(best)}</span> / <span style="color:${R}">${$(worst)}</span>`, "single trades"),
+  ].join("");
+
+  // ── MAE/MFE + SL/TP ──
+  const data = closed.map(t => {
+    const prem = t.premiumCollected || 0; if (!prem) return null;
+    const mae = getMAE(t), mfe = getMFE(t); if (mae == null && mfe == null) return null;
+    const pnl = t.realizedPnl || 0;
+    return { premium: prem, pnlPctOfPrem: (pnl / prem) * 100, maePctOfPrem: mae != null ? -(mae / prem) * 100 : null, mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null, isWin: pnl > 0 };
+  }).filter(Boolean);
+  const wMae = data.filter(d => d.isWin && d.maePctOfPrem != null);
+  const lMfe = data.filter(d => !d.isWin && d.mfePctOfPrem != null);
+  const avgWinDraw = wMae.length ? Math.round(wMae.reduce((a, d) => a - d.maePctOfPrem, 0) / wMae.length) : null;
+  const avgLosePeak = lMfe.length ? Math.round(lMfe.reduce((a, d) => a + d.mfePctOfPrem, 0) / lMfe.length) : null;
+  const moneyLeftWin = data.filter(d => d.isWin).reduce((a, d) => a + Math.max(0, (d.mfePctOfPrem / 100) * d.premium - (d.pnlPctOfPrem / 100) * d.premium), 0);
+  const moneyLeftLose = lMfe.reduce((a, d) => a + Math.max(0, (d.mfePctOfPrem / 100) * d.premium), 0);
+  const valid = data.filter(d => d.premium && d.maePctOfPrem != null && d.mfePctOfPrem != null);
+  function sim(slPct, tpPct) { let n = 0, w = 0, l = 0, worst = 0; for (const d of valid) { const sl = slPct == null ? null : -slPct, tp = tpPct == null ? null : +tpPct; const ws = sl != null && d.maePctOfPrem <= sl, wt = tp != null && d.mfePctOfPrem >= tp; const p = ws ? sl : (wt ? tp : d.pnlPctOfPrem); const x = (p / 100) * d.premium; n += x; if (x > 0) w++; else if (x < 0) l++; if (x < worst) worst = x; } return { net: n, wins: w, losses: l, worst }; }
+  let mfeSection = `<p class="muted">No trades in scope have MAE/MFE data yet.</p>`;
+  if (data.length) {
+    let sltp = "";
+    if (valid.length >= 10) {
+      const base = sim(null, null);
+      const rows = [["Baseline (your actual exits)", base, true]]
+        .concat([50, 75, 100, 150, 200, 300].map(sl => [`Hard stop at −${sl}% premium`, sim(sl, null)]))
+        .concat([25, 50, 75].map(tp => [`Take profit at +${tp}% premium`, sim(null, tp)]));
+      const bestSl = [50, 75, 100, 150, 200, 300].map(sl => ({ sl, ...sim(sl, null) })).sort((a, b) => b.net - a.net)[0];
+      const bestTp = [25, 50, 75].map(tp => ({ tp, ...sim(null, tp) })).sort((a, b) => b.net - a.net)[0];
+      const combo = sim(bestSl.sl, bestTp.tp);
+      sltp = `<table class="rep"><thead><tr><th>Rule</th><th class="r">Net</th><th class="r">vs Baseline</th><th class="r">W / L</th><th class="r">Worst trade</th></tr></thead><tbody>
+        ${rows.map(([label, r, isBase]) => `<tr${isBase ? ' style="font-weight:600;background:#f3f4f6"' : ""}><td>${label}</td><td class="r" style="color:${clr(r.net)}">${$(r.net)}</td><td class="r">${isBase ? "—" : `<span style="color:${clr(r.net - base.net)}">${(r.net - base.net) >= 0 ? "+" : ""}${$(r.net - base.net)}</span>`}</td><td class="r">${r.wins} / ${r.losses}</td><td class="r" style="color:${R}">${$(r.worst)}</td></tr>`).join("")}
+      </tbody></table>
+      <div class="recos"><b>Recommended rules:</b>
+        <ul>
+          <li><b>Conservative</b> — stop at −${bestSl.sl}%: ${(bestSl.net - base.net) >= 0 ? "+" : ""}${$(bestSl.net - base.net)} vs baseline, worst single ${$(bestSl.worst)}.</li>
+          <li><b>Lock gains</b> — take profit at +${bestTp.tp}%: ${(bestTp.net - base.net) >= 0 ? "+" : ""}${$(bestTp.net - base.net)} vs baseline.</li>
+          <li><b>Combined</b> — stop −${bestSl.sl}% + TP +${bestTp.tp}%: net ${$(combo.net)} (${(combo.net - base.net) >= 0 ? "+" : ""}${$(combo.net - base.net)} vs baseline), worst ${$(combo.worst)}.</li>
+        </ul></div>`;
+    } else { sltp = `<p class="muted">Need ≥10 trades with MAE+MFE to model stop/target rules (have ${valid.length}).</p>`; }
+    mfeSection = `<div class="kgrid4">
+        ${kpi("Avg winner drawdown", avgWinDraw != null ? "−" + avgWinDraw + "%" : "—", "before recovering", R)}
+        ${kpi("Avg loser peak", avgLosePeak != null ? "+" + avgLosePeak + "%" : "—", "before turning south", G)}
+        ${kpi("Left on table — winners", $(moneyLeftWin), "closed early", "#b45309")}
+        ${kpi("Left on table — losers", $(moneyLeftLose), "were green, didn't sell", "#b45309")}
+      </div>${sltp}`;
+  }
+
+  // ── Sessions: by hour + day-of-week (bars) ──
+  const dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const byHour = {}, byDow = {};
+  closed.forEach(t => {
+    const pnl = t.realizedPnl || 0;
+    if (t.entryTime) { const h = parseInt(t.entryTime.split(":")[0], 10); if (!isNaN(h)) { (byHour[h] = byHour[h] || { n: 0, w: 0, pnl: 0 }); byHour[h].n++; byHour[h].pnl += pnl; if (pnl > 0) byHour[h].w++; } }
+    if (t.entryDate) { const d = new Date(t.entryDate + "T12:00:00").getDay(); (byDow[d] = byDow[d] || { n: 0, w: 0, pnl: 0 }); byDow[d].n++; byDow[d].pnl += pnl; if (pnl > 0) byDow[d].w++; }
+  });
+  const barTable = (rows) => {
+    const max = Math.max(1, ...rows.map(r => Math.abs(r.pnl)));
+    return `<table class="rep"><thead><tr><th>${rows.kind}</th><th class="r">Trades</th><th class="r">Win%</th><th class="r">P&L</th><th style="width:34%">&nbsp;</th></tr></thead><tbody>${rows.map(r => `<tr><td>${r.label}</td><td class="r">${r.n}</td><td class="r">${pc(r.w, r.n)}</td><td class="r" style="color:${clr(r.pnl)}">${$(r.pnl)}</td><td><div class="bar"><div style="width:${Math.round(Math.abs(r.pnl) / max * 100)}%;background:${clr(r.pnl)};margin-left:${r.pnl < 0 ? "auto" : "0"}"></div></div></td></tr>`).join("")}</tbody></table>`;
+  };
+  const hourRows = Object.entries(byHour).sort((a, b) => +a[0] - +b[0]).map(([h, v]) => ({ label: String(h).padStart(2, "0") + ":00 ET", ...v })); hourRows.kind = "Entry hour";
+  const dowRows = Object.entries(byDow).sort((a, b) => +a[0] - +b[0]).map(([d, v]) => ({ label: dows[d], ...v })); dowRows.kind = "Entry day";
+
+  // ── Strategies ──
+  const strat = {};
+  closed.forEach(t => { const k = t.strategyType || (t.tradeType || "").replace("⭐ ", "") || "Unknown"; (strat[k] = strat[k] || { n: 0, w: 0, pnl: 0, hold: 0 }); strat[k].n++; strat[k].pnl += (t.realizedPnl || 0); if ((t.realizedPnl || 0) > 0) strat[k].w++; if (t.entryDate && t.exitDate) strat[k].hold += Math.max(0, Math.ceil((new Date(t.exitDate) - new Date(t.entryDate)) / 86400000)); });
+  const stratRows = Object.entries(strat).sort((a, b) => b[1].pnl - a[1].pnl).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${v.n}</td><td class="r">${pc(v.w, v.n)}</td><td class="r" style="color:${clr(v.pnl)}">${$(v.pnl)}</td><td class="r">${$(v.pnl / v.n)}</td><td class="r">${Math.round(v.hold / v.n)}d</td></tr>`).join("");
+
+  // ── Holding periods ──
+  const hpB = [["Intraday", 0, 0], ["1 day", 1, 1], ["2–3 days", 2, 3], ["4–7 days", 4, 7], ["8–14 days", 8, 14], ["15+ days", 15, 9999]].map(([l, lo, hi]) => ({ l, lo, hi, n: 0, w: 0, pnl: 0 }));
+  closed.forEach(t => { if (!t.entryDate || !t.exitDate) return; const d = Math.max(0, Math.ceil((new Date(t.exitDate) - new Date(t.entryDate)) / 86400000)); const b = hpB.find(x => d >= x.lo && d <= x.hi); if (b) { b.n++; b.pnl += (t.realizedPnl || 0); if ((t.realizedPnl || 0) > 0) b.w++; } });
+  const hpRows = hpB.filter(b => b.n).map(b => `<tr><td>${b.l}</td><td class="r">${b.n}</td><td class="r">${pc(b.w, b.n)}</td><td class="r" style="color:${clr(b.pnl)}">${$(b.pnl)}</td></tr>`).join("");
+
+  // ── Trades table ──
+  const sorted = closed.slice().sort((a, b) => (b.exitDate || b.entryDate || "").localeCompare(a.exitDate || a.entryDate || ""));
+  const tradeRows = sorted.map(t => {
+    const mae = getMAE(t), mfe = getMFE(t);
+    const hold = (t.entryDate && t.exitDate) ? Math.max(0, Math.ceil((new Date(t.exitDate) - new Date(t.entryDate)) / 86400000)) : "";
+    return `<tr><td>${esc(t.entryDate || "")}</td><td>${esc(t.exitDate || "")}</td><td>${esc(t.ticker || "")}</td><td>${esc((t.tradeType || "").slice(0, 18))}</td><td class="r">${t.longStrike ? esc(t.shortStrike + "/" + t.longStrike) : esc(t.shortStrike || "")}</td><td class="r">${t.contracts || ""}</td><td class="r">${$(t.premiumCollected || 0)}</td><td class="r" style="color:${R}">${mae != null ? $(-mae) : "—"}</td><td class="r" style="color:${G}">${mfe != null ? $(mfe) : "—"}</td><td class="r" style="color:${clr(t.realizedPnl)};font-weight:600">${$(t.realizedPnl || 0)}</td><td class="r">${hold !== "" ? hold + "d" : ""}</td></tr>`;
+  }).join("");
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Trading Performance Report — ${esc(dateLabel)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 0; padding: 34px 40px; background: #fff; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #374151; border-bottom: 2px solid #1a1a1a; padding-bottom: 5px; margin: 26px 0 12px; }
+  .sub { color: #6b7280; font-size: 12px; margin-bottom: 4px; }
+  .toolbar { position: sticky; top: 0; background: #fff; padding-bottom: 10px; }
+  .pbtn { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .kgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .kgrid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+  .kpi { border: 1px solid #e5e7eb; border-radius: 8px; padding: 11px 13px; background: #fafafa; }
+  .kl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
+  .kv { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 3px; }
+  .ks { font-size: 10px; color: #9ca3af; margin-top: 2px; }
+  table.rep { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 8px; }
+  table.rep th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; border-bottom: 1px solid #d1d5db; padding: 5px 8px; }
+  table.rep td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-variant-numeric: tabular-nums; }
+  table.rep td.r, table.rep th.r { text-align: right; }
+  table.rep tbody tr:nth-child(even) { background: #fafafa; }
+  .bar { background: #f0f0f0; height: 10px; border-radius: 2px; overflow: hidden; display: flex; }
+  .bar > div { height: 100%; border-radius: 2px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .recos { font-size: 11px; background: #f8fafc; border-left: 3px solid #2563eb; padding: 8px 12px; border-radius: 0 6px 6px 0; }
+  .recos ul { margin: 6px 0 0; padding-left: 18px; } .recos li { margin: 3px 0; }
+  .muted { color: #9ca3af; font-size: 11px; font-style: italic; }
+  .foot { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; }
+  @media print { .toolbar { display: none; } body { padding: 0; } h2 { page-break-after: avoid; } table.rep, .kgrid, .kgrid4 { page-break-inside: auto; } tr { page-break-inside: avoid; } @page { margin: 14mm; } }
+</style></head><body>
+  <div class="toolbar"><button class="pbtn" onclick="window.print()">🖨 Print / Save as PDF</button></div>
+  <h1>Trading Performance Report</h1>
+  <div class="sub"><b>${esc(dateLabel)}</b> &nbsp;·&nbsp; ${closed.length} closed trades &nbsp;·&nbsp; Generated ${new Date().toISOString().slice(0, 16).replace("T", " ")}</div>
+
+  <h2>Performance Summary</h2>
+  <div class="kgrid">${kpis}</div>
+
+  <h2>MAE / MFE & Stop-Loss / Take-Profit Analysis</h2>
+  ${mfeSection}
+
+  <h2>Sessions — When You Trade</h2>
+  <div class="two"><div><div class="sub">By entry hour (ET)</div>${barTable(hourRows)}</div><div><div class="sub">By day of week</div>${barTable(dowRows)}</div></div>
+
+  <h2>Strategy Performance</h2>
+  <table class="rep"><thead><tr><th>Strategy</th><th class="r">Trades</th><th class="r">Win%</th><th class="r">P&L</th><th class="r">Avg / trade</th><th class="r">Avg hold</th></tr></thead><tbody>${stratRows}</tbody></table>
+
+  <h2>Holding Period vs Outcome</h2>
+  <table class="rep" style="max-width:520px"><thead><tr><th>Hold</th><th class="r">Trades</th><th class="r">Win%</th><th class="r">P&L</th></tr></thead><tbody>${hpRows}</tbody></table>
+
+  <h2>Trade Log (${sorted.length})</h2>
+  <table class="rep"><thead><tr><th>Entry</th><th>Exit</th><th>Ticker</th><th>Type</th><th class="r">Strikes</th><th class="r">Qty</th><th class="r">Premium</th><th class="r">MAE</th><th class="r">MFE</th><th class="r">P&L</th><th class="r">Hold</th></tr></thead><tbody>${tradeRows}</tbody></table>
+
+  <div class="foot">Generated from IBKR-synced journal · MAE/MFE from Databento minute data · Trading Desk</div>
+</body></html>`;
+}
+
+function _exportStatsPDF() {
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  if (!closed.length) { alert("No closed trades in scope for this date range."); return; }
+  const html = _buildStatsReportHTML(closed);
+  const w = window.open("", "_blank");
+  if (!w) { alert("Pop-up blocked — allow pop-ups for this site to open the report."); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
 
 async function _copyStatsForAI() {
   const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
   if (!closed.length) { alert("No closed trades in scope."); return; }
-  // Reuse the existing review summary builder — it already produces a dense,
-  // Claude-ready overview with KPIs, by-symbol/DOW/hour breakdowns, top losers.
-  const summary = typeof _buildReviewSummary === "function"
-    ? _buildReviewSummary(closed)
+  // Use the full report builder — worst time/day, hold periods, MAE/MFE, and the
+  // SL/TP replay with recommendations — not just the thin KPI summary.
+  const fullText = typeof _buildStatsReport === "function"
+    ? _buildStatsReport(closed)
     : `Trades: ${closed.length}, Net P&L: $${closed.reduce((s,t)=>s+(t.realizedPnl||0),0).toFixed(0)}`;
-
-  const dateLabel = typeof _dateFilterLabel === "function" ? _dateFilterLabel(closed) : statsDateFilter;
-  const fullText = `# Trading Desk Stats Export
-Generated: ${new Date().toISOString().slice(0,16).replace("T"," ")}
-Scope: ${dateLabel}
-
-${summary}
-
----
-This dump is generated from the trader's IBKR-synced journal. Reply with patterns, risk concerns, and concrete actionable rules.`;
 
   try {
     await navigator.clipboard.writeText(fullText);
