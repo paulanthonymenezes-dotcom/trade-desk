@@ -7061,20 +7061,12 @@ async function _aiBreakdown(title, contextSummary, userQuestion) {
   modal.innerHTML = renderShell(`<div style="color:${C.textSec}">Asking Claude…</div>`);
   modal.style.display = "flex";
 
-  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
-  if (!ANTHROPIC_KEY) {
-    modal.innerHTML = renderShell(`<div style="color:${C.warn}">No Anthropic API key. Set it in Settings → AI to enable AI breakdowns.</div>`);
-    return;
-  }
+  // Key now lives server-side via /api/anthropic. If env var isn't set the
+  // proxy returns 500 and we surface that in the catch block below.
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    const resp = await fetch("/api/anthropic", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6-20250620",
         max_tokens: 1500,
@@ -7270,22 +7262,12 @@ async function _runTradingReview() {
   if (!closed.length) { body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">No closed trades in the current date filter.</div>`; return; }
   body.innerHTML = `<div style="color:${C.textSec};text-align:center;padding:20px">Generating review… (10-20 sec)</div>`;
 
-  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
-  if (!ANTHROPIC_KEY) {
-    body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">No Anthropic API key in localStorage. Set <code>anthropic_api_key</code> first.</div>`;
-    return;
-  }
-
+  // Key handled server-side by /api/anthropic.
   const summary = _buildReviewSummary(closed);
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    const resp = await fetch("/api/anthropic", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6-20250620",
         max_tokens: 2000,
@@ -8444,7 +8426,9 @@ function renderPreTradeCard(e) {
 function esc(s) { return String(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
 function renderStatsAI(closed) {
-  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
+  // Key is server-side via /api/anthropic — always show the chat UI; if the
+  // env var isn't set, the actual API call surfaces a 500 with a clear msg.
+  const ANTHROPIC_KEY = "proxy"; // truthy → skip the old "set your key" UI branch
 
   return `
     <div class="card" style="padding:10px;margin-bottom:10px">
@@ -8522,9 +8506,7 @@ function renderStatsAI(closed) {
 }
 
 async function aiSendMessage(preset) {
-  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
-  if (!ANTHROPIC_KEY) { renderStatsContent(true); return; }
-
+  // Key now lives server-side via /api/anthropic — no client gate needed.
   let userText = "";
   let useSonnet = false; // default to Haiku, upgrade to Sonnet for deep analysis
   if (preset === "analyze") {
@@ -8585,14 +8567,9 @@ ${ctx}`;
   });
 
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    const resp = await fetch("/api/anthropic", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: useSonnet ? "claude-sonnet-4-6-20250620" : "claude-haiku-4-5-20251001",
         max_tokens: useSonnet ? 2000 : 1200,
@@ -8743,12 +8720,7 @@ async function _runWeekAhead() {
     .sort((a,b) => (b.exitDate||"").localeCompare(a.exitDate||"")).slice(0, 30);
   body.innerHTML = `<div style="color:${C.textSec};text-align:center;padding:20px">Generating week-ahead review… (10-20 sec)</div>`;
 
-  const ANTHROPIC_KEY = localStorage.getItem("anthropic_api_key") || "";
-  if (!ANTHROPIC_KEY) {
-    body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">Set <code>anthropic_api_key</code> in localStorage first.</div>`;
-    return;
-  }
-
+  // Key handled server-side by /api/anthropic.
   // Build forward-focused context
   const openSummary = open.length ? open.map(t => {
     const dl = daysLeft(t.expiry);
@@ -8793,14 +8765,9 @@ Return ONLY a JSON object matching this schema. No markdown, no preamble.
 }`;
 
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    const resp = await fetch("/api/anthropic", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6-20250620",
         max_tokens: 2000,
