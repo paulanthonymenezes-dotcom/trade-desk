@@ -9880,16 +9880,16 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
   if (exitT) { const w = (t.realizedPnl || 0) >= 0; markers.push({ time: exitT, position: "aboveBar", color: w ? C.pos : C.neg, shape: "arrowDown", text: `OUT ${w ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}` }); }
   if (markers.length) { markers.sort((a, b) => a.time - b.time); series.setMarkers(markers); }
 
-  // MAE/MFE as faint dotted lines — no axis tag, no on-chart label box (those
-  // blocked the candles). The % of credit goes in the status line below instead.
+  // MAE/MFE: faint dotted lines in their own two colors (MAE orange, MFE purple)
+  // so they never clash with entry(blue)/exit(green-red). NO price tag — instead
+  // a small % label is pinned to each line's level after fitContent (below).
   const _cred = t.premiumCollected || 0;
   const _exc = (pnl) => (_cred && typeof pnl === "number") ? `${pnl >= 0 ? "+" : "−"}${Math.abs(pnl / _cred * 100).toFixed(0)}%` : "—";
+  const MAE_COL = "#e8833a", MFE_COL = "#bc8cff";
+  let _maePx = null, _mfePx = null;
   const maeTs = t._autoMAE?.date || t._autoMAE?.ts, mfeTs = t._autoMFE?.date || t._autoMFE?.ts;
-  // Faint dotted line + a small color-coded price tag on the y-axis (muted red =
-  // MAE, muted green = MFE) — so you can read the level vs price without the old
-  // on-chart label box covering the candles. The % is in the status line below.
-  if (showMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(255,99,90,0.75)", lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "" }); }
-  if (showMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(90,200,120,0.75)", lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "" }); }
+  if (showMAE && maeTs) { _maePx = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (_maePx != null) series.createPriceLine({ price: _maePx, color: MAE_COL + "88", lineWidth: 1, lineStyle: 1, axisLabelVisible: false, title: "" }); }
+  if (showMAE && mfeTs) { _mfePx = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (_mfePx != null) series.createPriceLine({ price: _mfePx, color: MFE_COL + "88", lineWidth: 1, lineStyle: 1, axisLabelVisible: false, title: "" }); }
   // Entry/exit price as a colored tag on the y-axis ONLY — no line across the
   // candles (lineVisible:false). The IN / OUT arrows above mark the time.
   if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineVisible: false, axisLabelVisible: true, title: "" }); }
@@ -9938,13 +9938,23 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
   }
 
   chart.timeScale().fitContent();
+  // Pin a small % label to each MAE/MFE line level (live charts only — the PDF
+  // report skips HTML overlays and carries the % in the trade caption instead).
+  if (statusEl && showMAE && (_maePx != null || _mfePx != null)) {
+    chartEl.style.position = "relative";
+    const _lbls = [];
+    const _addLbl = (px, txt, col) => { if (px == null) return; const el = document.createElement("div"); el.dataset.px = px; el.textContent = txt; el.style.cssText = `position:absolute;right:62px;font-size:9px;font-weight:700;color:${col};background:rgba(13,17,23,.6);padding:0 3px;border-radius:2px;pointer-events:none;z-index:3;transform:translateY(-50%);white-space:nowrap`; chartEl.appendChild(el); _lbls.push(el); };
+    _addLbl(_maePx, "MAE " + _exc(t._autoMAE?.pnl), MAE_COL);
+    _addLbl(_mfePx, "MFE " + _exc(t._autoMFE?.pnl), MFE_COL);
+    const _repos = () => _lbls.forEach(el => { const y = series.priceToCoordinate(parseFloat(el.dataset.px)); if (y == null) { el.style.display = "none"; } else { el.style.display = ""; el.style.top = y + "px"; } });
+    _repos();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(_repos);
+    chart._eeRepos = _repos;
+  }
   const src = candles.src === "firstrate" ? "FirstRate" : "Yahoo";
   const _resLbl = res === 240 ? "4-hour" : `${res}-min`;
-  const _excTxt = showMAE
-    ? ` · <span style="color:#ff453a">MAE ${_exc(t._autoMAE?.pnl)}</span> <span style="color:${C.pos}">MFE ${_exc(t._autoMFE?.pnl)}</span>`
-    : "";
-  if (statusEl) statusEl.innerHTML = `${_resLbl} · ${data.length} bars · ${src} · IN ▲ OUT ▼${_excTxt}${slInfo}`;
-  new ResizeObserver(() => chart.applyOptions({ width: chartEl.clientWidth })).observe(chartEl);
+  if (statusEl) statusEl.innerHTML = `${_resLbl} · ${data.length} bars · ${src} · IN ▲ OUT ▼${slInfo}`;
+  new ResizeObserver(() => { chart.applyOptions({ width: chartEl.clientWidth }); if (chart._eeRepos) chart._eeRepos(); }).observe(chartEl);
   return chart;
 }
 
