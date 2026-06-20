@@ -4568,7 +4568,12 @@ function _tradeChartPlan(t) {
 // falls back to the legacy flat shape if present.
 function _candSeries(t, res) {
   const c = t && t._candles; if (!c) return null;
-  const s = (c.c5 || c.c30) ? (res === 30 ? (c.c30 || c.c5) : (c.c5 || c.c30)) : c;
+  let s;
+  if (c.c5 || c.c30 || c.c240) {
+    s = res === 240 ? (c.c240 || c.c30 || c.c5)
+      : res === 30 ? (c.c30 || c.c5)
+      : (c.c5 || c.c30);
+  } else { s = c; }
   return (s && s.t && s.t.length) ? { src: c.src || "firstrate", t: s.t, o: s.o, h: s.h, l: s.l, c: s.c } : null;
 }
 
@@ -9750,9 +9755,11 @@ function renderEntryExitCharts() {
         </div>
       </div>
       <div style="display:flex;gap:0;flex-wrap:wrap">
-        ${pane(5, "5-min bars")}
+        ${pane(5, "5-min · execution")}
         <div style="width:1px;background:${C.borderVis}"></div>
-        ${pane(30, "30-min bars")}
+        ${pane(30, "30-min · context")}
+        <div style="width:1px;background:${C.borderVis}"></div>
+        ${pane(240, "4-hour · big picture")}
       </div>
     </div>`;
   }).join("");
@@ -9799,13 +9806,15 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   let candles = _candSeries(t, res);
   if (!candles) {
     const daysOld = (Date.now() - new Date((t.exitDate || t.entryDate) + "T00:00:00").getTime()) / 86400000;
-    const yint = daysOld <= 55 ? (res === 30 ? "30m" : "5m") : (daysOld <= 730 ? "60m" : "1d");
+    const yint = res === 240 ? (daysOld <= 730 ? "60m" : "1d") : (daysOld <= 55 ? (res === 30 ? "30m" : "5m") : (daysOld <= 730 ? "60m" : "1d"));
     try { const r = await fetch(`/api/candles?ticker=${encodeURIComponent(yahooTicker)}&start=${isoFrom}&end=${isoTo}&interval=${yint}`); if (r.ok) { const d = await r.json(); if (d.s === "ok") candles = d; } } catch (e) { /* */ }
   }
   if (!candles || !candles.t || !candles.t.length) { if (statusEl) statusEl.innerHTML = `<span style="color:${C.warn}">no candle data for ${escapeHtml(yahooTicker)}</span>`; return; }
   const data = candles.t.map((ts, i) => ({ time: ts, open: candles.o[i], high: candles.h[i], low: candles.l[i], close: candles.c[i] })).filter(d => d.open != null && d.close != null);
 
   const _etOpts = _lcETOpts(intraday);
+  // 4-hour "big picture" pane spans ~3 weeks — show dates on the axis, not times.
+  if (res === 240) _etOpts.tickMarkFormatter = ts => new Date(ts * 1000).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
   const chart = LightweightCharts.createChart(chartEl, {
     width: chartEl.clientWidth || 600, height: 420,
     layout: { background: { color: C.bg }, textColor: C.textSec, fontFamily: "'IBM Plex Mono', monospace" },
@@ -9880,7 +9889,8 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
 
   chart.timeScale().fitContent();
   const src = candles.src === "firstrate" ? "FirstRate" : "Yahoo";
-  if (statusEl) statusEl.textContent = `${res}-min · ${data.length} bars · ${src} · IN ▲ OUT ▼ · MAE/MFE${slInfo}`;
+  const _resLbl = res === 240 ? "4-hour" : `${res}-min`;
+  if (statusEl) statusEl.textContent = `${_resLbl} · ${data.length} bars · ${src} · IN ▲ OUT ▼ · MAE/MFE${slInfo}`;
   new ResizeObserver(() => chart.applyOptions({ width: chartEl.clientWidth })).observe(chartEl);
 }
 
