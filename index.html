@@ -5643,7 +5643,7 @@ function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
             <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${sevC};font-weight:600;margin-top:2px">${ratio.toFixed(1)}×</div>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button onclick="_aiBreakdown('Risk/Reward Leak', ${JSON.stringify(rrlCtx)}, 'Explain why this ratio is showing up given premium-selling strategies on /NQ. What specific changes should I make to my trade management to bring this ratio down? Be concrete about position-sizing rules, hard stop levels, or trade selection filters.')" title="Ask Claude to explain + suggest fixes" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <button onclick="_aiBreakdown('Risk/Reward Leak', ${escapeHtml(JSON.stringify(rrlCtx))}, 'Explain why this ratio is showing up given premium-selling strategies on /NQ. What specific changes should I make to my trade management to bring this ratio down? Be concrete about position-sizing rules, hard stop levels, or trade selection filters.')" title="Ask Claude to explain + suggest fixes" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
             <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
           </div>
         </div>
@@ -5686,7 +5686,7 @@ function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
             <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${C.warn};font-weight:600;margin-top:2px">${days[worst.day]}</div>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button onclick="_aiBreakdown('Weak Trading Day', ${JSON.stringify(wdCtx)}, 'Why might ${days[worst.day]} be the worst trading day in this account? Consider macro calendar effects (NFP on Fridays, settlement Mondays, etc.) and what specific rule changes I should adopt around this day.')" title="Ask Claude to explain why" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <button onclick="_aiBreakdown('Weak Trading Day', ${escapeHtml(JSON.stringify(wdCtx))}, 'Why might ${days[worst.day]} be the worst trading day in this account? Consider macro calendar effects (NFP on Fridays, settlement Mondays, etc.) and what specific rule changes I should adopt around this day.')" title="Ask Claude to explain why" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
             <span style="font-size:9px;background:${C.warn}22;color:${C.warn};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${worst.count} TRADES</span>
           </div>
         </div>
@@ -5727,7 +5727,7 @@ function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
             <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${sevC};font-weight:600;margin-top:2px">${escapeHtml(top.k)}</div>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button onclick="_aiBreakdown('Loss Concentration', ${JSON.stringify(scCtx)}, 'Why is ${top.k} carrying ${pct}% of my losses? Should I stop trading it entirely, size down, or change my approach (e.g. different DTE, strike distance, time of day)? Give me a specific rule.')" title="Ask Claude to dig in" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <button onclick="_aiBreakdown('Loss Concentration', ${escapeHtml(JSON.stringify(scCtx))}, 'Why is ${top.k} carrying ${pct}% of my losses? Should I stop trading it entirely, size down, or change my approach (e.g. different DTE, strike distance, time of day)? Give me a specific rule.')" title="Ask Claude to dig in" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
             <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
           </div>
         </div>
@@ -5761,7 +5761,7 @@ function _insightsRow(closed, wins, losses, avgWin, avgLoss) {
             <div style="font-variant-numeric:tabular-nums;font-size:20px;color:${sevC};font-weight:600;margin-top:2px">${pct}%</div>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button onclick="_aiBreakdown('MAE Tail Risk', ${JSON.stringify(tailCtx)}, 'I am surviving deep drawdowns (>100% premium) on ${pct}% of my trades. What hard SL rule would have changed my outcomes? Quantify: how many losses would have been prevented vs how many winners would have been killed?')" title="Ask Claude to quantify the SL tradeoff" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
+            <button onclick="_aiBreakdown('MAE Tail Risk', ${escapeHtml(JSON.stringify(tailCtx))}, 'I am surviving deep drawdowns (over 100% of premium) on ${pct}% of my trades. What hard SL rule would have changed my outcomes? Quantify: how many losses would have been prevented vs how many winners would have been killed?')" title="Ask Claude to quantify the SL tradeoff" style="background:transparent;border:1px solid ${C.borderVis};color:${C.accent};font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer">🤖 AI</button>
             <span style="font-size:9px;background:${sevC}22;color:${sevC};padding:2px 8px;border-radius:3px;letter-spacing:0.05em;font-weight:600">${sev}</span>
           </div>
         </div>
