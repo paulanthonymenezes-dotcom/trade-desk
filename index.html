@@ -9826,7 +9826,7 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
     localization: _etOpts.localization,
     timeScale: { borderColor: C.borderVis, timeVisible: intraday, tickMarkFormatter: _etOpts.tickMarkFormatter }, rightPriceScale: { borderColor: C.borderVis }, crosshair: { mode: 1 },
   });
-  const series = chart.addCandlestickSeries({ upColor: C.pos, downColor: C.neg, borderUpColor: C.pos, borderDownColor: C.neg, wickUpColor: C.pos, wickDownColor: C.neg });
+  const series = chart.addCandlestickSeries({ upColor: C.pos, downColor: C.neg, borderUpColor: C.pos, borderDownColor: C.neg, wickUpColor: C.pos, wickDownColor: C.neg, lastValueVisible: false, priceLineVisible: false });
   series.setData(data);
 
   const dateToTime = (iso) => Math.floor(new Date(iso + "T00:00:00").getTime() / 1000);
