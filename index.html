@@ -7419,7 +7419,19 @@ async function _exportStatsPDFCharts() {
   } catch (e) { /* fall back to a report without charts */ }
   finally { ov.remove(); }
   const html = _buildStatsReportHTML(closed, chartsHTML);
-  try { w.document.open(); w.document.write(html); w.document.close(); } catch (e) { alert("Report tab was closed before it finished."); }
+  // Navigate the tab to a Blob URL — reliable for multi-MB HTML, unlike
+  // document.write after a long async gap. If the tab was closed, download it.
+  try {
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    if (w && !w.closed) { w.location.href = url; try { w.focus(); } catch (_) {} }
+    else {
+      const a = document.createElement("a");
+      a.href = url; a.download = `trading-report-charts-${new Date().toISOString().slice(0, 10)}.html`;
+      document.body.appendChild(a); a.click(); a.remove();
+      alert("The report tab was closed, so the report was downloaded as an HTML file instead — open it and Print → Save as PDF.");
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) { alert("Could not open the report: " + (e.message || e)); }
 }
 
 async function _copyStatsForAI() {
