@@ -9404,8 +9404,10 @@ function _eeSetFilter(f, btn) { _eeFilter = f; renderEntryExitCharts(); }
 // Overlay toggles — show/hide on ALL charts at once; preference persists.
 let _eeShowMAE = localStorage.getItem("ee_mae") !== "0";
 let _eeShowStops = localStorage.getItem("ee_stops") !== "0";
+let _eeShowProfile = localStorage.getItem("ee_prof") !== "0";
 function _eeToggleOverlay(which) {
   if (which === "mae") { _eeShowMAE = !_eeShowMAE; localStorage.setItem("ee_mae", _eeShowMAE ? "1" : "0"); }
+  else if (which === "prof") { _eeShowProfile = !_eeShowProfile; localStorage.setItem("ee_prof", _eeShowProfile ? "1" : "0"); }
   else { _eeShowStops = !_eeShowStops; localStorage.setItem("ee_stops", _eeShowStops ? "1" : "0"); }
   renderEntryExitCharts();
 }
@@ -9763,7 +9765,7 @@ function renderEntryExitCharts() {
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}
         <span style="width:1px;height:16px;background:${C.borderVis};margin:0 3px"></span>
         <span style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Overlays</span>
-        ${tog(_eeShowMAE, "MAE/MFE", "mae")}${tog(_eeShowStops, "−75/−100%", "stops")}</div>
+        ${tog(_eeShowMAE, "MAE/MFE", "mae")}${tog(_eeShowStops, "−75/−100%", "stops")}${tog(_eeShowProfile, "Profile", "prof")}</div>
     </div>
     ${_stopActualBanner()}
     ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll${_eeShowStops ? ` · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> lines + actual crossing` : ""}${_eeShowMAE ? " · MAE/MFE" : ""} · set live stops in the 🛡️ Guardrails tab${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
@@ -9855,6 +9857,24 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
     }
     if (sa.stop100 && sa.stop100.nq != null) slInfo += ` · hit −100% @ ${sa.stop100.nq.toFixed(0)}`;
     else if (typeof sa.maxAdvPct === "number") slInfo += ` · worst −${sa.maxAdvPct.toFixed(0)}% (never hit stop)`;
+  }
+
+  // Prior-session market-profile levels (from _profile) — multi-day acceptance
+  // and range context: POC + value area (violet), prior-day & overnight hi/lo (slate).
+  const pf = t._profile;
+  if (_eeShowProfile && pf) {
+    const VIO = "#a78bfa", SLATE = "#7d8aa0";
+    const pl = (price, color, style, label, width) => {
+      if (price == null) return;
+      series.createPriceLine({ price, color, lineWidth: width || 1, lineStyle: style, axisLabelVisible: true, title: label });
+    };
+    pl(pf.poc, VIO, 0, "POC " + pf.poc.toFixed(0), 1);
+    pl(pf.vah, VIO, 2, "VAH " + pf.vah.toFixed(0));
+    pl(pf.val, VIO, 2, "VAL " + pf.val.toFixed(0));
+    pl(pf.pdh, SLATE, 3, "PDH " + pf.pdh.toFixed(0));
+    pl(pf.pdl, SLATE, 3, "PDL " + pf.pdl.toFixed(0));
+    pl(pf.onh, SLATE, 3, "ONH " + pf.onh?.toFixed(0));
+    pl(pf.onl, SLATE, 3, "ONL " + pf.onl?.toFixed(0));
   }
 
   chart.timeScale().fitContent();
