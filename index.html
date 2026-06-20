@@ -10074,16 +10074,16 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
 }
 
 // Render one trade's chart at a resolution off-screen and return a PNG data URL.
-// Used by the PDF report so an AI can see the price action. Always draws
-// entry/exit + MAE/MFE (ignores live toggles), no stop/profile clutter.
+// Used by the PDF report so an AI can see the price action. MAE/MFE drawn on
+// the 5-min only (per export setting); no stop/profile clutter.
 async function _chartToImage(t, res) {
   const host = document.createElement("div");
-  // Larger render so the candles are legible in the PDF (4-hour especially).
-  host.style.cssText = `position:fixed;left:-10000px;top:0;width:${res === 240 ? 1040 : 760}px;height:${res === 240 ? 400 : 360}px`;
+  // Full-size render so candles/wicks are legible in the PDF (all timeframes).
+  host.style.cssText = "position:fixed;left:-10000px;top:0;width:1100px;height:430px";
   document.body.appendChild(host);
   let url = null;
   try {
-    const chart = await _eeRenderChart(t, host, null, res, { showMAE: true, showStops: false, showProfile: false });
+    const chart = await _eeRenderChart(t, host, null, res, { showMAE: res === 5, showStops: false, showProfile: false });
     if (chart) {
       // setTimeout (not rAF — rAF is paused in background tabs) lets the chart settle.
       await new Promise(r => setTimeout(r, 60));
@@ -10117,13 +10117,14 @@ async function _buildReportCharts(closed, onProgress) {
         <span style="color:${win ? "#16a34a" : "#dc2626"}"> · ${win ? "+" : "−"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}${pct(t.realizedPnl)}</span>
         <span style="color:#6b7280;font-weight:400"> · ${esc(t.entryDate || "")}${t.entryTime ? " " + esc(t.entryTime) : ""} → ${esc(t.exitDate || "")}${t.exitTime ? " " + esc(t.exitTime) : ""}
         ${typeof mae === "number" ? ` · MAE ${pct(mae)}` : ""}${typeof mfe === "number" ? ` · MFE ${pct(mfe)}` : ""}</span></div>
-      <div style="display:flex;gap:8px;margin-top:4px">${fig(urls[5], "5-min · execution", false)}${fig(urls[30], "30-min · context", false)}</div>
+      <div style="margin-top:4px">${fig(urls[5], "5-min · execution · MAE/MFE", true)}</div>
+      <div style="margin-top:8px">${fig(urls[30], "30-min · context", true)}</div>
       <div style="margin-top:8px">${fig(urls[240], "4-hour · big picture", true)}</div>
     </div>`;
     done++; if (onProgress) onProgress(done, withC.length);
   }
   return `<h2>NQ Charts — Entry &amp; Exit (${withC.length})</h2>
-    <div class="muted" style="margin-bottom:10px">Each trade: 5-min (execution) · 30-min (context) · 4-hour (big picture). Blue tag = entry, green/red = exit; dashed = MAE/MFE.</div>${blocks}`;
+    <div class="muted" style="margin-bottom:10px">Each trade, full size: 5-min (execution, with MAE/MFE) · 30-min (context) · 4-hour (big picture). Blue tag = entry, green/red = exit.</div>${blocks}`;
 }
 
 // AI Week Ahead — forward-focused Claude call. Different prompt from the
