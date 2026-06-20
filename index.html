@@ -4556,6 +4556,13 @@ function _tradeChartPlan(t) {
   const toD = new Date(endRef); toD.setDate(toD.getDate() + pad); if (toD > today) toD.setTime(today.getTime());
   return { hasFR, interval, intraday, isoFrom: fromD.toISOString().slice(0, 10), isoTo: toD.toISOString().slice(0, 10) };
 }
+// Pull a stored candle series at a resolution (5 or 30 min). New shape {c5,c30};
+// falls back to the legacy flat shape if present.
+function _candSeries(t, res) {
+  const c = t && t._candles; if (!c) return null;
+  const s = (c.c5 || c.c30) ? (res === 30 ? (c.c30 || c.c5) : (c.c5 || c.c30)) : c;
+  return (s && s.t && s.t.length) ? { src: c.src || "firstrate", t: s.t, o: s.o, h: s.h, l: s.l, c: s.c } : null;
+}
 
 async function renderDiaryTVChart(tradeId) {
   const t = STATE.trades.find(x => x.id === tradeId);
@@ -4586,8 +4593,8 @@ async function renderDiaryTVChart(tradeId) {
     setTimeout(() => renderDiaryTVChart(tradeId), 600);
     return;
   }
-  // Prefer FirstRate 1-min candles stored on the trade (real /NQ data); else Yahoo.
-  let candles = (t._candles && t._candles.t && t._candles.t.length) ? t._candles : null;
+  // Prefer FirstRate candles stored on the trade (5-min); else Yahoo.
+  let candles = _candSeries(t, 5);
   if (!candles) {
     statusEl.textContent = 'Fetching candles for ' + yahooTicker + '...';
     try {
@@ -7018,8 +7025,8 @@ async function _renderPreviewChart(t) {
     statusEl.textContent = "Chart library still loading — try again in a sec.";
     return;
   }
-  // Prefer FirstRate 1-min candles stored on the trade; else Yahoo.
-  let candles = (t._candles && t._candles.t && t._candles.t.length) ? t._candles : null;
+  // Prefer FirstRate candles stored on the trade (5-min); else Yahoo.
+  let candles = _candSeries(t, 5);
   if (!candles) {
     statusEl.textContent = `Fetching ${yahooTicker} candles…`;
     try {
@@ -9402,15 +9409,22 @@ function renderEntryExitCharts() {
   const cards = trades.map(t => {
     const win = (t.realizedPnl || 0) >= 0;
     const strikes = t.longStrike ? `${t.shortStrike}/${t.longStrike}` : (t.shortStrike || "");
-    const dt = t.entryDate + (t.exitDate && t.exitDate !== t.entryDate ? " → " + t.exitDate : "");
-    return `<div class="card" style="padding:0;overflow:hidden">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-bottom:1px solid ${C.borderVis};background:${C.bg}">
-        <div style="font-size:10px;color:${C.textSec}"><span style="color:${C.text};font-weight:600">${escapeHtml(t.ticker || "")}</span> · ${escapeHtml((t.tradeType || "").slice(0, 18))} · ${escapeHtml(String(strikes))}</div>
-        <div style="font-size:11px;font-weight:600;color:${win ? C.pos : C.neg};font-variant-numeric:tabular-nums">${win ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}</div>
+    const dt = t.entryDate + (t.entryTime ? " " + t.entryTime : "") + (t.exitDate ? " → " + t.exitDate + (t.exitTime ? " " + t.exitTime : "") : "");
+    const pane = (res, label) => `<div style="flex:1 1 0;min-width:0">
+        <div style="font-size:9px;color:${C.textMut};padding:4px 10px 0;text-transform:uppercase;letter-spacing:0.5px">${label}</div>
+        <div id="ee-chart-${t.id}-${res}" data-tid="${t.id}" data-res="${res}" style="height:320px;width:100%"></div>
+        <div id="ee-status-${t.id}-${res}" style="font-size:9px;color:${C.textMut};padding:3px 10px 7px;font-variant-numeric:tabular-nums"></div>
+      </div>`;
+    return `<div class="card" style="padding:0;overflow:hidden;width:100%">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 12px;border-bottom:1px solid ${C.borderVis};background:${C.bg}">
+        <div style="font-size:11px;color:${C.textSec}"><span style="color:${C.text};font-weight:600">${escapeHtml(t.ticker || "")}</span> · ${escapeHtml((t.tradeType || "").slice(0, 24))} · ${escapeHtml(String(strikes))} <span style="color:${C.textMut}">· ${escapeHtml(dt)}</span></div>
+        <div style="font-size:12px;font-weight:600;color:${win ? C.pos : C.neg};font-variant-numeric:tabular-nums">${win ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}</div>
       </div>
-      <div style="font-size:9px;color:${C.textMut};padding:3px 10px 0">${escapeHtml(dt)}</div>
-      <div id="ee-chart-${t.id}" data-tid="${t.id}" style="height:260px;width:100%"></div>
-      <div id="ee-status-${t.id}" style="font-size:9px;color:${C.textMut};padding:3px 10px 7px;font-variant-numeric:tabular-nums"></div>
+      <div style="display:flex;gap:0;flex-wrap:wrap">
+        ${pane(5, "5-min bars")}
+        <div style="width:1px;background:${C.borderVis}"></div>
+        ${pane(30, "30-min bars")}
+      </div>
     </div>`;
   }).join("");
 
@@ -9418,44 +9432,49 @@ function renderEntryExitCharts() {
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:18px;color:${C.text};font-weight:600">📈 Entry & Exit Charts</div>
-        <div style="font-size:11px;color:${C.textSec};margin-top:2px">Every trade's price action with entry ▲ / exit ▼ and MAE/MFE — for spotting whether you're exiting before the collapse.</div>
+        <div style="font-size:11px;color:${C.textSec};margin-top:2px">Every trade side-by-side — 5-min bars (left) + 30-min bars (right), with entry ▲ / exit ▼ and MAE/MFE lines, for spotting whether you're exiting before the collapse.</div>
       </div>
       <div style="display:flex;gap:6px">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}</div>
     </div>
     ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:14px">${cards}</div>`
+    <div style="display:flex;flex-direction:column;gap:14px">${cards}</div>`
       : emptyState("ENTRY & EXIT CHARTS", "No closed trades in this filter.")}`;
 
-  // Lazy-render each chart when it scrolls into view (keeps 80+ charts snappy).
+  // Lazy-render each chart when it scrolls into view (keeps 160+ charts snappy).
   if (!trades.length) return;
   const io = new IntersectionObserver((entries, obs) => {
     entries.forEach(e => {
       if (!e.isIntersecting || e.target._rendered) return;
       e.target._rendered = true;
       const tid = Number(e.target.dataset.tid);
+      const res = Number(e.target.dataset.res) || 5;
       const t = (STATE.trades || []).find(x => x.id === tid);
-      if (t) _eeRenderChart(t, e.target, document.getElementById("ee-status-" + tid));
+      if (t) _eeRenderChart(t, e.target, document.getElementById(`ee-status-${tid}-${res}`), res);
       obs.unobserve(e.target);
     });
   }, { rootMargin: "300px" });
-  el.querySelectorAll("[data-tid]").forEach(c => io.observe(c));
+  el.querySelectorAll("[data-res]").forEach(c => io.observe(c));
 }
 
-async function _eeRenderChart(t, chartEl, statusEl) {
-  if (typeof LightweightCharts === "undefined") { if (statusEl) statusEl.textContent = "chart library loading…"; setTimeout(() => _eeRenderChart(t, chartEl, statusEl), 700); return; }
-  const { interval, intraday, isoFrom, isoTo } = _tradeChartPlan(t);
+async function _eeRenderChart(t, chartEl, statusEl, res) {
+  if (typeof LightweightCharts === "undefined") { if (statusEl) statusEl.textContent = "chart library loading…"; setTimeout(() => _eeRenderChart(t, chartEl, statusEl, res), 700); return; }
+  const { isoFrom, isoTo } = _tradeChartPlan(t);
+  const intraday = true;
   const yahooTicker = (typeof _yahooSymbolForChart === "function") ? _yahooSymbolForChart(t.ticker) : t.ticker;
 
-  let candles = (t._candles && t._candles.t && t._candles.t.length) ? t._candles : null;
+  // FirstRate stored series at this resolution; else Yahoo (5m/30m recent, 60m older).
+  let candles = _candSeries(t, res);
   if (!candles) {
-    try { const r = await fetch(`/api/candles?ticker=${encodeURIComponent(yahooTicker)}&start=${isoFrom}&end=${isoTo}&interval=${interval}`); if (r.ok) { const d = await r.json(); if (d.s === "ok") candles = d; } } catch (e) { /* */ }
+    const daysOld = (Date.now() - new Date((t.exitDate || t.entryDate) + "T00:00:00").getTime()) / 86400000;
+    const yint = daysOld <= 55 ? (res === 30 ? "30m" : "5m") : (daysOld <= 730 ? "60m" : "1d");
+    try { const r = await fetch(`/api/candles?ticker=${encodeURIComponent(yahooTicker)}&start=${isoFrom}&end=${isoTo}&interval=${yint}`); if (r.ok) { const d = await r.json(); if (d.s === "ok") candles = d; } } catch (e) { /* */ }
   }
   if (!candles || !candles.t || !candles.t.length) { if (statusEl) statusEl.innerHTML = `<span style="color:${C.warn}">no candle data for ${escapeHtml(yahooTicker)}</span>`; return; }
   const data = candles.t.map((ts, i) => ({ time: ts, open: candles.o[i], high: candles.h[i], low: candles.l[i], close: candles.c[i] })).filter(d => d.open != null && d.close != null);
 
   const _etOpts = _lcETOpts(intraday);
   const chart = LightweightCharts.createChart(chartEl, {
-    width: chartEl.clientWidth || 420, height: 260,
+    width: chartEl.clientWidth || 600, height: 320,
     layout: { background: { color: C.bg }, textColor: C.textSec, fontFamily: "'IBM Plex Mono', monospace" },
     grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.04)" } },
     localization: _etOpts.localization,
@@ -9481,8 +9500,8 @@ async function _eeRenderChart(t, chartEl, statusEl) {
   if (intraday && exitT) { const p = near(exitT).close; if (p != null) series.createPriceLine({ price: p, color: (t.realizedPnl || 0) >= 0 ? C.pos : C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "OUT " + p.toFixed(0) }); }
 
   chart.timeScale().fitContent();
-  const src = (candles.src === "firstrate-1m") ? "FirstRate 1m" : interval;
-  if (statusEl) statusEl.textContent = `${data.length} bars (${src}) · IN ▲ OUT ▼ · MAE/MFE lines`;
+  const src = candles.src === "firstrate" ? "FirstRate" : "Yahoo";
+  if (statusEl) statusEl.textContent = `${res}-min · ${data.length} bars · ${src} · IN ▲ OUT ▼ · MAE/MFE lines`;
   new ResizeObserver(() => chart.applyOptions({ width: chartEl.clientWidth })).observe(chartEl);
 }
 
