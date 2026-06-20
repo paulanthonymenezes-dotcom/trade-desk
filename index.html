@@ -9775,7 +9775,7 @@ function renderEntryExitCharts() {
         <div style="font-size:11px;color:${C.textSec}"><span style="color:${C.text};font-weight:600">${escapeHtml(t.ticker || "")}</span> · ${escapeHtml((t.tradeType || "").slice(0, 24))} · ${escapeHtml(String(strikes))} <span style="color:${C.textMut}">· ${escapeHtml(dt)}</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <button onclick="_eeToggleNote(${t.id})" class="btn btn-g" style="font-size:10px;padding:4px 10px">📝 Note${noteN ? ` (${noteN})` : ""}</button>
-          <div style="font-size:12px;font-weight:600;color:${win ? C.pos : C.neg};font-variant-numeric:tabular-nums">${win ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}</div>
+          <div style="font-size:12px;font-weight:600;color:${win ? C.pos : C.neg};font-variant-numeric:tabular-nums">${win ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}${t.premiumCollected ? ` <span style="font-size:10px;opacity:.8">(${t.realizedPnl >= 0 ? "+" : "−"}${Math.abs(t.realizedPnl / t.premiumCollected * 100).toFixed(0)}%)</span>` : ""}</div>
         </div>
       </div>
       <div id="ee-note-${t.id}" style="display:none;padding:9px 12px;border-bottom:1px solid ${C.borderVis};background:${C.bgHover || C.bg}">
@@ -9868,13 +9868,13 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
   if (exitT) { const w = (t.realizedPnl || 0) >= 0; markers.push({ time: exitT, position: "aboveBar", color: w ? C.pos : C.neg, shape: "arrowDown", text: `OUT ${w ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}` }); }
   if (markers.length) { markers.sort((a, b) => a.time - b.time); series.setMarkers(markers); }
 
-  // MAE/MFE lines labelled with the excursion as % of credit (repeatable across
-  // trades, unlike $) — e.g. "MAE (−15%)" = worst drawdown was 15% of the credit.
+  // MAE/MFE as faint dotted lines — no axis tag, no on-chart label box (those
+  // blocked the candles). The % of credit goes in the status line below instead.
   const _cred = t.premiumCollected || 0;
-  const _exc = (pnl) => (_cred && typeof pnl === "number") ? ` (${pnl >= 0 ? "+" : "−"}${Math.abs(pnl / _cred * 100).toFixed(0)}%)` : "";
+  const _exc = (pnl) => (_cred && typeof pnl === "number") ? `${pnl >= 0 ? "+" : "−"}${Math.abs(pnl / _cred * 100).toFixed(0)}%` : "—";
   const maeTs = t._autoMAE?.date || t._autoMAE?.ts, mfeTs = t._autoMFE?.date || t._autoMFE?.ts;
-  if (showMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MAE" + _exc(t._autoMAE?.pnl) }); }
-  if (showMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MFE" + _exc(t._autoMFE?.pnl) }); }
+  if (showMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(255,69,58,0.4)", lineWidth: 1, lineStyle: 1, axisLabelVisible: false, title: "" }); }
+  if (showMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(63,185,80,0.4)", lineWidth: 1, lineStyle: 1, axisLabelVisible: false, title: "" }); }
   // Entry/exit price as a colored tag on the y-axis ONLY — no line across the
   // candles (lineVisible:false). The IN / OUT arrows above mark the time.
   if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineVisible: false, axisLabelVisible: true, title: "" }); }
@@ -9925,7 +9925,10 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
   chart.timeScale().fitContent();
   const src = candles.src === "firstrate" ? "FirstRate" : "Yahoo";
   const _resLbl = res === 240 ? "4-hour" : `${res}-min`;
-  if (statusEl) statusEl.textContent = `${_resLbl} · ${data.length} bars · ${src} · IN ▲ OUT ▼ · MAE/MFE${slInfo}`;
+  const _excTxt = showMAE
+    ? ` · <span style="color:#ff453a">MAE ${_exc(t._autoMAE?.pnl)}</span> <span style="color:${C.pos}">MFE ${_exc(t._autoMFE?.pnl)}</span>`
+    : "";
+  if (statusEl) statusEl.innerHTML = `${_resLbl} · ${data.length} bars · ${src} · IN ▲ OUT ▼${_excTxt}${slInfo}`;
   new ResizeObserver(() => chart.applyOptions({ width: chartEl.clientWidth })).observe(chartEl);
   return chart;
 }
