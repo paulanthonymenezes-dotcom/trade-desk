@@ -9412,7 +9412,7 @@ function renderEntryExitCharts() {
     const dt = t.entryDate + (t.entryTime ? " " + t.entryTime : "") + (t.exitDate ? " → " + t.exitDate + (t.exitTime ? " " + t.exitTime : "") : "");
     const pane = (res, label) => `<div style="flex:1 1 0;min-width:0">
         <div style="font-size:9px;color:${C.textMut};padding:4px 10px 0;text-transform:uppercase;letter-spacing:0.5px">${label}</div>
-        <div id="ee-chart-${t.id}-${res}" data-tid="${t.id}" data-res="${res}" style="height:320px;width:100%"></div>
+        <div id="ee-chart-${t.id}-${res}" data-tid="${t.id}" data-res="${res}" style="height:420px;width:100%"></div>
         <div id="ee-status-${t.id}-${res}" style="font-size:9px;color:${C.textMut};padding:3px 10px 7px;font-variant-numeric:tabular-nums"></div>
       </div>`;
     return `<div class="card" style="padding:0;overflow:hidden;width:100%">
@@ -9474,7 +9474,7 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
 
   const _etOpts = _lcETOpts(intraday);
   const chart = LightweightCharts.createChart(chartEl, {
-    width: chartEl.clientWidth || 600, height: 320,
+    width: chartEl.clientWidth || 600, height: 420,
     layout: { background: { color: C.bg }, textColor: C.textSec, fontFamily: "'IBM Plex Mono', monospace" },
     grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.04)" } },
     localization: _etOpts.localization,
