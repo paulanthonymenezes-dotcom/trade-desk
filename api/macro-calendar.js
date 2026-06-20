@@ -21,10 +21,10 @@ const RAPIDAPI_HOST = "global-economic-calendar-api-multi-language.p.rapidapi.co
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  // Key resolution: prefer the Vercel env var (the user stored the RapidAPI key as
-  // NQ_Platform on the trade-desk project), then RAPIDAPI_KEY, then a hardcoded
-  // fallback the user explicitly OK'd (low-value $2/mo read-only key).
-  const key = process.env.NQ_Platform || process.env.RAPIDAPI_KEY || "d625765864msh5f199ed93750b24p152611jsn83a16f689335";
+  // The user's NQ_Platform env var is a DIFFERENT RapidAPI key not subscribed to
+  // this calendar API ("not subscribed" error). The key the user pasted (below) IS
+  // subscribed and verified working. Use it; allow RAPIDAPI_KEY env to override.
+  const key = process.env.RAPIDAPI_KEY || "d625765864msh5f199ed93750b24p152611jsn83a16f689335";
 
   const country = String(req.query.country || "US").toUpperCase();
   const days = Math.max(1, Math.min(31, parseInt(req.query.days || "7", 10) || 7));
