@@ -4564,13 +4564,16 @@ async function renderDiaryTVChart(tradeId) {
     setTimeout(() => renderDiaryTVChart(tradeId), 600);
     return;
   }
-  statusEl.textContent = 'Fetching candles for ' + yahooTicker + '...';
-
-  let candles = null;
-  try {
-    const r = await fetch('/api/candles?ticker=' + encodeURIComponent(yahooTicker) + '&start=' + isoFrom + '&end=' + isoTo + '&interval=' + interval);
-    if (r.ok) { const d = await r.json(); if (d.s === 'ok') candles = d; }
-  } catch (e) { /* fall through */ }
+  // Prefer FirstRate 1-min candles stored on the trade (real /NQ data); else Yahoo.
+  let candles = (t._candles && t._candles.t && t._candles.t.length) ? t._candles : null;
+  if (!candles) {
+    statusEl.textContent = 'Fetching candles for ' + yahooTicker + '...';
+    try {
+      const r = await fetch('/api/candles?ticker=' + encodeURIComponent(yahooTicker) + '&start=' + isoFrom + '&end=' + isoTo + '&interval=' + interval);
+      if (r.ok) { const d = await r.json(); if (d.s === 'ok') candles = d; }
+    } catch (e) { /* fall through */ }
+  }
+  const srcLabel = (candles && candles.src === 'firstrate-1m') ? 'FirstRate 1m' : interval;
 
   if (!candles || !candles.t || !candles.t.length) {
     statusEl.innerHTML = `<span style="color:${C.warn}">No candle data for ${yahooTicker}</span> — open in TradingView via link above.`;
@@ -4601,7 +4604,7 @@ async function renderDiaryTVChart(tradeId) {
   // nearest the actual entry/exit time (ET→UTC, EDT≈−4) so a same-day trade shows
   // separated entry ▲ / exit ▼ instead of stacking on one daily candle.
   const dateToTime = (iso) => Math.floor(new Date(iso + 'T00:00:00').getTime() / 1000);
-  const etToUnix = (dateStr, timeStr) => dateStr ? Math.floor(new Date(dateStr + 'T' + (timeStr || '12:00') + ':00Z').getTime() / 1000) + 4 * 3600 : null;
+  const etToUnix = (dateStr, timeStr) => { if (!dateStr) return null; const [Y, Mo, D] = dateStr.split('-').map(Number); const [h, m] = (timeStr || '12:00').split(':').map(Number); const guess = Date.UTC(Y, Mo - 1, D, h, m); const tzn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' }).formatToParts(new Date(guess)).find(p => p.type === 'timeZoneName').value; return Math.floor(guess / 1000) + (tzn === 'EDT' ? 4 : 5) * 3600; };
   const nearestBarTime = (target) => { if (target == null || !data.length) return null; let b = data[0], bd = Math.abs(data[0].time - target); for (const c of data) { const dd = Math.abs(c.time - target); if (dd < bd) { bd = dd; b = c; } } return b.time; };
   const entryT = isFut ? (nearestBarTime(etToUnix(t.entryDate, t.entryTime)) || dateToTime(t.entryDate)) : (t.entryDate ? dateToTime(t.entryDate) : null);
   const exitT = isFut ? (nearestBarTime(etToUnix(t.exitDate, t.exitTime)) || dateToTime(t.exitDate)) : (t.exitDate ? dateToTime(t.exitDate) : null);
@@ -4678,7 +4681,7 @@ async function renderDiaryTVChart(tradeId) {
   priceLines.forEach(p => series.createPriceLine(p));
 
   chart.timeScale().fitContent();
-  statusEl.textContent = data.length + ' bars (' + interval + ') · entry ▲ exit ▼ · entry/exit/MAE/MFE as price lines';
+  statusEl.textContent = data.length + ' bars (' + srcLabel + ') · entry ▲ exit ▼ · entry/exit/MAE/MFE as price lines';
 
   // Resize on window changes
   const resizeObs = new ResizeObserver(() => {
@@ -7004,12 +7007,16 @@ async function _renderPreviewChart(t) {
     statusEl.textContent = "Chart library still loading — try again in a sec.";
     return;
   }
-  statusEl.textContent = `Fetching ${yahooTicker} candles…`;
-  let candles = null;
-  try {
-    const r = await fetch(`/api/candles?ticker=${encodeURIComponent(yahooTicker)}&start=${isoFrom}&end=${isoTo}&interval=${interval}`);
-    if (r.ok) { const d = await r.json(); if (d.s === "ok") candles = d; }
-  } catch (e) { /* fall through */ }
+  // Prefer FirstRate 1-min candles stored on the trade; else Yahoo.
+  let candles = (t._candles && t._candles.t && t._candles.t.length) ? t._candles : null;
+  if (!candles) {
+    statusEl.textContent = `Fetching ${yahooTicker} candles…`;
+    try {
+      const r = await fetch(`/api/candles?ticker=${encodeURIComponent(yahooTicker)}&start=${isoFrom}&end=${isoTo}&interval=${interval}`);
+      if (r.ok) { const d = await r.json(); if (d.s === "ok") candles = d; }
+    } catch (e) { /* fall through */ }
+  }
+  const srcLabel = (candles && candles.src === "firstrate-1m") ? "FirstRate 1m" : interval;
   if (!candles || !candles.t || !candles.t.length) {
     statusEl.innerHTML = `<span style="color:${C.warn}">No candle data for ${yahooTicker}</span> — open in Diary for full chart.`;
     return;
@@ -7033,7 +7040,7 @@ async function _renderPreviewChart(t) {
   series.setData(data);
 
   const dateToTime = (iso) => Math.floor(new Date(iso + "T00:00:00").getTime() / 1000);
-  const etToUnix = (ds, ts) => ds ? Math.floor(new Date(ds + "T" + (ts || "12:00") + ":00Z").getTime() / 1000) + 4 * 3600 : null;
+  const etToUnix = (ds, ts) => { if (!ds) return null; const [Y, Mo, D] = ds.split("-").map(Number); const [h, m] = (ts || "12:00").split(":").map(Number); const guess = Date.UTC(Y, Mo - 1, D, h, m); const tzn = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "short" }).formatToParts(new Date(guess)).find(p => p.type === "timeZoneName").value; return Math.floor(guess / 1000) + (tzn === "EDT" ? 4 : 5) * 3600; };
   const nearestBarTime = (target) => { if (target == null || !data.length) return null; let b = data[0], bd = Math.abs(data[0].time - target); for (const c of data) { const dd = Math.abs(c.time - target); if (dd < bd) { bd = dd; b = c; } } return b.time; };
   const entryT = isFut ? (nearestBarTime(etToUnix(t.entryDate, t.entryTime)) || (t.entryDate ? dateToTime(t.entryDate) : null)) : (t.entryDate ? dateToTime(t.entryDate) : null);
   const exitT = isFut ? (nearestBarTime(etToUnix(t.exitDate, t.exitTime)) || (t.exitDate ? dateToTime(t.exitDate) : null)) : (t.exitDate ? dateToTime(t.exitDate) : null);
@@ -7067,7 +7074,7 @@ async function _renderPreviewChart(t) {
   if (isFut && entryT) { const ep = _nearestClose(data, entryT); if (ep != null) series.createPriceLine({ price: ep, color: C.accent, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "ENTRY @ " + ep.toFixed(2) }); }
   if (isFut && exitT) { const xp = _nearestClose(data, exitT); if (xp != null) series.createPriceLine({ price: xp, color: (t.realizedPnl||0)>=0?C.pos:C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "EXIT @ " + xp.toFixed(2) }); }
 
-  statusEl.innerHTML = `<span style="color:${C.textMut}">${yahooTicker} · ${isoFrom} → ${isoTo} · ${data.length} bars (${interval})</span>`;
+  statusEl.innerHTML = `<span style="color:${C.textMut}">${yahooTicker} · ${data.length} bars (${srcLabel})</span>`;
 }
 
 // Floating tooltip for scatter dot HOVER (shows rich trade summary without
