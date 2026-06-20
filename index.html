@@ -8850,7 +8850,9 @@ async function _loadMacroCalendar() {
   const body = document.getElementById("macro-cal-body");
   if (!body) return;
   try {
-    const r = await fetch(`/api/macro-calendar?days=31`);
+    // daily cache-bust: fresh once a day, edge-cached within the day
+    const _d = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const r = await fetch(`/api/macro-calendar?days=31&d=${_d}`);
     if (!r.ok) { body.innerHTML = _macroCalMsg(`Calendar unavailable (HTTP ${r.status}).`); return; }
     const d = await r.json();
     if (d.s === "error") { body.innerHTML = _macroCalMsg(`Calendar unavailable: ${escapeHtml(d.errmsg || "error")}.`); return; }

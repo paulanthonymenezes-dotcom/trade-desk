@@ -37,40 +37,33 @@ export default async function handler(req, res) {
   const hi = iso(new Date(now.getTime() + days * 86400000));
 
   try {
+    // The API returns a fixed ~1000-event sample (offset is ignored), spanning
+    // ~6 months — dense for the next few weeks. One fetch is all it gives.
+    const r = await fetch(`https://${RAPIDAPI_HOST}/api/v1/economic-calendar/events?limit=1000`,
+      { headers: { "x-rapidapi-host": RAPIDAPI_HOST, "x-rapidapi-key": key } });
+    if (r.status === 429) { res.status(200).json({ s: "error", errmsg: "RapidAPI daily quota exceeded" }); return; }
+    const body = await r.json();
+    const rows = Array.isArray(body) ? body : (body && body.data);
+    if (!Array.isArray(rows)) { res.status(200).json({ s: "error", errmsg: (body && body.message) || "unexpected response shape" }); return; }
+
     const out = [];
-    let maxDaySeen = lo;
-    for (let page = 0; page < 4; page++) {
-      const url = `https://${RAPIDAPI_HOST}/api/v1/economic-calendar/events?limit=1000&offset=${page * 1000}`;
-      const r = await fetch(url, { headers: { "x-rapidapi-host": RAPIDAPI_HOST, "x-rapidapi-key": key } });
-      if (r.status === 429) {
-        if (out.length) break; // serve what we have
-        res.status(200).json({ s: "error", errmsg: "RapidAPI daily quota exceeded" });
-        return;
-      }
-      const body = await r.json();
-      const rows = Array.isArray(body) ? body : (body && body.data);
-      if (!Array.isArray(rows) || !rows.length) break;
-      for (const e of rows) {
-        const ts = e.occurrence_time || "";
-        const day = ts.slice(0, 10);
-        if (day && day > maxDaySeen) maxDaySeen = day;
-        if (!COUNTRIES.has(e.country_code)) continue;
-        if (String(e.importance || "").toUpperCase() === "LOW") continue;
-        if (!day || day < lo || day > hi) continue;
-        const loc = e.localization || {};
-        out.push({
-          type: loc.long_name || loc.short_name || e.category || "Event",
-          date: ts,
-          importance: e.importance,
-          actual: e.actual,
-          previous: e.previous,
-          estimate: e.forecast,
-          unit: e.unit,
-          country: e.country_code,
-        });
-      }
-      // The feed is date-ascending; once a page reaches past the window, we're done.
-      if (maxDaySeen > hi) break;
+    for (const e of rows) {
+      if (!COUNTRIES.has(e.country_code)) continue;
+      if (String(e.importance || "").toUpperCase() === "LOW") continue;
+      const ts = e.occurrence_time || "";
+      const day = ts.slice(0, 10);
+      if (!day || day < lo || day > hi) continue;
+      const loc = e.localization || {};
+      out.push({
+        type: loc.long_name || loc.short_name || e.category || "Event",
+        date: ts,
+        importance: e.importance,
+        actual: e.actual,
+        previous: e.previous,
+        estimate: e.forecast,
+        unit: e.unit,
+        country: e.country_code,
+      });
     }
     out.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
