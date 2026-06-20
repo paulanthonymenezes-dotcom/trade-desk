@@ -9395,6 +9395,22 @@ function _macroCalMsg(msg) {
 let _eeFilter = "all";
 function _eeSetFilter(f, btn) { _eeFilter = f; renderEntryExitCharts(); }
 
+// Latest date the stored FirstRate candle data covers (ET). Prefers an explicit
+// stamp written by the extractor; else derives from the newest candle present so
+// it self-updates on every re-extract.
+function _eeDataThrough() {
+  if (STATE && STATE._firstrateThrough) return STATE._firstrateThrough;
+  let mx = 0;
+  for (const t of (STATE.trades || [])) {
+    const c = t._candles; if (!c) continue;
+    for (const s of [c.c5, c.c30, c.t ? c : null]) {
+      if (s && s.t && s.t.length) mx = Math.max(mx, s.t[s.t.length - 1]);
+    }
+  }
+  if (!mx) return null;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(mx * 1000));
+}
+
 function renderEntryExitCharts() {
   const el = document.getElementById("eecharts-content");
   if (!el) return;
@@ -9436,7 +9452,7 @@ function renderEntryExitCharts() {
       </div>
       <div style="display:flex;gap:6px">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}</div>
     </div>
-    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll</div>
+    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll${(() => { const thru = _eeDataThrough(); return thru ? ` · <span style="color:${C.textSec}">🕒 FirstRate 1-min data current through ${thru} ET</span> — newer trades fall back to Yahoo intraday` : ""; })()}</div>
     <div style="display:flex;flex-direction:column;gap:14px">${cards}</div>`
       : emptyState("ENTRY & EXIT CHARTS", "No closed trades in this filter.")}`;
 
