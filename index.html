@@ -9411,6 +9411,204 @@ function _eeDataThrough() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(mx * 1000));
 }
 
+// ───────────────────────── Stop-loss level engine ─────────────────────────
+// Goal: "at what underlying NQ price does my short credit spread reach X% loss?"
+// Loss is measured as % of credit received (the user's rule: TP 50%, SL 100%).
+//   spread value-to-close V(F) in points;  credit C in points
+//   loss% of credit = (V − C) / C   →   X% loss when V = (1 + X/100)·C
+//   (50% TP = take profit when V = 0.5·C, i.e. cost-to-close is half the credit)
+// Options on NQ *futures* → Black-76. NQ option multiplier = $20 / point.
+const _RF = 0.045;
+// $ per point per contract by instrument (equity options default to $100/contract).
+function _optMult(ticker) {
+  const s = (ticker || "").toUpperCase();
+  if (s.startsWith("/MNQ")) return 2;
+  if (s.startsWith("/NQ")) return 20;
+  if (s.startsWith("/MES")) return 5;
+  if (s.startsWith("/ES")) return 50;
+  return 100;
+}
+
+function _normCdf(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989422804014327 * Math.exp(-x * x / 2);
+  const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - p : p;
+}
+// Black-76 price of a European option on a future (F), strike K, T years, vol sig.
+function _black76(type, F, K, T, r, sig) {
+  if (T <= 0 || sig <= 0) return type === "call" ? Math.max(F - K, 0) : Math.max(K - F, 0);
+  const sT = sig * Math.sqrt(T);
+  const d1 = (Math.log(F / K) + (sig * sig / 2) * T) / sT, d2 = d1 - sT, disc = Math.exp(-r * T);
+  return type === "call"
+    ? disc * (F * _normCdf(d1) - K * _normCdf(d2))
+    : disc * (K * _normCdf(-d2) - F * _normCdf(-d1));
+}
+// Cost-to-close (points) of the short credit spread at underlying F, vol sig, T years.
+function _spreadVal(t, F, sig, T) {
+  const isPut = /put/i.test(t.tradeType || "");
+  const leg = isPut ? "put" : "call";
+  return _black76(leg, F, t.shortStrike, T, _RF, sig) - _black76(leg, F, t.longStrike, T, _RF, sig);
+}
+// Effective vol after an adverse move — when NQ moves against a premium seller, IV
+// expands (vega is what hurts). elasticity k: +k·(adverse fraction) relative vol.
+// k=0 → flat IV (optimistic). Default k≈4 (1% adverse move ≈ +4% relative IV);
+// will be recalibrated empirically from Databento in the historical pass.
+function _volAt(sig0, F0, F, isPut, k) {
+  const adv = isPut ? Math.max(0, (F0 - F) / F0) : Math.max(0, (F - F0) / F0);
+  return sig0 * (1 + (k || 0) * adv);
+}
+// Calibrate a single (flat) IV so Black-76 reproduces the credit actually collected.
+function _calibrateIV(t, F0, T, creditPts) {
+  let lo = 0.01, hi = 3.0;
+  if (_spreadVal(t, F0, hi, T) < creditPts) return hi; // credit richer than max vol can explain
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (_spreadVal(t, F0, mid, T) > creditPts) hi = mid; else lo = mid;
+  }
+  return (lo + hi) / 2;
+}
+// Solve for the underlying F (in the adverse direction) where loss = mult·credit.
+function _solveStopF(t, F0, sig0, T, targetVal, k) {
+  const isPut = /put/i.test(t.tradeType || "");
+  const dir = isPut ? -1 : 1;                 // adverse = down for puts, up for calls
+  const step = F0 * 0.0015;                   // ~0.15% per probe
+  let prevF = F0, prevV = _spreadVal(t, F0, _volAt(sig0, F0, F0, isPut, k), T);
+  for (let i = 1; i <= 5000; i++) {
+    const F = F0 + dir * step * i;
+    if (F <= 0) break;
+    const V = _spreadVal(t, F, _volAt(sig0, F0, F, isPut, k), T);
+    if (V >= targetVal) {                     // crossed — bisect [prevF, F]
+      let a = prevF, b = F;
+      for (let j = 0; j < 50; j++) {
+        const m = (a + b) / 2;
+        const vm = _spreadVal(t, m, _volAt(sig0, F0, m, isPut, k), T);
+        if (vm >= targetVal) b = m; else a = m;   // value rises as we go adverse
+      }
+      return (a + b) / 2;
+    }
+    prevF = F; prevV = V;
+  }
+  return null;                                // target unreachable within range
+}
+// Full model for one trade: credit, calibrated IV, and NQ levels for TP/warn/stop.
+// daysOverride lets the live calculator reprice at fewer days remaining.
+function _computeStopLevels(t, opts) {
+  opts = opts || {};
+  const isPut = /put/i.test(t.tradeType || "");
+  const contracts = Math.max(1, t.contracts || 1);
+  const mult = _optMult(t.ticker);
+  const creditPts = (t.premiumCollected || 0) / (mult * contracts);
+  const width = Math.abs((t.shortStrike || 0) - (t.longStrike || 0));
+  const dte = opts.days != null ? opts.days : (t.dteAtEntry || 1);
+  const T = Math.max(dte, 0.25) / 365;        // floor at ~6h so 0-DTE still prices
+  const F0 = opts.F0 != null ? opts.F0 : _entryUnderlying(t);
+  if (!F0 || !creditPts || !t.shortStrike || !t.longStrike) return null;
+  const k = opts.volK != null ? opts.volK : 4;
+  const sig0 = opts.iv != null ? opts.iv : _calibrateIV(t, F0, T, creditPts);
+  const maxLossPts = width - creditPts;       // structural cap on the loss
+  const lvl = (mult) => {
+    const target = (1 + mult) * creditPts;    // V at this loss multiple
+    if (mult > 0 && target - creditPts > maxLossPts + 1e-6)
+      return { unreachable: true, capPct: maxLossPts / creditPts * 100 };
+    return {
+      flat: _solveStopF(t, F0, sig0, T, target, 0),
+      vol: _solveStopF(t, F0, sig0, T, target, k),
+    };
+  };
+  // Only the adverse (stop) side is a meaningful underlying level — the 50% TP is
+  // realized through theta at roughly unchanged price, not an underlying move.
+  return {
+    F0, iv: sig0, creditPts, creditUsd: t.premiumCollected, width, dte, contracts, isPut, mult,
+    maxLossPts, maxLossUsd: maxLossPts * mult * contracts,
+    warn75: lvl(0.75), stop100: lvl(1.0),
+  };
+}
+// Underlying NQ price at entry, read from the stored FirstRate candle nearest entry.
+function _entryUnderlying(t) {
+  const c = _candSeries(t, 5) || _candSeries(t, 30);
+  if (!c || !c.t || !c.t.length) return null;
+  const target = _etToUnixStop(t.entryDate, t.entryTime);
+  if (target == null) return c.c[0];
+  let bi = 0, bd = Infinity;
+  for (let i = 0; i < c.t.length; i++) { const d = Math.abs(c.t[i] - target); if (d < bd) { bd = d; bi = i; } }
+  return c.c[bi];
+}
+function _etToUnixStop(ds, ts) {
+  if (!ds) return null;
+  const [Y, Mo, D] = ds.split("-").map(Number);
+  const [h, m] = (ts || "12:00").split(":").map(Number);
+  const g = Date.UTC(Y, Mo - 1, D, h, m);
+  const tzn = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "short" }).formatToParts(new Date(g)).find(p => p.type === "timeZoneName").value;
+  return Math.floor(g / 1000) + (tzn === "EDT" ? 4 : 5) * 3600;
+}
+
+// ── Live stop-loss calculator (open / what-if trades) ──
+// Prefills from the most recent /NQ trade when available so the inputs are real.
+function _stopCalcCard() {
+  const nq = (STATE.trades || []).filter(t => (t.ticker || "").startsWith("/NQ"))
+    .sort((a, b) => (b.entryDate || "").localeCompare(a.entryDate || ""));
+  const d = nq[0] || {};
+  const f0 = d.entryDate ? _entryUnderlying(d) : null;
+  const v = (x, fb) => (x == null || x === "" ? fb : x);
+  const inp = (id, val, w) => `<input id="${id}" value="${val}" style="width:${w || 78}px;background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:6px;padding:5px 7px;font-size:12px;font-family:'IBM Plex Mono',monospace">`;
+  const lab = (t) => `<div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">${t}</div>`;
+  const fld = (t, el) => `<div>${lab(t)}${el}</div>`;
+  return `<div class="card" style="padding:12px 14px;margin-bottom:14px">
+    <div style="font-size:13px;color:${C.text};font-weight:600;margin-bottom:2px">🛑 Stop-Loss Level Calculator</div>
+    <div style="font-size:10px;color:${C.textSec};margin-bottom:10px">What underlying price puts this short credit spread at <b>−75%</b> (warn) / <b>−100%</b> (stop) of the credit? Black-76, IV solved from your credit. Loss = % of credit received.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      ${fld("Spread", `<select id="sc-type" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:6px;padding:5px 7px;font-size:12px">
+        <option value="put"${/call/i.test(d.tradeType || "") ? "" : " selected"}>Bull Put (short put)</option>
+        <option value="call"${/call/i.test(d.tradeType || "") ? " selected" : ""}>Bear Call (short call)</option></select>`)}
+      ${fld("Short K", inp("sc-short", v(d.shortStrike, 19500)))}
+      ${fld("Long K", inp("sc-long", v(d.longStrike, 19000)))}
+      ${fld("Credit $", inp("sc-credit", v(d.premiumCollected, 1000)))}
+      ${fld("Contracts", inp("sc-contracts", v(d.contracts, 4), 64))}
+      ${fld("Price now", inp("sc-nq", f0 ? Math.round(f0) : 20000))}
+      ${fld("Days left", inp("sc-dte", v(d.dteAtEntry, 7), 64))}
+      ${fld("Vol exp. k", inp("sc-volk", 4, 56))}
+      <button onclick="_runStopCalc()" class="btn btn-g" style="font-size:12px;padding:7px 16px;font-weight:600">Compute</button>
+    </div>
+    <div id="sc-result" style="margin-top:12px"></div>
+  </div>`;
+}
+function _runStopCalc() {
+  const g = (id) => document.getElementById(id);
+  const isPut = g("sc-type").value === "put";
+  const ticker = "/NQ";
+  const t = {
+    ticker, tradeType: isPut ? "Bull Put Spread" : "Bear Call Spread",
+    shortStrike: parseFloat(g("sc-short").value), longStrike: parseFloat(g("sc-long").value),
+    premiumCollected: parseFloat(g("sc-credit").value), contracts: parseFloat(g("sc-contracts").value),
+  };
+  const F0 = parseFloat(g("sc-nq").value), days = parseFloat(g("sc-dte").value), volK = parseFloat(g("sc-volk").value);
+  const out = g("sc-result");
+  const m = _computeStopLevels(t, { F0, days, volK });
+  if (!m) { out.innerHTML = `<span style="color:${C.warn};font-size:12px">Check inputs — need valid strikes, credit and price.</span>`; return; }
+  const be = isPut ? t.shortStrike - m.creditPts : t.shortStrike + m.creditPts;
+  const dist = (px) => px == null ? "" : `${(px - F0 >= 0 ? "+" : "")}${(px - F0).toFixed(0)} pts (${((px - F0) / F0 * 100).toFixed(2)}%)`;
+  const row = (label, L, color) => {
+    if (!L) return "";
+    if (L.unreachable) return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid ${C.borderVis}"><span style="color:${color};font-weight:600">${label}</span><span style="color:${C.textMut};font-size:12px">unreachable — max loss is only ${L.capPct.toFixed(0)}% of credit</span></div>`;
+    const px = L.vol || L.flat;
+    return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-top:1px solid ${C.borderVis}">
+      <span style="color:${color};font-weight:600;font-size:13px">${label}</span>
+      <span style="font-variant-numeric:tabular-nums"><span style="color:${C.text};font-size:16px;font-weight:700">${px.toFixed(0)}</span>
+      <span style="color:${C.textSec};font-size:11px"> &nbsp;${dist(px)} &nbsp;·&nbsp; flat-IV ${L.flat ? L.flat.toFixed(0) : "—"}</span></span></div>`;
+  };
+  out.innerHTML = `
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:${C.textSec};margin-bottom:6px">
+      <span>Credit <b style="color:${C.text}">$${m.creditUsd.toFixed(0)}</b> (${m.creditPts.toFixed(1)} pts)</span>
+      <span>Calibrated IV <b style="color:${C.text}">${(m.iv * 100).toFixed(1)}%</b></span>
+      <span>Breakeven <b style="color:${C.text}">${be.toFixed(0)}</b></span>
+      <span>Max loss <b style="color:${C.neg}">$${m.maxLossUsd.toFixed(0)}</b></span>
+    </div>
+    ${row("−75% warn", m.warn75, C.warn)}
+    ${row("−100% STOP", m.stop100, "#ff453a")}
+    <div style="font-size:9px;color:${C.textMut};margin-top:8px">Bold price = with vol-expansion (IV rises k·move as it goes against you — the level you actually hit first). flat-IV = if vol stayed put. Estimate, not exact: skew & vol path vary.</div>`;
+}
+
 function renderEntryExitCharts() {
   const el = document.getElementById("eecharts-content");
   if (!el) return;
@@ -9452,7 +9650,8 @@ function renderEntryExitCharts() {
       </div>
       <div style="display:flex;gap:6px">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}</div>
     </div>
-    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll${(() => { const thru = _eeDataThrough(); return thru ? ` · <span style="color:${C.textSec}">🕒 FirstRate 1-min data current through ${thru} ET</span> — newer trades fall back to Yahoo intraday` : ""; })()}</div>
+    ${_stopCalcCard()}
+    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> lines on each chart${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
     <div style="display:flex;flex-direction:column;gap:14px">${cards}</div>`
       : emptyState("ENTRY & EXIT CHARTS", "No closed trades in this filter.")}`;
 
@@ -9515,9 +9714,31 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "IN " + p.toFixed(0) }); }
   if (intraday && exitT) { const p = near(exitT).close; if (p != null) series.createPriceLine({ price: p, color: (t.realizedPnl || 0) >= 0 ? C.pos : C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "OUT " + p.toFixed(0) }); }
 
+  // Stop-loss levels — modeled underlying price where the spread reaches 75% / 100%
+  // of credit lost (Black-76, IV calibrated to the entry credit, vol-expansion est.).
+  let slInfo = "";
+  const f0px = entryT ? near(entryT).close : null;
+  if (f0px != null) {
+    const sl = _computeStopLevels(t, { F0: f0px });
+    if (sl) {
+      const draw = (L, color, style, label) => {
+        if (!L || L.unreachable) return null;
+        const px = L.vol || L.flat;
+        if (px == null) return null;
+        series.createPriceLine({ price: px, color, lineWidth: 2, lineStyle: style, axisLabelVisible: true, title: `${label} ${px.toFixed(0)}` });
+        return px;
+      };
+      draw(sl.warn75, C.warn, 2, "-75%");
+      const stopPx = draw(sl.stop100, "#ff453a", 0, "STOP -100%");
+      slInfo = sl.stop100?.unreachable
+        ? ` · stop n/a (max loss ${sl.stop100.capPct.toFixed(0)}% of credit)`
+        : (stopPx != null ? ` · -100% stop @ ${stopPx.toFixed(0)} (IV ${(sl.iv * 100).toFixed(0)}%)` : "");
+    }
+  }
+
   chart.timeScale().fitContent();
   const src = candles.src === "firstrate" ? "FirstRate" : "Yahoo";
-  if (statusEl) statusEl.textContent = `${res}-min · ${data.length} bars · ${src} · IN ▲ OUT ▼ · MAE/MFE lines`;
+  if (statusEl) statusEl.textContent = `${res}-min · ${data.length} bars · ${src} · IN ▲ OUT ▼ · MAE/MFE${slInfo}`;
   new ResizeObserver(() => chart.applyOptions({ width: chartEl.clientWidth })).observe(chartEl);
 }
 
