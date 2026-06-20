@@ -9166,6 +9166,8 @@ function renderForward() {
 
     ${_openPositionsReview(open)}
 
+    ${_fomcPanel()}
+
     <div class="card" style="padding:14px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">📅 MACRO CALENDAR — NEXT MONTH · G7 + China</div>
@@ -9175,6 +9177,87 @@ function renderForward() {
     </div>
   `;
   _loadMacroCalendar();
+  _loadFOMC();
+}
+
+// ── FOMC panel: latest Fed statement + an AI hawkish/dovish read ──────────────
+let _fomcData = null;
+function _fomcPanel() {
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">🏛️ FOMC — LATEST STATEMENT</div>
+      <a id="fomc-link" href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noopener" style="font-size:9px;color:${C.accent};text-decoration:none">FOMC calendar ↗</a>
+    </div>
+    <div id="fomc-body"><div style="font-size:11px;color:${C.textMut};font-style:italic">Loading latest FOMC statement…</div></div>
+  </div>`;
+}
+
+async function _loadFOMC() {
+  const body = document.getElementById("fomc-body");
+  if (!body) return;
+  try {
+    const r = await fetch("/api/fomc");
+    const d = await r.json();
+    if (d.s !== "ok" || !d.text) { body.innerHTML = `<div style="font-size:11px;color:${C.textMut};font-style:italic">FOMC statement unavailable${d.errmsg ? ": " + escapeHtml(d.errmsg) : ""}.</div>`; return; }
+    _fomcData = d;
+    const link = document.getElementById("fomc-link");
+    if (link && d.url) link.href = d.url;
+    const dateStr = d.date ? new Date(d.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+    const snippet = d.text.slice(0, 360);
+    const cacheKey = `_fomcRead:${d.date}`;
+    const cached = (() => { try { return JSON.parse(localStorage.getItem(cacheKey) || "null"); } catch { return null; } })();
+    body.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <div style="font-size:11px;color:${C.text};font-weight:600">${escapeHtml(dateStr)} statement</div>
+        <button onclick="_runFOMCRead()" class="btn btn-p" style="font-size:10px;padding:4px 11px">🤖 AI Read</button>
+      </div>
+      <div style="font-size:10px;color:${C.textSec};line-height:1.5">${escapeHtml(snippet)}…
+        ${d.url ? `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener" style="color:${C.accent};text-decoration:none">full ↗</a>` : ""}
+        ${d.projectionsUrl ? ` · <a href="${escapeHtml(d.projectionsUrl)}" target="_blank" rel="noopener" style="color:${C.accent};text-decoration:none">dot plot ↗</a>` : ""}
+      </div>
+      <div id="fomc-read" style="margin-top:8px">${cached ? _renderFOMCRead(cached.data) : ""}</div>`;
+  } catch (e) {
+    body.innerHTML = `<div style="font-size:11px;color:${C.neg}">Failed to load FOMC: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function _renderFOMCRead(rev) {
+  const tone = (rev.stance || "").toUpperCase();
+  const toneColor = tone.includes("HAWK") ? C.neg : tone.includes("DOV") ? C.pos : C.warn;
+  return `<div class="card" style="padding:11px 13px;background:${C.bg};border-left:3px solid ${toneColor}">
+    <div style="font-size:13px;font-weight:700;color:${toneColor};letter-spacing:0.03em">${escapeHtml(rev.stance || "—")}</div>
+    <div style="font-size:11px;color:${C.text};margin:5px 0 8px;line-height:1.5">${escapeHtml(rev.summary || "")}</div>
+    ${(rev.changes && rev.changes.length) ? `<div style="font-size:9px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;margin-bottom:3px">WHAT CHANGED</div><ul style="margin:0 0 8px;padding-left:16px;font-size:10px;color:${C.textSec}">${rev.changes.map(c => `<li style="margin:2px 0">${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+    ${rev.implications ? `<div style="font-size:9px;color:${C.accent};letter-spacing:0.06em;font-weight:600;margin-bottom:3px">FOR YOUR /NQ PREMIUM SELLING</div><div style="font-size:10px;color:${C.text};line-height:1.5">${escapeHtml(rev.implications)}</div>` : ""}
+  </div>`;
+}
+
+async function _runFOMCRead() {
+  const el = document.getElementById("fomc-read");
+  if (!el || !_fomcData) return;
+  el.innerHTML = `<div style="font-size:11px;color:${C.textSec};padding:10px;text-align:center">Reading the statement… (10-15 sec)</div>`;
+  const sys = `You are a macro strategist advising an /NQ (Nasdaq-100 futures options) PREMIUM SELLER (bull put / bear call credit spreads). Read the latest FOMC statement vs the prior one. Return ONLY a JSON object:
+{"stance":"HAWKISH" | "DOVISH" | "NEUTRAL" (+ optional "(leaning ...)"),
+ "summary":"2-3 sentence plain-English read of what the Fed signaled",
+ "changes":["specific wording/policy changes vs the prior statement", "..."],
+ "implications":"2-3 sentences: what this means for selling /NQ premium — vol regime, rate path, what to watch into the next meeting"}`;
+  const ctx = `LATEST FOMC STATEMENT (${_fomcData.date}):\n${_fomcData.text}\n\nPRIOR FOMC STATEMENT (${_fomcData.priorDate || "n/a"}):\n${_fomcData.priorText || "(unavailable)"}\n\nReturn ONLY the JSON object.`;
+  try {
+    const resp = await fetch("/api/anthropic", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1600, system: sys, messages: [{ role: "user", content: ctx }] }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) { el.innerHTML = `<div style="color:${C.neg};font-size:11px;padding:8px">AI call failed: ${escapeHtml(data.error?.message || ("HTTP " + resp.status))}</div>`; return; }
+    const text = data.content?.[0]?.text || "";
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) { el.innerHTML = `<div style="color:${C.warn};font-size:11px;padding:8px">AI response had no JSON.</div>`; return; }
+    const rev = JSON.parse(m[0]);
+    try { localStorage.setItem(`_fomcRead:${_fomcData.date}`, JSON.stringify({ ts: Date.now(), data: rev })); } catch {}
+    el.innerHTML = _renderFOMCRead(rev);
+  } catch (e) {
+    el.innerHTML = `<div style="color:${C.neg};font-size:11px;padding:8px">Failed: ${escapeHtml(e.message)}</div>`;
+  }
 }
 
 // Macro calendar: next month of G7 + China economic events (RapidAPI, via the
