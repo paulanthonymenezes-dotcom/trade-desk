@@ -8848,7 +8848,7 @@ async function _loadMacroCalendar() {
   const body = document.getElementById("macro-cal-body");
   if (!body) return;
   try {
-    const r = await fetch(`/mkt/api/macro/calendar?country=US&days=7`);
+    const r = await fetch(`/api/macro-calendar?country=US&days=7`);
     if (!r.ok) { body.innerHTML = _macroCalMsg(`Calendar unavailable (HTTP ${r.status}).`); return; }
     const d = await r.json();
     if (d.s === "error") { body.innerHTML = _macroCalMsg(`Calendar unavailable: ${escapeHtml(d.errmsg || "error")}.`); return; }
