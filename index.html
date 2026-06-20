@@ -8830,8 +8830,8 @@ function renderForward() {
 
     <div class="card" style="padding:14px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">📅 MACRO CALENDAR — NEXT 7 DAYS</div>
-        <div style="font-size:9px;color:${C.textMut}">US economic events · <span style="color:${C.warn}">●</span> high-impact</div>
+        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">📅 MACRO CALENDAR — NEXT MONTH · G7 + China</div>
+        <div style="font-size:9px;color:${C.textMut}"><span style="color:${C.warn}">●</span> high &nbsp; <span style="color:${C.textSec}">●</span> medium</div>
       </div>
       <div id="macro-cal-body"><div style="font-size:11px;color:${C.textMut};font-style:italic">Loading macro calendar…</div></div>
     </div>
@@ -8839,57 +8839,77 @@ function renderForward() {
   _loadMacroCalendar();
 }
 
-// Fetch the next 7 days of US economic events (RapidAPI Global Economic Calendar,
-// via the VPS proxy) and render them grouped by day. The proxy returns events
-// pre-filtered to US + the window, sorted by time, each tagged with the API's own
-// HIGH/MEDIUM/LOW importance. Degrades gracefully: a clear message instead of a
-// hung spinner if the proxy/key/quota can't serve it.
+// Macro calendar: next month of G7 + China economic events (RapidAPI, via the
+// Vercel /api/macro-calendar fn). Stores the fetched events so the HIGH-only
+// toggle can re-render without re-fetching.
+const _MACRO_FLAG = { US: "🇺🇸", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷", IT: "🇮🇹", CA: "🇨🇦", JP: "🇯🇵", EU: "🇪🇺", CN: "🇨🇳" };
+let _macroCalEvents = [];
+let _macroCalHighOnly = false;
+
 async function _loadMacroCalendar() {
   const body = document.getElementById("macro-cal-body");
   if (!body) return;
   try {
-    const r = await fetch(`/api/macro-calendar?country=US&days=7`);
+    const r = await fetch(`/api/macro-calendar?days=31`);
     if (!r.ok) { body.innerHTML = _macroCalMsg(`Calendar unavailable (HTTP ${r.status}).`); return; }
     const d = await r.json();
     if (d.s === "error") { body.innerHTML = _macroCalMsg(`Calendar unavailable: ${escapeHtml(d.errmsg || "error")}.`); return; }
-    const events = Array.isArray(d.events) ? d.events : [];
-    if (!events.length) { body.innerHTML = _macroCalMsg("No US economic events in the next 7 days."); return; }
-
-    const isHi = ev => (ev.importance || "").toUpperCase() === "HIGH";
-    const byDay = {};
-    for (const ev of events) {
-      const day = (ev.date || "").slice(0, 10);
-      if (!day) continue;
-      (byDay[day] = byDay[day] || []).push(ev);
-    }
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const blocks = Object.keys(byDay).sort().map(day => {
-      const dd = new Date(day + "T12:00:00");
-      const hdr = `${dayNames[dd.getDay()]} ${day.slice(5)}`;
-      const rows = byDay[day].map(ev => {
-        const imp = (ev.importance || "").toUpperCase();
-        const hi = imp === "HIGH", med = imp === "MEDIUM";
-        const dot = hi ? `<span style="color:${C.warn}">● </span>` : (med ? `<span style="color:${C.textSec}">● </span>` : "");
-        // occurrence_time is UTC; show local HH:MM so it lines up with the trading day.
-        const t = ev.date ? new Date(ev.date) : null;
-        const time = (t && !isNaN(t)) ? t.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "";
-        const u = ev.unit && ev.unit !== "UNKNOWN" ? ev.unit : "";
-        const fwd = ev.estimate != null ? `est ${ev.estimate}${u}` : (ev.previous != null ? `prev ${ev.previous}${u}` : "");
-        return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:10px">
-          <span style="color:${hi ? C.text : C.textSec}">${dot}${escapeHtml(ev.type || "—")}</span>
-          <span style="color:${C.textMut};font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:10px">${time ? time + " · " : ""}${escapeHtml(fwd)}</span>
-        </div>`;
-      }).join("");
-      return `<div style="margin-bottom:8px">
-        <div style="font-size:9px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;border-bottom:1px solid ${C.border};padding-bottom:3px;margin-bottom:3px">${hdr}</div>
-        ${rows}
-      </div>`;
-    }).join("");
-    const hiCount = events.filter(isHi).length;
-    body.innerHTML = blocks + `<div style="font-size:9px;color:${C.textMut};margin-top:4px">${events.length} events · ${hiCount} high-impact. Size down ahead of ● days.</div>`;
+    _macroCalEvents = Array.isArray(d.events) ? d.events : [];
+    if (!_macroCalEvents.length) { body.innerHTML = _macroCalMsg("No G7/China events in the next month."); return; }
+    _renderMacroCal();
   } catch (e) {
     body.innerHTML = _macroCalMsg(`Failed to load: ${escapeHtml(e.message)}`);
   }
+}
+
+function _toggleMacroHigh() { _macroCalHighOnly = !_macroCalHighOnly; _renderMacroCal(); }
+
+function _renderMacroCal() {
+  const body = document.getElementById("macro-cal-body");
+  if (!body) return;
+  const all = _macroCalEvents;
+  const events = _macroCalHighOnly ? all.filter(e => (e.importance || "").toUpperCase() === "HIGH") : all;
+
+  // clickable HIGH-only toggle (the "● high" chip)
+  const on = _macroCalHighOnly;
+  const toggle = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <button onclick="_toggleMacroHigh()" title="Show only high-impact events"
+      style="background:${on ? C.warn : "transparent"};color:${on ? "#1a1a1a" : C.warn};border:1px solid ${C.warn};border-radius:5px;padding:3px 11px;font-size:10px;font-weight:600;cursor:pointer">● High impact${on ? " ✓" : " only"}</button>
+    <span style="font-size:9px;color:${C.textMut}">${events.length} of ${all.length} events</span>
+  </div>`;
+
+  if (!events.length) { body.innerHTML = toggle + _macroCalMsg("No high-impact events in the next month."); return; }
+
+  const byDay = {};
+  for (const ev of events) { const day = (ev.date || "").slice(0, 10); if (day) (byDay[day] = byDay[day] || []).push(ev); }
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const blocks = Object.keys(byDay).sort().map(day => {
+    const dd = new Date(day + "T12:00:00");
+    const hdr = `${dayNames[dd.getDay()]} ${day.slice(5)}`;
+    const rows = byDay[day].map(ev => {
+      const imp = (ev.importance || "").toUpperCase();
+      const hi = imp === "HIGH";
+      const dot = `<span style="color:${hi ? C.warn : C.textSec}">●</span>`;
+      const flag = _MACRO_FLAG[ev.country] || (ev.country || "");
+      const t = ev.date ? new Date(ev.date) : null;
+      const time = (t && !isNaN(t)) ? t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+      const u = ev.unit && ev.unit !== "UNKNOWN" ? ev.unit : "";
+      const pv = ev.previous != null ? `${ev.previous}${u}` : "";
+      const es = ev.estimate != null ? `${ev.estimate}${u}` : "";
+      const val = (pv && es) ? `${pv} → ${es}` : (pv ? `prev ${pv}` : (es ? `est ${es}` : ""));
+      return `<div style="display:flex;align-items:baseline;gap:14px;padding:4px 0;font-size:10px;border-bottom:1px solid ${C.border}">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${hi ? C.text : C.textSec}">${dot} ${flag} ${escapeHtml(ev.type || "—")}</span>
+        <span style="width:72px;text-align:right;flex-shrink:0;color:${C.textMut};font-variant-numeric:tabular-nums">${time}</span>
+        <span style="width:118px;text-align:right;flex-shrink:0;color:${C.textMut};font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(val)}">${escapeHtml(val)}</span>
+      </div>`;
+    }).join("");
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:9px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;border-bottom:1px solid ${C.borderVis};padding-bottom:3px;margin-bottom:2px">${hdr}</div>
+      ${rows}
+    </div>`;
+  }).join("");
+  const hiCount = all.filter(e => (e.importance || "").toUpperCase() === "HIGH").length;
+  body.innerHTML = toggle + blocks + `<div style="font-size:9px;color:${C.textMut};margin-top:4px">${all.length} events · ${hiCount} high-impact across G7 + China. Size down ahead of ● days.</div>`;
 }
 
 function _macroCalMsg(msg) {
