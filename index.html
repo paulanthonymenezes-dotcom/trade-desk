@@ -377,6 +377,7 @@ table{width:100%;border-collapse:collapse}
 #main.dashboard-mode #tab-forward.active,
 #main.dashboard-mode #tab-eecharts.active,
 #main.dashboard-mode #tab-guardrails.active,
+#main.dashboard-mode #tab-resources.active,
 #main.dashboard-mode #tab-forecast.active{display:block;grid-column:1/-1}
 @media(max-width:900px){
   #main.dashboard-mode{grid-template-columns:1fr;padding:8px 8px 80px}
@@ -585,6 +586,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('guardrails',this)"><span class="nav-icon">🛡️</span><span class="side-label">Guardrails</span></button>
   <button class="side-btn" onclick="switchTab('eecharts',this)"><span class="nav-icon">📈</span><span class="side-label">Entry/Exit Charts</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
+  <button class="side-btn" onclick="switchTab('resources',this)"><span class="nav-icon">🔗</span><span class="side-label">Resources</span></button>
 </nav>
 
 <div id="app-layout">
@@ -701,6 +703,11 @@ table{width:100%;border-collapse:collapse}
   <!-- GUARDRAILS TAB -->
   <div id="tab-guardrails" class="section" style="display:none">
     <div id="guardrails-content" style="max-width:760px;margin:0 auto"></div>
+  </div>
+
+  <!-- RESOURCES TAB -->
+  <div id="tab-resources" class="section" style="display:none">
+    <div id="resources-content" style="max-width:900px;margin:0 auto"></div>
   </div>
 
   <!-- ENTRY & EXIT CHARTS TAB -->
@@ -9641,6 +9648,70 @@ function _etToUnixStop(ds, ts) {
 
 // ── Guardrails: live stop/TP calculator for the moment you place a trade ──
 // Two things you know at entry (credit + strikes) → the three numbers you place:
+// ── Resources tab: editable bookmarks to market sites, persisted in STATE ──
+const _RES_DEFAULTS = [
+  { name: "Bloomberg Markets", url: "https://www.bloomberg.com/markets" },
+  { name: "WSJ Markets", url: "https://www.wsj.com/news/markets" },
+];
+function _resList() {
+  if (!Array.isArray(STATE.resources)) STATE.resources = _RES_DEFAULTS.map(r => ({ ...r }));
+  return STATE.resources;
+}
+function renderResources() {
+  const el = document.getElementById("resources-content");
+  if (!el) return;
+  const list = _resList();
+  const card = (r, i) => {
+    let host = ""; try { host = new URL(r.url).hostname.replace(/^www\./, ""); } catch (e) { host = r.url; }
+    const letter = ((r.name || host || "?").trim()[0] || "?").toUpperCase();
+    return `<div class="card" style="padding:0;overflow:hidden;position:relative">
+      <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;gap:11px;padding:14px;text-decoration:none;color:inherit">
+        <div style="width:30px;height:30px;border-radius:7px;background:${C.accent}22;color:${C.accent};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${escapeHtml(letter)}</div>
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:600;color:${C.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.name || host)}</div>
+          <div style="font-size:10px;color:${C.textMut};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(host)} ↗</div>
+        </div>
+      </a>
+      <button onclick="_removeResource(${i})" title="Remove" style="position:absolute;top:5px;right:6px;background:transparent;border:none;color:${C.textMut};cursor:pointer;font-size:13px;line-height:1;padding:3px">✕</button>
+    </div>`;
+  };
+  el.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-size:18px;color:${C.text};font-weight:600">🔗 Resources</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">Your market links — click to open in a new tab. Add or remove your own below.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:18px">
+      ${list.map(card).join("") || `<div style="color:${C.textMut};font-size:12px">No resources yet — add one below.</div>`}
+    </div>
+    <div class="card" style="padding:12px 14px">
+      <div style="font-size:10px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Add a resource</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="res-name" placeholder="Name (e.g. CME FedWatch)" style="flex:1 1 180px;background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:13px" onkeydown="if(event.key==='Enter')_addResource()">
+        <input id="res-url" placeholder="https://…" style="flex:2 1 280px;background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:13px;font-family:'IBM Plex Mono',monospace" onkeydown="if(event.key==='Enter')_addResource()">
+        <button onclick="_addResource()" class="btn btn-p" style="font-size:12px;padding:7px 16px;font-weight:600">Add</button>
+      </div>
+    </div>`;
+}
+function _addResource() {
+  const n = document.getElementById("res-name"), u = document.getElementById("res-url");
+  let url = (u.value || "").trim(), name = (n.value || "").trim();
+  if (!url) { u.focus(); return; }
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  let parsed; try { parsed = new URL(url); } catch (e) { alert("That doesn't look like a valid URL."); return; }
+  if (!/^https?:$/.test(parsed.protocol)) { alert("Only http/https links are allowed."); return; }
+  if (!name) name = parsed.hostname.replace(/^www\./, "");
+  _resList().push({ name, url });
+  if (typeof save === "function") save();
+  renderResources();
+}
+function _removeResource(i) {
+  const list = _resList();
+  if (i < 0 || i >= list.length) return;
+  list.splice(i, 1);
+  if (typeof save === "function") save();
+  renderResources();
+}
+
 //   • exact premium buy-back prices for +50% TP, −75% warn, −100% stop (no model)
 //   • the modeled /NQ underlying level that = −75% / −100% (your price alert)
 // Standalone — does NOT depend on the (often stale) IBKR trade history.
@@ -15891,7 +15962,7 @@ mktLoadAll();
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'resources'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -15960,6 +16031,8 @@ function switchTab(tab, btn) {
     if (typeof renderEntryExitCharts === 'function') renderEntryExitCharts();
   } else if (tab === 'guardrails') {
     if (typeof renderGuardrails === 'function') renderGuardrails();
+  } else if (tab === 'resources') {
+    if (typeof renderResources === 'function') renderResources();
   } else if (tab === 'premarket') {
     if (typeof renderMorningChecklist === 'function') renderMorningChecklist();
   }
