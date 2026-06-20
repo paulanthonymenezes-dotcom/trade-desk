@@ -10071,7 +10071,8 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
 // entry/exit + MAE/MFE (ignores live toggles), no stop/profile clutter.
 async function _chartToImage(t, res) {
   const host = document.createElement("div");
-  host.style.cssText = "position:fixed;left:-10000px;top:0;width:520px;height:300px";
+  // Larger render so the candles are legible in the PDF (4-hour especially).
+  host.style.cssText = `position:fixed;left:-10000px;top:0;width:${res === 240 ? 1040 : 760}px;height:${res === 240 ? 400 : 360}px`;
   document.body.appendChild(host);
   let url = null;
   try {
@@ -10094,23 +10095,23 @@ async function _buildReportCharts(closed, onProgress) {
   if (!withC.length) return "";
   let blocks = "", done = 0;
   for (const t of withC) {
-    const imgs = [];
-    for (const [res, lbl] of [[5, "5-min"], [30, "30-min"], [240, "4-hour"]]) {
-      const url = await _chartToImage(t, res);
-      imgs.push(url
-        ? `<figure style="margin:0;flex:1 1 0"><figcaption style="font-size:9px;color:#6b7280;margin-bottom:2px">${lbl}</figcaption><img src="${url}" style="width:100%;border:1px solid #e5e7eb;border-radius:4px"></figure>`
-        : `<div style="flex:1 1 0;font-size:9px;color:#9ca3af">${lbl}: n/a</div>`);
-    }
+    const urls = {};
+    for (const res of [5, 30, 240]) urls[res] = await _chartToImage(t, res);
+    const cred = t.premiumCollected || 0;
+    const pct = v => (cred && typeof v === "number") ? ` (${v >= 0 ? "+" : "−"}${Math.abs(v / cred * 100).toFixed(0)}%)` : "";
+    const fig = (url, lbl, full) => url
+      ? `<figure style="margin:0;${full ? "width:100%" : "flex:1 1 0;min-width:0"}"><figcaption style="font-size:9px;color:#6b7280;margin-bottom:2px">${lbl}</figcaption><img src="${url}" style="width:100%;display:block;border:1px solid #e5e7eb;border-radius:4px"></figure>`
+      : `<div style="${full ? "width:100%" : "flex:1 1 0"};font-size:9px;color:#9ca3af">${lbl}: n/a</div>`;
     const win = (t.realizedPnl || 0) >= 0;
     const strikes = t.longStrike ? `${t.shortStrike}/${t.longStrike}` : (t.shortStrike || "");
-    const mae = t._autoMAE?.pnl, mfe = t._autoMFE?.pnl, cred = t.premiumCollected || 0;
-    const pct = v => (cred && typeof v === "number") ? ` (${v >= 0 ? "+" : "−"}${Math.abs(v / cred * 100).toFixed(0)}%)` : "";
-    blocks += `<div style="page-break-inside:avoid;margin:0 0 16px">
+    const mae = t._autoMAE?.pnl, mfe = t._autoMFE?.pnl;
+    blocks += `<div style="page-break-inside:avoid;margin:0 0 18px">
       <div style="font-size:11px;font-weight:600;color:#111827">${esc(t.ticker || "")} · ${esc((t.tradeType || "").slice(0, 26))} · ${esc(String(strikes))}
-        <span style="color:${win ? "#16a34a" : "#dc2626"}"> · ${win ? "+" : "−"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}</span>
+        <span style="color:${win ? "#16a34a" : "#dc2626"}"> · ${win ? "+" : "−"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}${pct(t.realizedPnl)}</span>
         <span style="color:#6b7280;font-weight:400"> · ${esc(t.entryDate || "")}${t.entryTime ? " " + esc(t.entryTime) : ""} → ${esc(t.exitDate || "")}${t.exitTime ? " " + esc(t.exitTime) : ""}
         ${typeof mae === "number" ? ` · MAE ${pct(mae)}` : ""}${typeof mfe === "number" ? ` · MFE ${pct(mfe)}` : ""}</span></div>
-      <div style="display:flex;gap:8px;margin-top:4px">${imgs.join("")}</div>
+      <div style="display:flex;gap:8px;margin-top:4px">${fig(urls[5], "5-min · execution", false)}${fig(urls[30], "30-min · context", false)}</div>
+      <div style="margin-top:8px">${fig(urls[240], "4-hour · big picture", true)}</div>
     </div>`;
     done++; if (onProgress) onProgress(done, withC.length);
   }
