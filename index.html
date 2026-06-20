@@ -9408,9 +9408,10 @@ function _macroCalMsg(msg) {
 let _eeFilter = "all";
 function _eeSetFilter(f, btn) { _eeFilter = f; renderEntryExitCharts(); }
 // Overlay toggles — show/hide on ALL charts at once; preference persists.
-let _eeShowMAE = localStorage.getItem("ee_mae") !== "0";
-let _eeShowStops = localStorage.getItem("ee_stops") !== "0";
-let _eeShowProfile = localStorage.getItem("ee_prof") !== "0";
+// Overlays default OFF — clean candles first; opt in per layer via the toggles.
+let _eeShowMAE = localStorage.getItem("ee_mae") === "1";
+let _eeShowStops = localStorage.getItem("ee_stops") === "1";
+let _eeShowProfile = localStorage.getItem("ee_prof") === "1";
 function _eeToggleOverlay(which) {
   if (which === "mae") { _eeShowMAE = !_eeShowMAE; localStorage.setItem("ee_mae", _eeShowMAE ? "1" : "0"); }
   else if (which === "prof") { _eeShowProfile = !_eeShowProfile; localStorage.setItem("ee_prof", _eeShowProfile ? "1" : "0"); }
