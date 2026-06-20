@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/sync-ibkr", "schedule": "0 8 * * *" }
+  ],
   "rewrites": [
     { "source": "/scanner/:path*", "destination": "http://64.225.57.14:8787/:path*" },
     { "source": "/mkt/:path*", "destination": "http://64.225.57.14:8787/:path*" }
