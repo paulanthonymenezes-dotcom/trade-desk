@@ -18,7 +18,10 @@
 // Arm it (only after verification): set SYNC_WRITE_ENABLED=1 in Vercel env.
 
 const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyanBzd3JpcnN6ZXJocGJvamdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzMzgyOTQsImV4cCI6MjA4NzkxNDI5NH0.aLCb5xP8WbeQuMpLJ3uoGFYebENCWQ-WBbtQZLvtYuA";
+// Service-role key (bypasses RLS so we can read AND write the state row). MUST be
+// set in Vercel env — without it the state read comes back empty (RLS), and the
+// empty-state guard below aborts rather than risk duplicating your whole history.
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 const SB_HEADERS = { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -262,6 +265,13 @@ export default async function handler(req, res) {
 
     const recon = reconstructFlexTrades(csv);
     if (!recon.length) return res.status(200).json({ s: "error", errmsg: "no trades reconstructed from Flex CSV" });
+
+    // SAFETY GUARD: if we got an empty existing state but the reconstruction found
+    // trades, the state read failed (no SUPABASE_SERVICE_KEY / RLS) — ABORT. A real
+    // account always has prior trades; appending here would duplicate everything.
+    if ((state.trades || []).length === 0 && recon.length > 0) {
+      return res.status(200).json({ s: "error", errmsg: "refused: existing state read came back empty (set SUPABASE_SERVICE_KEY in Vercel env). Not appending, to avoid duplicating history." });
+    }
 
     // APPEND-ONLY: only adds new closed trades; never touches existing ones.
     const summary = applyFlexAppendOnly(recon, state);
