@@ -9652,9 +9652,23 @@ function _etToUnixStop(ds, ts) {
 const _RES_DEFAULTS = [
   { name: "Bloomberg Markets", url: "https://www.bloomberg.com/markets" },
   { name: "WSJ Markets", url: "https://www.wsj.com/news/markets" },
+  { name: "FT — Today's Paper", url: "https://www.ft.com/todaysnewspaper" },
+  { name: "Globe and Mail — Investing", url: "https://www.theglobeandmail.com/investing/" },
+  { name: "The Daily Shot", url: "https://thedailyshot.com" },
+  { name: "Spectra Markets — Library", url: "https://www.spectramarkets.com/library/" },
+  { name: "Nikkei Asia — Markets", url: "https://asia.nikkei.com/business/markets" },
+  { name: "InvestingLive", url: "https://investinglive.com" },
 ];
 function _resList() {
   if (!Array.isArray(STATE.resources)) STATE.resources = _RES_DEFAULTS.map(r => ({ ...r }));
+  // One-time top-up: add any default links missing from an existing list (e.g.
+  // users who already had just the first two). Flag stops it re-adding ones you
+  // later remove. Persists on the next save().
+  if (!STATE._resSeedV2) {
+    const have = new Set(STATE.resources.map(r => (r.url || "").replace(/\/+$/, "")));
+    for (const d of _RES_DEFAULTS) { if (!have.has(d.url.replace(/\/+$/, ""))) STATE.resources.push({ ...d }); }
+    STATE._resSeedV2 = true;
+  }
   return STATE.resources;
 }
 function renderResources() {
