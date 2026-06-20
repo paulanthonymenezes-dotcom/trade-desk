@@ -9573,6 +9573,27 @@ function _stopCalcCard() {
     <div id="sc-result" style="margin-top:12px"></div>
   </div>`;
 }
+// Aggregate banner — what the actual minute-by-minute crossings (_stopActual) say
+// about a hard −100% stop across the book. Only the loss-side "gross saved" is shown
+// alongside the winners that touched the stop, so the trade-off stays honest.
+function _stopActualBanner() {
+  const ts = (STATE.trades || []).filter(t => (t.ticker || "").startsWith("/NQ") && t._stopActual);
+  if (!ts.length) return "";
+  let hit100 = 0, winnersTouched = 0, saved = 0;
+  for (const t of ts) {
+    const sa = t._stopActual;
+    if (sa.stop100) { hit100++; if ((t.realizedPnl || 0) > 0) winnersTouched++; }
+    saved += sa.wouldSaveUsd || 0;
+  }
+  if (!hit100) return "";
+  return `<div class="card" style="padding:10px 14px;margin-bottom:14px;border-left:3px solid #ff453a">
+    <div style="font-size:11px;color:${C.textSec};line-height:1.6">
+      <b style="color:${C.text}">Across ${ts.length} /NQ trades (actual minute data):</b>
+      <b style="color:#ff453a">${hit100}</b> hit −100% of credit ·
+      a hard −100% stop would have saved <b style="color:${C.pos}">$${saved.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b> gross on the losers ·
+      but <b style="color:${C.warn}">${winnersTouched}</b> winners also touched −100% (you'd have stopped out of those) — so the <i>net</i> is lower; the TP/SL optimizer computes it properly.
+    </div></div>`;
+}
 function _runStopCalc() {
   const g = (id) => document.getElementById(id);
   const isPut = g("sc-type").value === "put";
@@ -9650,8 +9671,9 @@ function renderEntryExitCharts() {
       </div>
       <div style="display:flex;gap:6px">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}</div>
     </div>
+    ${_stopActualBanner()}
     ${_stopCalcCard()}
-    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> lines on each chart${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
+    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> model lines + actual crossing (dotted) on each chart${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
     <div style="display:flex;flex-direction:column;gap:14px">${cards}</div>`
       : emptyState("ENTRY & EXIT CHARTS", "No closed trades in this filter.")}`;
 
@@ -9732,8 +9754,23 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
       const stopPx = draw(sl.stop100, "#ff453a", 0, "STOP -100%");
       slInfo = sl.stop100?.unreachable
         ? ` · stop n/a (max loss ${sl.stop100.capPct.toFixed(0)}% of credit)`
-        : (stopPx != null ? ` · -100% stop @ ${stopPx.toFixed(0)} (IV ${(sl.iv * 100).toFixed(0)}%)` : "");
+        : (stopPx != null ? ` · model -100% @ ${stopPx.toFixed(0)} (IV ${(sl.iv * 100).toFixed(0)}%)` : "");
     }
+  }
+  // Actual crossing from the minute-by-minute P&L (data/cache/minute_pnl) — the
+  // real underlying level + bar where the spread truly hit −100% of credit.
+  const sa = t._stopActual;
+  if (sa) {
+    const isPut = /put/i.test(t.tradeType || "");
+    if (sa.stop100 && sa.stop100.nq != null) {
+      series.createPriceLine({ price: sa.stop100.nq, color: "#ff453a", lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: `actual -100% ${sa.stop100.nq.toFixed(0)}` });
+      slInfo += ` · actual @ ${sa.stop100.nq.toFixed(0)}`;
+    }
+    if (sa.stop100 && sa.stop100.ts) {
+      markers.push({ time: near(sa.stop100.ts).time, position: isPut ? "belowBar" : "aboveBar", color: "#ff453a", shape: "circle", text: "−100% hit" });
+      markers.sort((a, b) => a.time - b.time); series.setMarkers(markers);
+    }
+    if (typeof sa.maxAdvPct === "number") slInfo += ` · max −${sa.maxAdvPct.toFixed(0)}%`;
   }
 
   chart.timeScale().fitContent();
