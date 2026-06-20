@@ -9789,41 +9789,28 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "IN " + p.toFixed(0) }); }
   if (intraday && exitT) { const p = near(exitT).close; if (p != null) series.createPriceLine({ price: p, color: (t.realizedPnl || 0) >= 0 ? C.pos : C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "OUT " + p.toFixed(0) }); }
 
-  // Stop-loss levels — modeled underlying price where the spread reaches 75% / 100%
-  // of credit lost (Black-76, IV calibrated to the entry credit, vol-expansion est.).
+  // Stop levels on the review chart come from the ACTUAL minute-by-minute marks
+  // (data/cache/minute_pnl), not the Black-76 model. The model assumes a fixed
+  // time-to-expiry, but the real −75/−100% underlying level drifts toward the
+  // short strike as theta decays — so a static modeled line misleads on trades
+  // held to expiry. The empirical crossing is ground truth (and absent = never
+  // hit). The forward model lives in the Guardrails tab, at entry DTE.
   let slInfo = "";
-  const f0px = entryT ? near(entryT).close : null;
-  if (_eeShowStops && f0px != null) {
-    const sl = _computeStopLevels(t, { F0: f0px });
-    if (sl) {
-      const draw = (L, color, style, label) => {
-        if (!L || L.unreachable) return null;
-        const px = L.vol || L.flat;
-        if (px == null) return null;
-        series.createPriceLine({ price: px, color, lineWidth: 2, lineStyle: style, axisLabelVisible: true, title: `${label} ${px.toFixed(0)}` });
-        return px;
-      };
-      draw(sl.warn75, C.warn, 2, "-75%");
-      const stopPx = draw(sl.stop100, "#ff453a", 0, "STOP -100%");
-      slInfo = sl.stop100?.unreachable
-        ? ` · stop n/a (max loss ${sl.stop100.capPct.toFixed(0)}% of credit)`
-        : (stopPx != null ? ` · model -100% @ ${stopPx.toFixed(0)} (IV ${(sl.iv * 100).toFixed(0)}%)` : "");
-    }
-  }
-  // Actual crossing from the minute-by-minute P&L (data/cache/minute_pnl) — the
-  // real underlying level + bar where the spread truly hit −100% of credit.
   const sa = t._stopActual;
   if (_eeShowStops && sa) {
     const isPut = /put/i.test(t.tradeType || "");
-    if (sa.stop100 && sa.stop100.nq != null) {
-      series.createPriceLine({ price: sa.stop100.nq, color: "#ff453a", lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: `actual -100% ${sa.stop100.nq.toFixed(0)}` });
-      slInfo += ` · actual @ ${sa.stop100.nq.toFixed(0)}`;
-    }
+    const drawActual = (L, color, label) => {
+      if (!L || L.nq == null) return;
+      series.createPriceLine({ price: L.nq, color, lineWidth: 2, lineStyle: 3, axisLabelVisible: true, title: `${label} ${L.nq.toFixed(0)}` });
+    };
+    drawActual(sa.warn75, C.warn, "-75% hit");
+    drawActual(sa.stop100, "#ff453a", "-100% hit");
     if (sa.stop100 && sa.stop100.ts) {
       markers.push({ time: near(sa.stop100.ts).time, position: isPut ? "belowBar" : "aboveBar", color: "#ff453a", shape: "circle", text: "−100% hit" });
       markers.sort((a, b) => a.time - b.time); series.setMarkers(markers);
     }
-    if (typeof sa.maxAdvPct === "number") slInfo += ` · max −${sa.maxAdvPct.toFixed(0)}%`;
+    if (sa.stop100 && sa.stop100.nq != null) slInfo += ` · hit −100% @ ${sa.stop100.nq.toFixed(0)}`;
+    else if (typeof sa.maxAdvPct === "number") slInfo += ` · worst −${sa.maxAdvPct.toFixed(0)}% (never hit stop)`;
   }
 
   chart.timeScale().fitContent();
