@@ -9363,7 +9363,7 @@ async function _runFOMCRead() {
 // toggle can re-render without re-fetching.
 const _MACRO_FLAG = { US: "🇺🇸", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷", IT: "🇮🇹", CA: "🇨🇦", JP: "🇯🇵", EU: "🇪🇺", CN: "🇨🇳" };
 let _macroCalEvents = [];
-let _macroCalHighOnly = false;
+let _macroCalTier = "all";   // "all" | "high" (high+critical) | "critical"
 let _macroCalCountries = new Set(Object.keys(_MACRO_FLAG));
 
 async function _loadMacroCalendar() {
@@ -9394,7 +9394,7 @@ function _macroTier(ev) {
   return imp;
 }
 const _MACRO_RED = "#ff453a";
-function _toggleMacroHigh() { _macroCalHighOnly = !_macroCalHighOnly; _renderMacroCal(); }
+function _setMacroTier(tier) { _macroCalTier = tier; _renderMacroCal(); }
 function _toggleMacroCountry(cc) {
   // If all are on, the first click isolates to that country; otherwise toggle it.
   const allCC = Object.keys(_MACRO_FLAG);
@@ -9411,21 +9411,28 @@ function _renderMacroCal() {
   const allCC = Object.keys(_MACRO_FLAG);
   const activeC = _macroCalCountries.size ? _macroCalCountries : new Set(allCC);
   const allOn = _macroCalCountries.size === allCC.length;
-  const events = all.filter(e => activeC.has(e.country) && (!_macroCalHighOnly || (e.importance || "").toUpperCase() === "HIGH"));
+  const events = all.filter(e => activeC.has(e.country) && (
+    _macroCalTier === "all" ? true :
+    _macroCalTier === "critical" ? _macroTier(e) === "CRITICAL" :
+    (e.importance || "").toUpperCase() === "HIGH"   // "high" = high + critical
+  ));
 
-  // HIGH-only chip (left) + clickable country flags (top-right). Click a flag to
-  // isolate that country; click more to add; deselecting all resets to everything.
-  const on = _macroCalHighOnly;
+  // Tier filter (All / High / Critical — matches the legend) on the left;
+  // clickable country flags on the right. Click a flag to isolate; click more to
+  // add; deselecting all resets to everything.
   const flagBar = allCC.map(cc => {
     const act = activeC.has(cc);
-    return `<span onclick="_toggleMacroCountry('${cc}')" title="${cc}${act ? "" : " (hidden — click to show)"}" style="cursor:pointer;font-size:13px;line-height:1;opacity:${act ? 1 : 0.25};filter:${act ? "none" : "grayscale(1)"}">${_MACRO_FLAG[cc]}</span>`;
+    return `<span onclick="_toggleMacroCountry('${cc}')" title="${cc}${act ? "" : " (hidden — click to show)"}" style="cursor:pointer;font-size:16px;line-height:1;opacity:${act ? 1 : 0.25};filter:${act ? "none" : "grayscale(1)"}">${_MACRO_FLAG[cc]}</span>`;
   }).join("");
-  const toggle = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">
-    <button onclick="_toggleMacroHigh()" title="Show only high-impact events"
-      style="flex-shrink:0;background:${on ? C.warn : "transparent"};color:${on ? "#1a1a1a" : C.warn};border:1px solid ${C.warn};border-radius:5px;padding:3px 11px;font-size:10px;font-weight:600;cursor:pointer">● High${on ? " ✓" : " only"}</button>
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">${flagBar}</div>
+  const tierPill = (key, label, col) => {
+    const act = _macroCalTier === key;
+    return `<button onclick="_setMacroTier('${key}')" style="background:${act ? col : "transparent"};color:${act ? "#101418" : col};border:1px solid ${col};border-radius:6px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer">${label}</button>`;
+  };
+  const toggle = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap">
+    <div style="display:flex;gap:6px;flex-shrink:0">${tierPill("all", "All", C.textSec)}${tierPill("high", "● High", C.warn)}${tierPill("critical", "● Critical", _MACRO_RED)}</div>
+    <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end">${flagBar}</div>
   </div>
-  <div style="display:flex;justify-content:space-between;font-size:9px;color:${C.textMut};margin-bottom:8px">
+  <div style="display:flex;justify-content:space-between;font-size:11px;color:${C.textSec};margin-bottom:10px">
     <span>${allOn ? "all countries" : [...activeC].join(" ") + ` · <a onclick="_macroCalCountries=new Set(Object.keys(_MACRO_FLAG));_renderMacroCal()" style="color:${C.accent};cursor:pointer">reset</a>`}</span>
     <span>${events.length} of ${all.length} events</span>
   </div>`;
@@ -9449,14 +9456,14 @@ function _renderMacroCal() {
       const pv = ev.previous != null ? `${ev.previous}${u}` : "";
       const es = ev.estimate != null ? `${ev.estimate}${u}` : "";
       const val = (pv && es) ? `${pv} → ${es}` : (pv ? `prev ${pv}` : (es ? `est ${es}` : ""));
-      return `<div style="display:flex;align-items:baseline;gap:14px;padding:4px 0;font-size:10px;border-bottom:1px solid ${C.border}">
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${crit ? C.text : (hi ? C.text : C.textSec)};font-weight:${crit ? 600 : 400}">${dot} ${flag} ${escapeHtml(ev.type || "—")}</span>
-        <span style="width:72px;text-align:right;flex-shrink:0;color:${C.textMut};font-variant-numeric:tabular-nums">${time}</span>
-        <span style="width:118px;text-align:right;flex-shrink:0;color:${C.textMut};font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(val)}">${escapeHtml(val)}</span>
+      return `<div style="display:flex;align-items:baseline;gap:14px;padding:6px 0;font-size:13px;border-bottom:1px solid ${C.border}">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${crit || hi ? C.text : C.textSec};font-weight:${crit ? 600 : 400}">${dot} ${flag} ${escapeHtml(ev.type || "—")}</span>
+        <span style="width:84px;text-align:right;flex-shrink:0;color:${C.text};font-weight:500;font-variant-numeric:tabular-nums">${time}</span>
+        <span style="width:140px;text-align:right;flex-shrink:0;color:${C.text};font-weight:500;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(val)}">${escapeHtml(val)}</span>
       </div>`;
     }).join("");
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:9px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;border-bottom:1px solid ${C.borderVis};padding-bottom:3px;margin-bottom:2px">${hdr}</div>
+    return `<div style="margin-bottom:12px">
+      <div style="font-size:11px;color:${C.textSec};letter-spacing:0.06em;font-weight:600;border-bottom:1px solid ${C.borderVis};padding-bottom:4px;margin-bottom:3px">${hdr}</div>
       ${rows}
     </div>`;
   }).join("");
