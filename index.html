@@ -378,6 +378,7 @@ table{width:100%;border-collapse:collapse}
 #main.dashboard-mode #tab-eecharts.active,
 #main.dashboard-mode #tab-guardrails.active,
 #main.dashboard-mode #tab-resources.active,
+#main.dashboard-mode #tab-calendar.active,
 #main.dashboard-mode #tab-forecast.active{display:block;grid-column:1/-1}
 @media(max-width:900px){
   #main.dashboard-mode{grid-template-columns:1fr;padding:8px 8px 80px}
@@ -586,6 +587,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('guardrails',this)"><span class="nav-icon">🛡️</span><span class="side-label">Guardrails</span></button>
   <button class="side-btn" onclick="switchTab('eecharts',this)"><span class="nav-icon">📈</span><span class="side-label">Entry/Exit Charts</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
+  <button class="side-btn" onclick="switchTab('calendar',this)"><span class="nav-icon">📅</span><span class="side-label">Calendar</span></button>
   <button class="side-btn" onclick="switchTab('resources',this)"><span class="nav-icon">🔗</span><span class="side-label">Resources</span></button>
 </nav>
 
@@ -703,6 +705,11 @@ table{width:100%;border-collapse:collapse}
   <!-- GUARDRAILS TAB -->
   <div id="tab-guardrails" class="section" style="display:none">
     <div id="guardrails-content" style="max-width:760px;margin:0 auto"></div>
+  </div>
+
+  <!-- CALENDAR TAB -->
+  <div id="tab-calendar" class="section" style="display:none">
+    <div id="calendar-content" style="max-width:1500px;margin:0 auto"></div>
   </div>
 
   <!-- RESOURCES TAB -->
@@ -9237,7 +9244,7 @@ function renderForward() {
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
       <div>
         <div style="font-size:18px;color:${C.text};font-weight:600">⇨ Forward</div>
-        <div style="font-size:11px;color:${C.textSec};margin-top:2px">Look ahead: open positions, lessons from last 30 closed, macro calendar, AI week-ahead.</div>
+        <div style="font-size:11px;color:${C.textSec};margin-top:2px">Look ahead: open positions, lessons from last 30 closed, AI week-ahead. (Macro calendar is now its own 📅 Calendar tab.)</div>
       </div>
     </div>
 
@@ -9246,17 +9253,28 @@ function renderForward() {
     ${_openPositionsReview(open)}
 
     ${_fomcPanel()}
+  `;
+  _loadFOMC();
+}
 
-    <div class="card" style="padding:14px;margin-bottom:14px">
+// Macro economic calendar — now its own tab (was buried under Forward).
+function renderCalendar() {
+  const el = document.getElementById("calendar-content");
+  if (!el) return;
+  el.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-size:18px;color:${C.text};font-weight:600">📅 Macro Calendar</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">Economic events for the next month — G7 + China. Filter by country (flags) and impact.</div>
+    </div>
+    <div class="card" style="padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">📅 MACRO CALENDAR — NEXT MONTH · G7 + China</div>
+        <div style="font-size:10px;color:${C.textSec};letter-spacing:0.06em;font-weight:600">NEXT MONTH · G7 + China</div>
         <div style="font-size:9px;color:${C.textMut}"><span style="color:#ff453a">●</span> critical &nbsp; <span style="color:${C.warn}">●</span> high &nbsp; <span style="color:${C.textSec}">●</span> medium</div>
       </div>
       <div id="macro-cal-body"><div style="font-size:11px;color:${C.textMut};font-style:italic">Loading macro calendar…</div></div>
     </div>
   `;
   _loadMacroCalendar();
-  _loadFOMC();
 }
 
 // ── FOMC panel: latest Fed statement + an AI hawkish/dovish read ──────────────
@@ -15981,7 +15999,7 @@ mktLoadAll();
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'resources'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'resources', 'calendar'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -16052,6 +16070,8 @@ function switchTab(tab, btn) {
     if (typeof renderGuardrails === 'function') renderGuardrails();
   } else if (tab === 'resources') {
     if (typeof renderResources === 'function') renderResources();
+  } else if (tab === 'calendar') {
+    if (typeof renderCalendar === 'function') renderCalendar();
   } else if (tab === 'premarket') {
     if (typeof renderMorningChecklist === 'function') renderMorningChecklist();
   }
