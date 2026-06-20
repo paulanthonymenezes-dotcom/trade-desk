@@ -9832,8 +9832,9 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   const entryT = intraday ? (near(etToUnix(t.entryDate, t.entryTime)).time) : (t.entryDate ? dateToTime(t.entryDate) : null);
   const exitT = intraday ? (near(etToUnix(t.exitDate, t.exitTime)).time) : (t.exitDate ? dateToTime(t.exitDate) : null);
   const markers = [];
-  if (entryT) markers.push({ time: entryT, position: "belowBar", color: C.pos, shape: "arrowUp", text: "IN" });
-  if (exitT) { const w = (t.realizedPnl || 0) >= 0; markers.push({ time: exitT, position: "aboveBar", color: w ? C.pos : C.neg, shape: "arrowDown", text: `OUT ${w ? "+" : "-"}$${Math.abs(t.realizedPnl || 0).toFixed(0)}` }); }
+  // Bare arrows mark the entry/exit bar (no text) — the price sits on the y-axis.
+  if (entryT) markers.push({ time: entryT, position: "belowBar", color: C.accent, shape: "arrowUp", text: "" });
+  if (exitT) { const w = (t.realizedPnl || 0) >= 0; markers.push({ time: exitT, position: "aboveBar", color: w ? C.pos : C.neg, shape: "arrowDown", text: "" }); }
   if (markers.length) { markers.sort((a, b) => a.time - b.time); series.setMarkers(markers); }
 
   // MAE/MFE lines labelled with the excursion as % of credit (repeatable across
@@ -9843,8 +9844,10 @@ async function _eeRenderChart(t, chartEl, statusEl, res) {
   const maeTs = t._autoMAE?.date || t._autoMAE?.ts, mfeTs = t._autoMFE?.date || t._autoMFE?.ts;
   if (_eeShowMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.neg, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MAE" + _exc(t._autoMAE?.pnl) }); }
   if (_eeShowMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: C.pos, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "MFE" + _exc(t._autoMFE?.pnl) }); }
-  if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "IN " + p.toFixed(0) }); }
-  if (intraday && exitT) { const p = near(exitT).close; if (p != null) series.createPriceLine({ price: p, color: (t.realizedPnl || 0) >= 0 ? C.pos : C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "OUT " + p.toFixed(0) }); }
+  // No title text on the chart — just the colored price tag on the y-axis
+  // (blue = entry, green/red = exit). Keeps the candles unobstructed.
+  if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "" }); }
+  if (intraday && exitT) { const p = near(exitT).close; if (p != null) series.createPriceLine({ price: p, color: (t.realizedPnl || 0) >= 0 ? C.pos : C.neg, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: "" }); }
 
   // Stop levels on the review chart come from the ACTUAL minute-by-minute marks
   // (data/cache/minute_pnl), not the Black-76 model. The model assumes a fixed
