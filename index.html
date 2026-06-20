@@ -376,6 +376,7 @@ table{width:100%;border-collapse:collapse}
 #main.dashboard-mode #tab-stats.active,
 #main.dashboard-mode #tab-forward.active,
 #main.dashboard-mode #tab-eecharts.active,
+#main.dashboard-mode #tab-guardrails.active,
 #main.dashboard-mode #tab-forecast.active{display:block;grid-column:1/-1}
 @media(max-width:900px){
   #main.dashboard-mode{grid-template-columns:1fr;padding:8px 8px 80px}
@@ -581,6 +582,7 @@ table{width:100%;border-collapse:collapse}
   <div style="height:1px;background:var(--border-subtle);margin:6px 14px"></div>
   <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">Diary</span></button>
   <button class="side-btn active" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">Statistics</span></button>
+  <button class="side-btn" onclick="switchTab('guardrails',this)"><span class="nav-icon">🛡️</span><span class="side-label">Guardrails</span></button>
   <button class="side-btn" onclick="switchTab('eecharts',this)"><span class="nav-icon">📈</span><span class="side-label">Entry/Exit Charts</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
 </nav>
@@ -694,6 +696,11 @@ table{width:100%;border-collapse:collapse}
   <!-- FORWARD TAB -->
   <div id="tab-forward" class="section">
     <div id="forward-content" style="max-width:1500px;margin:0 auto"></div>
+  </div>
+
+  <!-- GUARDRAILS TAB -->
+  <div id="tab-guardrails" class="section" style="display:none">
+    <div id="guardrails-content" style="max-width:760px;margin:0 auto"></div>
   </div>
 
   <!-- ENTRY & EXIT CHARTS TAB -->
@@ -9543,35 +9550,42 @@ function _etToUnixStop(ds, ts) {
   return Math.floor(g / 1000) + (tzn === "EDT" ? 4 : 5) * 3600;
 }
 
-// ── Live stop-loss calculator (open / what-if trades) ──
-// Prefills from the most recent /NQ trade when available so the inputs are real.
-function _stopCalcCard() {
+// ── Guardrails: live stop/TP calculator for the moment you place a trade ──
+// Two things you know at entry (credit + strikes) → the three numbers you place:
+//   • exact premium buy-back prices for +50% TP, −75% warn, −100% stop (no model)
+//   • the modeled /NQ underlying level that = −75% / −100% (your price alert)
+// Standalone — does NOT depend on the (often stale) IBKR trade history.
+function renderGuardrails() {
+  const el = document.getElementById("guardrails-content");
+  if (!el) return;
   const nq = (STATE.trades || []).filter(t => (t.ticker || "").startsWith("/NQ"))
     .sort((a, b) => (b.entryDate || "").localeCompare(a.entryDate || ""));
   const d = nq[0] || {};
+  const creditPre = (d.premiumCollected && d.contracts) ? (d.premiumCollected / (20 * d.contracts)).toFixed(1) : "12.5";
   const f0 = d.entryDate ? _entryUnderlying(d) : null;
-  const v = (x, fb) => (x == null || x === "" ? fb : x);
-  const inp = (id, val, w) => `<input id="${id}" value="${val}" style="width:${w || 78}px;background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:6px;padding:5px 7px;font-size:12px;font-family:'IBM Plex Mono',monospace">`;
-  const lab = (t) => `<div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">${t}</div>`;
-  const fld = (t, el) => `<div>${lab(t)}${el}</div>`;
-  return `<div class="card" style="padding:12px 14px;margin-bottom:14px">
-    <div style="font-size:13px;color:${C.text};font-weight:600;margin-bottom:2px">🛑 Stop-Loss Level Calculator</div>
-    <div style="font-size:10px;color:${C.textSec};margin-bottom:10px">What underlying price puts this short credit spread at <b>−75%</b> (warn) / <b>−100%</b> (stop) of the credit? Black-76, IV solved from your credit. Loss = % of credit received.</div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
-      ${fld("Spread", `<select id="sc-type" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:6px;padding:5px 7px;font-size:12px">
-        <option value="put"${/call/i.test(d.tradeType || "") ? "" : " selected"}>Bull Put (short put)</option>
-        <option value="call"${/call/i.test(d.tradeType || "") ? " selected" : ""}>Bear Call (short call)</option></select>`)}
-      ${fld("Short K", inp("sc-short", v(d.shortStrike, 19500)))}
-      ${fld("Long K", inp("sc-long", v(d.longStrike, 19000)))}
-      ${fld("Credit $", inp("sc-credit", v(d.premiumCollected, 1000)))}
-      ${fld("Contracts", inp("sc-contracts", v(d.contracts, 4), 64))}
-      ${fld("Price now", inp("sc-nq", f0 ? Math.round(f0) : 20000))}
-      ${fld("Days left", inp("sc-dte", v(d.dteAtEntry, 7), 64))}
-      ${fld("Vol exp. k", inp("sc-volk", 4, 56))}
-      <button onclick="_runStopCalc()" class="btn btn-g" style="font-size:12px;padding:7px 16px;font-weight:600">Compute</button>
+  const isCall = /call/i.test(d.tradeType || "");
+  const inp = (id, val, w) => `<input id="${id}" value="${val}" inputmode="decimal" oninput="_runGuard()" style="width:${w || 88}px;background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:14px;font-family:'IBM Plex Mono',monospace">`;
+  const lab = (t) => `<div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${t}</div>`;
+  const fld = (t, e) => `<div>${lab(t)}${e}</div>`;
+  el.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-size:18px;color:${C.text};font-weight:600">🛡️ Guardrails</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">The moment you fill, punch in your credit + strikes → get the exact buy-back prices to rest your TP/stop, and the /NQ level to alert on. Loss measured as % of credit (your TP 50% / SL 100%).</div>
     </div>
-    <div id="sc-result" style="margin-top:12px"></div>
-  </div>`;
+    <div class="card" style="padding:14px 16px;margin-bottom:14px">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+        ${fld("Spread", `<select id="g-type" onchange="_runGuard()" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:14px">
+          <option value="put"${isCall ? "" : " selected"}>Bull Put</option>
+          <option value="call"${isCall ? " selected" : ""}>Bear Call</option></select>`)}
+        ${fld("Credit (pts)", inp("g-credit", creditPre))}
+        ${fld("Short strike", inp("g-short", d.shortStrike || 19500))}
+        ${fld("Long strike", inp("g-long", d.longStrike || 19000))}
+        ${fld("/NQ now", inp("g-nq", f0 ? Math.round(f0) : 20000))}
+        ${fld("Days to exp", inp("g-dte", d.dteAtEntry || 1, 70))}
+      </div>
+    </div>
+    <div id="g-result"></div>`;
+  _runGuard();
 }
 // Aggregate banner — what the actual minute-by-minute crossings (_stopActual) say
 // about a hard −100% stop across the book. Only the loss-side "gross saved" is shown
@@ -9594,40 +9608,64 @@ function _stopActualBanner() {
       but <b style="color:${C.warn}">${winnersTouched}</b> winners also touched −100% (you'd have stopped out of those) — so the <i>net</i> is lower; the TP/SL optimizer computes it properly.
     </div></div>`;
 }
-function _runStopCalc() {
+function _runGuard() {
   const g = (id) => document.getElementById(id);
-  const isPut = g("sc-type").value === "put";
-  const ticker = "/NQ";
-  const t = {
-    ticker, tradeType: isPut ? "Bull Put Spread" : "Bear Call Spread",
-    shortStrike: parseFloat(g("sc-short").value), longStrike: parseFloat(g("sc-long").value),
-    premiumCollected: parseFloat(g("sc-credit").value), contracts: parseFloat(g("sc-contracts").value),
-  };
-  const F0 = parseFloat(g("sc-nq").value), days = parseFloat(g("sc-dte").value), volK = parseFloat(g("sc-volk").value);
-  const out = g("sc-result");
-  const m = _computeStopLevels(t, { F0, days, volK });
-  if (!m) { out.innerHTML = `<span style="color:${C.warn};font-size:12px">Check inputs — need valid strikes, credit and price.</span>`; return; }
-  const be = isPut ? t.shortStrike - m.creditPts : t.shortStrike + m.creditPts;
-  const dist = (px) => px == null ? "" : `${(px - F0 >= 0 ? "+" : "")}${(px - F0).toFixed(0)} pts (${((px - F0) / F0 * 100).toFixed(2)}%)`;
-  const row = (label, L, color) => {
+  if (!g("g-credit")) return;
+  const isPut = g("g-type").value === "put";
+  const creditPts = parseFloat(g("g-credit").value);
+  const shortK = parseFloat(g("g-short").value), longK = parseFloat(g("g-long").value);
+  const F0 = parseFloat(g("g-nq").value), days = parseFloat(g("g-dte").value);
+  const out = g("g-result");
+  if (!(creditPts > 0) || !(shortK > 0) || !(longK > 0)) { out.innerHTML = `<div style="color:${C.warn};font-size:12px;padding:4px 2px">Enter a credit and both strikes.</div>`; return; }
+
+  // ── Output 1 & 3: premium order prices — exact arithmetic, no model. ──
+  // Buy-back value (cost to close) at each loss/gain level, in the same points
+  // your IBKR ticket shows: TP +50% → 0.5×credit, −75% → 1.75×, −100% → 2.0×.
+  const usd = (pts) => `$${(pts * 20).toFixed(0)}/ct`;
+  const pCard = (label, mult, sub, color, big) => `
+    <div style="flex:1 1 180px;background:${C.bg};border:1px solid ${C.borderVis};border-top:3px solid ${color};border-radius:9px;padding:11px 13px">
+      <div style="font-size:10px;color:${color};font-weight:700;text-transform:uppercase;letter-spacing:.5px">${label}</div>
+      <div style="font-size:11px;color:${C.textMut};margin:1px 0 6px">${sub}</div>
+      <div style="font-variant-numeric:tabular-nums"><span style="font-size:26px;font-weight:700;color:${C.text}">${(creditPts * mult).toFixed(2)}</span>
+      <span style="font-size:12px;color:${C.textSec}"> pts &nbsp;·&nbsp; ${usd(creditPts * mult)}</span></div>
+    </div>`;
+
+  // ── Output 2: /NQ underlying alert levels — modeled (Black-76 + vol-exp). ──
+  const t = { ticker: "/NQ", tradeType: isPut ? "Bull Put Spread" : "Bear Call Spread", shortStrike: shortK, longStrike: longK, premiumCollected: creditPts * 20, contracts: 1 };
+  const m = _computeStopLevels(t, { F0, days, volK: 4 });
+  const be = isPut ? shortK - creditPts : shortK + creditPts;
+  const lvlRow = (label, L, color) => {
     if (!L) return "";
-    if (L.unreachable) return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid ${C.borderVis}"><span style="color:${color};font-weight:600">${label}</span><span style="color:${C.textMut};font-size:12px">unreachable — max loss is only ${L.capPct.toFixed(0)}% of credit</span></div>`;
-    const px = L.vol || L.flat;
-    return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-top:1px solid ${C.borderVis}">
+    if (L.unreachable) return `<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid ${C.borderVis}"><span style="color:${color};font-weight:600;font-size:13px">${label}</span><span style="color:${C.textMut};font-size:12px">can't reach — max loss only ${L.capPct.toFixed(0)}% of credit</span></div>`;
+    const px = L.vol || L.flat; if (px == null) return "";
+    const dpts = px - F0, dpct = dpts / F0 * 100;
+    return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-top:1px solid ${C.borderVis}">
       <span style="color:${color};font-weight:600;font-size:13px">${label}</span>
-      <span style="font-variant-numeric:tabular-nums"><span style="color:${C.text};font-size:16px;font-weight:700">${px.toFixed(0)}</span>
-      <span style="color:${C.textSec};font-size:11px"> &nbsp;${dist(px)} &nbsp;·&nbsp; flat-IV ${L.flat ? L.flat.toFixed(0) : "—"}</span></span></div>`;
+      <span style="font-variant-numeric:tabular-nums"><span style="font-size:19px;font-weight:700;color:${C.text}">${px.toFixed(0)}</span>
+      <span style="font-size:11px;color:${C.textSec}"> &nbsp;${dpts >= 0 ? "+" : ""}${dpts.toFixed(0)} pts (${dpct.toFixed(2)}%)</span></span></div>`;
   };
+
   out.innerHTML = `
-    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:${C.textSec};margin-bottom:6px">
-      <span>Credit <b style="color:${C.text}">$${m.creditUsd.toFixed(0)}</b> (${m.creditPts.toFixed(1)} pts)</span>
-      <span>Calibrated IV <b style="color:${C.text}">${(m.iv * 100).toFixed(1)}%</b></span>
-      <span>Breakeven <b style="color:${C.text}">${be.toFixed(0)}</b></span>
-      <span>Max loss <b style="color:${C.neg}">$${m.maxLossUsd.toFixed(0)}</b></span>
+    <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px">① Buy-back prices — rest these as limit orders (exact)</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      ${pCard("Take profit +50%", 0.5, "close here to bank half the credit", C.pos)}
+      ${pCard("Warn −75%", 1.75, "tighten up / get ready", C.warn)}
+      ${pCard("STOP −100%", 2.0, "hard exit — max you'll lose = the credit", "#ff453a")}
     </div>
-    ${row("−75% warn", m.warn75, C.warn)}
-    ${row("−100% STOP", m.stop100, "#ff453a")}
-    <div style="font-size:9px;color:${C.textMut};margin-top:8px">Bold price = with vol-expansion (IV rises k·move as it goes against you — the level you actually hit first). flat-IV = if vol stayed put. Estimate, not exact: skew & vol path vary.</div>`;
+    <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">② /NQ price alert — set the alert here (estimate)</div>
+    <div class="card" style="padding:10px 14px">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:${C.textSec};margin-bottom:2px">
+        <span>Modeled IV <b style="color:${C.text}">${m ? (m.iv * 100).toFixed(1) + "%" : "—"}</b></span>
+        <span>Breakeven /NQ <b style="color:${C.text}">${be.toFixed(0)}</b></span>
+        <span>Max loss <b style="color:${C.neg}">${usd((Math.abs(shortK - longK) - creditPts))}</b></span>
+      </div>
+      ${m ? lvlRow("−75% near", m.warn75, C.warn) : ""}
+      ${m ? lvlRow("−100% near", m.stop100, "#ff453a") : ""}
+      <div style="font-size:10px;color:${C.textSec};margin-top:9px;border-top:1px solid ${C.borderVis};padding-top:8px">
+        💡 <b>Quick rule if you skip the math:</b> set your /NQ alert a touch ${isPut ? "above" : "below"} the short strike (<b style="color:${C.text}">${shortK}</b>) — the −75/−100% zone reliably lands ${isPut ? "around/just above" : "around/just below"} it.
+      </div>
+    </div>
+    <div style="font-size:9px;color:${C.textMut};margin-top:9px">Premium prices (①) are exact — place them. /NQ levels (②) are modeled (Black-76 + vol-expansion) and drift with IV; a fast/violent move hits them sooner, so they err early. Telegram alerts coming next.</div>`;
 }
 
 function renderEntryExitCharts() {
@@ -9672,8 +9710,7 @@ function renderEntryExitCharts() {
       <div style="display:flex;gap:6px">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}</div>
     </div>
     ${_stopActualBanner()}
-    ${_stopCalcCard()}
-    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> model lines + actual crossing (dotted) on each chart${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
+    ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll · <span style="color:#ff453a">STOP -100%</span> / <span style="color:${C.warn}">-75%</span> model lines + actual crossing (dotted) on each chart · set live stops in the 🛡️ Guardrails tab${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
     <div style="display:flex;flex-direction:column;gap:14px">${cards}</div>`
       : emptyState("ENTRY & EXIT CHARTS", "No closed trades in this filter.")}`;
 
@@ -15660,7 +15697,7 @@ mktLoadAll();
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -15727,6 +15764,8 @@ function switchTab(tab, btn) {
     if (typeof renderForward === 'function') renderForward();
   } else if (tab === 'eecharts') {
     if (typeof renderEntryExitCharts === 'function') renderEntryExitCharts();
+  } else if (tab === 'guardrails') {
+    if (typeof renderGuardrails === 'function') renderGuardrails();
   } else if (tab === 'premarket') {
     if (typeof renderMorningChecklist === 'function') renderMorningChecklist();
   }
