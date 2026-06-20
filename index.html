@@ -9183,6 +9183,7 @@ function renderForward() {
 const _MACRO_FLAG = { US: "🇺🇸", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷", IT: "🇮🇹", CA: "🇨🇦", JP: "🇯🇵", EU: "🇪🇺", CN: "🇨🇳" };
 let _macroCalEvents = [];
 let _macroCalHighOnly = false;
+let _macroCalCountries = new Set(Object.keys(_MACRO_FLAG));
 
 async function _loadMacroCalendar() {
   const body = document.getElementById("macro-cal-body");
@@ -9203,22 +9204,42 @@ async function _loadMacroCalendar() {
 }
 
 function _toggleMacroHigh() { _macroCalHighOnly = !_macroCalHighOnly; _renderMacroCal(); }
+function _toggleMacroCountry(cc) {
+  // If all are on, the first click isolates to that country; otherwise toggle it.
+  const allCC = Object.keys(_MACRO_FLAG);
+  if (_macroCalCountries.size === allCC.length) { _macroCalCountries = new Set([cc]); }
+  else if (_macroCalCountries.has(cc)) { _macroCalCountries.delete(cc); if (!_macroCalCountries.size) _macroCalCountries = new Set(allCC); }
+  else { _macroCalCountries.add(cc); }
+  _renderMacroCal();
+}
 
 function _renderMacroCal() {
   const body = document.getElementById("macro-cal-body");
   if (!body) return;
   const all = _macroCalEvents;
-  const events = _macroCalHighOnly ? all.filter(e => (e.importance || "").toUpperCase() === "HIGH") : all;
+  const allCC = Object.keys(_MACRO_FLAG);
+  const activeC = _macroCalCountries.size ? _macroCalCountries : new Set(allCC);
+  const allOn = _macroCalCountries.size === allCC.length;
+  const events = all.filter(e => activeC.has(e.country) && (!_macroCalHighOnly || (e.importance || "").toUpperCase() === "HIGH"));
 
-  // clickable HIGH-only toggle (the "● high" chip)
+  // HIGH-only chip (left) + clickable country flags (top-right). Click a flag to
+  // isolate that country; click more to add; deselecting all resets to everything.
   const on = _macroCalHighOnly;
-  const toggle = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+  const flagBar = allCC.map(cc => {
+    const act = activeC.has(cc);
+    return `<span onclick="_toggleMacroCountry('${cc}')" title="${cc}${act ? "" : " (hidden — click to show)"}" style="cursor:pointer;font-size:13px;line-height:1;opacity:${act ? 1 : 0.25};filter:${act ? "none" : "grayscale(1)"}">${_MACRO_FLAG[cc]}</span>`;
+  }).join("");
+  const toggle = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">
     <button onclick="_toggleMacroHigh()" title="Show only high-impact events"
-      style="background:${on ? C.warn : "transparent"};color:${on ? "#1a1a1a" : C.warn};border:1px solid ${C.warn};border-radius:5px;padding:3px 11px;font-size:10px;font-weight:600;cursor:pointer">● High impact${on ? " ✓" : " only"}</button>
-    <span style="font-size:9px;color:${C.textMut}">${events.length} of ${all.length} events</span>
+      style="flex-shrink:0;background:${on ? C.warn : "transparent"};color:${on ? "#1a1a1a" : C.warn};border:1px solid ${C.warn};border-radius:5px;padding:3px 11px;font-size:10px;font-weight:600;cursor:pointer">● High${on ? " ✓" : " only"}</button>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">${flagBar}</div>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:9px;color:${C.textMut};margin-bottom:8px">
+    <span>${allOn ? "all countries" : [...activeC].join(" ") + ` · <a onclick="_macroCalCountries=new Set(Object.keys(_MACRO_FLAG));_renderMacroCal()" style="color:${C.accent};cursor:pointer">reset</a>`}</span>
+    <span>${events.length} of ${all.length} events</span>
   </div>`;
 
-  if (!events.length) { body.innerHTML = toggle + _macroCalMsg("No high-impact events in the next month."); return; }
+  if (!events.length) { body.innerHTML = toggle + _macroCalMsg("No events match this filter."); return; }
 
   const byDay = {};
   for (const ev of events) { const day = (ev.date || "").slice(0, 10); if (day) (byDay[day] = byDay[day] || []).push(ev); }
