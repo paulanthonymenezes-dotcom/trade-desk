@@ -9885,8 +9885,11 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
   const _cred = t.premiumCollected || 0;
   const _exc = (pnl) => (_cred && typeof pnl === "number") ? `${pnl >= 0 ? "+" : "−"}${Math.abs(pnl / _cred * 100).toFixed(0)}%` : "—";
   const maeTs = t._autoMAE?.date || t._autoMAE?.ts, mfeTs = t._autoMFE?.date || t._autoMFE?.ts;
-  if (showMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(255,69,58,0.4)", lineWidth: 1, lineStyle: 1, axisLabelVisible: false, title: "" }); }
-  if (showMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(63,185,80,0.4)", lineWidth: 1, lineStyle: 1, axisLabelVisible: false, title: "" }); }
+  // Faint dotted line + a small color-coded price tag on the y-axis (muted red =
+  // MAE, muted green = MFE) — so you can read the level vs price without the old
+  // on-chart label box covering the candles. The % is in the status line below.
+  if (showMAE && maeTs) { const p = near(Math.floor(new Date(maeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(255,99,90,0.75)", lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "" }); }
+  if (showMAE && mfeTs) { const p = near(Math.floor(new Date(mfeTs).getTime() / 1000)).close; if (p != null) series.createPriceLine({ price: p, color: "rgba(90,200,120,0.75)", lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "" }); }
   // Entry/exit price as a colored tag on the y-axis ONLY — no line across the
   // candles (lineVisible:false). The IN / OUT arrows above mark the time.
   if (intraday && entryT) { const p = near(entryT).close; if (p != null) series.createPriceLine({ price: p, color: C.accent, lineVisible: false, axisLabelVisible: true, title: "" }); }
