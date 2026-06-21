@@ -6313,6 +6313,7 @@ function _maeMfeScatterPanel(closed) {
       mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null,
       isWin: pnl > 0,
       tradeType: t.tradeType,
+      contracts: t.contracts || 1,
     };
   }).filter(Boolean);
 
@@ -6657,7 +6658,7 @@ function _slTpGuidanceCard(data) {
   // assumes SL fires first if both would have triggered (we don't have minute
   // timestamps in the data layer here — that's in the Parquet optimizer).
   function simulate(slPct, tpPct) {
-    let net = 0, wins = 0, losses = 0, worst = 0;
+    let net = 0, wins = 0, losses = 0, worst = 0, net1lot = 0, worst1lot = 0;
     for (const d of valid) {
       const slThresh = slPct == null ? null : -slPct;     // pct of premium
       const tpThresh = tpPct == null ? null : +tpPct;
@@ -6669,11 +6670,13 @@ function _slTpGuidanceCard(data) {
       else if (wouldTp) pnlPct = tpThresh;
       else pnlPct = d.pnlPctOfPrem;
       const pnl = (pnlPct / 100) * d.premium;
-      net += pnl;
+      const pc = pnl / (d.contracts || 1);              // 1-lot-equivalent P&L
+      net += pnl; net1lot += pc;
       if (pnl > 0) wins++; else if (pnl < 0) losses++;
       if (pnl < worst) worst = pnl;
+      if (pc < worst1lot) worst1lot = pc;
     }
-    return { net, wins, losses, worst, n: valid.length };
+    return { net, wins, losses, worst, n: valid.length, net1lot, worst1lot };
   }
   const baseline = simulate(null, null);
   // Test several SL alone, then several TP alone
@@ -6705,6 +6708,8 @@ function _slTpGuidanceCard(data) {
       <td style="font-size:10px;font-variant-numeric:tabular-nums">${isBaseline?'—':`<span style="color:${diffColor}">${diff>=0?'+':''}${fmt$(diff)}</span>`}</td>
       <td style="font-size:10px;color:${C.textSec};font-variant-numeric:tabular-nums">${wlPct}% wr · ${r.wins}/${r.losses}</td>
       <td style="font-size:10px;color:${C.neg};font-variant-numeric:tabular-nums">${fmt$(r.worst)}</td>
+      <td style="font-size:11px;color:${r.net1lot>=0?C.pos:C.neg};font-weight:600;font-variant-numeric:tabular-nums;border-left:1px solid ${C.borderVis}">${fmt$(r.net1lot)}</td>
+      <td style="font-size:10px;color:${C.neg};font-variant-numeric:tabular-nums">${fmt$(r.worst1lot)}</td>
     </tr>`;
   }
 
@@ -6713,12 +6718,12 @@ function _slTpGuidanceCard(data) {
       <div style="font-size:10px;color:${C.accent};letter-spacing:0.06em;font-weight:700">💡 WHAT TO DO WITH THIS — Suggested SL & TP rules</div>
     </div>
     <div style="font-size:11px;color:${C.text};margin-bottom:10px;line-height:1.5">
-      Replays your <b>${valid.length}</b> trades at different hard-rule levels. <b>+ vs Baseline</b> column shows how each rule would have changed total P&L vs your actual exits. Worst column shows the most painful single trade under each rule — pick a rule whose net is positive AND whose worst trade you could stomach.
+      Replays your <b>${valid.length}</b> trades at different hard-rule levels. Left block = <b>raw dollars</b> (historical, mixed size). Right block = <b>1-lot equivalent</b> (every trade normalized to 1 contract — the forward-looking, size-independent view): <b>NET 1-LOT</b> = net if you'd traded exactly 1 contract each; <b>WORST 1-LOT</b> = worst single trade per contract. Pick a rule whose 1-lot net is positive AND whose worst-per-contract you could stomach.
     </div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
       <thead>
         <tr style="border-bottom:1px solid ${C.borderVis};color:${C.textSec};font-size:9px;text-align:left;letter-spacing:0.06em">
-          <th style="padding:6px 8px">RULE</th><th>THRESHOLD</th><th>NET</th><th>+ vs BASELINE</th><th>W/L</th><th>WORST TRADE</th>
+          <th style="padding:6px 8px">RULE</th><th>THRESHOLD</th><th>NET $</th><th>+ vs BASE</th><th>W/L</th><th>WORST $</th><th style="border-left:1px solid ${C.borderVis}">NET 1-LOT</th><th>WORST 1-LOT</th>
         </tr>
       </thead>
       <tbody>
@@ -7285,7 +7290,7 @@ function _buildStatsReportHTML(closed, chartsHTML = "") {
     const prem = t.premiumCollected || 0; if (!prem) return null;
     const mae = getMAE(t), mfe = getMFE(t); if (mae == null && mfe == null) return null;
     const pnl = t.realizedPnl || 0;
-    return { premium: prem, pnlPctOfPrem: (pnl / prem) * 100, maePctOfPrem: mae != null ? -(mae / prem) * 100 : null, mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null, isWin: pnl > 0 };
+    return { premium: prem, contracts: t.contracts || 1, pnlPctOfPrem: (pnl / prem) * 100, maePctOfPrem: mae != null ? -(mae / prem) * 100 : null, mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null, isWin: pnl > 0 };
   }).filter(Boolean);
   const wMae = data.filter(d => d.isWin && d.maePctOfPrem != null);
   const lMfe = data.filter(d => !d.isWin && d.mfePctOfPrem != null);
@@ -7294,7 +7299,7 @@ function _buildStatsReportHTML(closed, chartsHTML = "") {
   const moneyLeftWin = data.filter(d => d.isWin).reduce((a, d) => a + Math.max(0, (d.mfePctOfPrem / 100) * d.premium - (d.pnlPctOfPrem / 100) * d.premium), 0);
   const moneyLeftLose = lMfe.reduce((a, d) => a + Math.max(0, (d.mfePctOfPrem / 100) * d.premium), 0);
   const valid = data.filter(d => d.premium && d.maePctOfPrem != null && d.mfePctOfPrem != null);
-  function sim(slPct, tpPct) { let n = 0, w = 0, l = 0, worst = 0; for (const d of valid) { const sl = slPct == null ? null : -slPct, tp = tpPct == null ? null : +tpPct; const ws = sl != null && d.maePctOfPrem <= sl, wt = tp != null && d.mfePctOfPrem >= tp; const p = ws ? sl : (wt ? tp : d.pnlPctOfPrem); const x = (p / 100) * d.premium; n += x; if (x > 0) w++; else if (x < 0) l++; if (x < worst) worst = x; } return { net: n, wins: w, losses: l, worst }; }
+  function sim(slPct, tpPct) { let n = 0, w = 0, l = 0, worst = 0, n1 = 0, worst1 = 0; for (const d of valid) { const sl = slPct == null ? null : -slPct, tp = tpPct == null ? null : +tpPct; const ws = sl != null && d.maePctOfPrem <= sl, wt = tp != null && d.mfePctOfPrem >= tp; const p = ws ? sl : (wt ? tp : d.pnlPctOfPrem); const x = (p / 100) * d.premium; const pc = x / (d.contracts || 1); n += x; n1 += pc; if (x > 0) w++; else if (x < 0) l++; if (x < worst) worst = x; if (pc < worst1) worst1 = pc; } return { net: n, wins: w, losses: l, worst, net1lot: n1, worst1lot: worst1 }; }
   let mfeSection = `<p class="muted">No trades in scope have MAE/MFE data yet.</p>`;
   if (data.length) {
     let sltp = "";
@@ -7306,9 +7311,10 @@ function _buildStatsReportHTML(closed, chartsHTML = "") {
       const bestSl = [50, 75, 100, 150, 200, 300].map(sl => ({ sl, ...sim(sl, null) })).sort((a, b) => b.net - a.net)[0];
       const bestTp = [25, 50, 75].map(tp => ({ tp, ...sim(null, tp) })).sort((a, b) => b.net - a.net)[0];
       const combo = sim(bestSl.sl, bestTp.tp);
-      sltp = `<table class="rep"><thead><tr><th>Rule</th><th class="r">Net</th><th class="r">vs Baseline</th><th class="r">W / L</th><th class="r">Worst trade</th></tr></thead><tbody>
-        ${rows.map(([label, r, isBase]) => `<tr${isBase ? ' style="font-weight:600;background:#f3f4f6"' : ""}><td>${label}</td><td class="r" style="color:${clr(r.net)}">${$(r.net)}</td><td class="r">${isBase ? "—" : `<span style="color:${clr(r.net - base.net)}">${(r.net - base.net) >= 0 ? "+" : ""}${$(r.net - base.net)}</span>`}</td><td class="r">${r.wins} / ${r.losses}</td><td class="r" style="color:${R}">${$(r.worst)}</td></tr>`).join("")}
+      sltp = `<table class="rep"><thead><tr><th>Rule</th><th class="r">Net $</th><th class="r">vs Base</th><th class="r">W / L</th><th class="r">Worst $</th><th class="r" style="border-left:2px solid #cbd5e1">Net 1-lot</th><th class="r">Worst 1-lot</th></tr></thead><tbody>
+        ${rows.map(([label, r, isBase]) => `<tr${isBase ? ' style="font-weight:600;background:#f3f4f6"' : ""}><td>${label}</td><td class="r" style="color:${clr(r.net)}">${$(r.net)}</td><td class="r">${isBase ? "—" : `<span style="color:${clr(r.net - base.net)}">${(r.net - base.net) >= 0 ? "+" : ""}${$(r.net - base.net)}</span>`}</td><td class="r">${r.wins} / ${r.losses}</td><td class="r" style="color:${R}">${$(r.worst)}</td><td class="r" style="color:${clr(r.net1lot)};border-left:2px solid #cbd5e1">${$(r.net1lot)}</td><td class="r" style="color:${R}">${$(r.worst1lot)}</td></tr>`).join("")}
       </tbody></table>
+      <div class="muted" style="margin-top:4px">Net $ / Worst $ = raw dollars (historical, mixed size). <b>Net 1-lot</b> = net if every trade were exactly 1 contract; <b>Worst 1-lot</b> = worst single trade per contract (size-independent, forward-looking).</div>
       <div class="recos"><b>Recommended rules:</b>
         <ul>
           <li><b>Conservative</b> — stop at −${bestSl.sl}%: ${(bestSl.net - base.net) >= 0 ? "+" : ""}${$(bestSl.net - base.net)} vs baseline, worst single ${$(bestSl.worst)}.</li>
@@ -7522,7 +7528,7 @@ function _buildStatsReport(closed) {
     const prem = t.premiumCollected || 0; if (!prem) return null;
     const mae = getMAE(t), mfe = getMFE(t); if (mae == null && mfe == null) return null;
     const pnl = t.realizedPnl || 0;
-    return { premium: prem, pnlPctOfPrem: (pnl / prem) * 100, maePctOfPrem: mae != null ? -(mae / prem) * 100 : null, mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null, isWin: pnl > 0 };
+    return { premium: prem, contracts: t.contracts || 1, pnlPctOfPrem: (pnl / prem) * 100, maePctOfPrem: mae != null ? -(mae / prem) * 100 : null, mfePctOfPrem: mfe != null ? (mfe / prem) * 100 : null, isWin: pnl > 0 };
   }).filter(Boolean);
   const wMae = data.filter(d => d.isWin && d.maePctOfPrem != null);
   const lMfe = data.filter(d => !d.isWin && d.mfePctOfPrem != null);
@@ -7536,14 +7542,15 @@ function _buildStatsReport(closed) {
   // ── SL/TP replay (same simulate as the guidance card) ──
   const valid = data.filter(d => d.premium && d.maePctOfPrem != null && d.mfePctOfPrem != null);
   function simulate(slPct, tpPct) {
-    let n2 = 0, wn = 0, ls = 0, worst = 0;
+    let n2 = 0, wn = 0, ls = 0, worst = 0, n1 = 0, worst1 = 0;
     for (const d of valid) {
       const sl = slPct == null ? null : -slPct, tp = tpPct == null ? null : +tpPct;
       const wouldSl = sl != null && d.maePctOfPrem <= sl, wouldTp = tp != null && d.mfePctOfPrem >= tp;
       let p = wouldSl ? sl : (wouldTp ? tp : d.pnlPctOfPrem);
-      const pnl = (p / 100) * d.premium; n2 += pnl; if (pnl > 0) wn++; else if (pnl < 0) ls++; if (pnl < worst) worst = pnl;
+      const pnl = (p / 100) * d.premium; const pc = pnl / (d.contracts || 1);
+      n2 += pnl; n1 += pc; if (pnl > 0) wn++; else if (pnl < 0) ls++; if (pnl < worst) worst = pnl; if (pc < worst1) worst1 = pc;
     }
-    return { net: n2, wins: wn, losses: ls, worst };
+    return { net: n2, wins: wn, losses: ls, worst, net1lot: n1, worst1lot: worst1 };
   }
   let sltpBlock = "_Not enough trades with MAE+MFE data (need ≥10) to model SL/TP._";
   if (valid.length >= 10) {
@@ -7551,15 +7558,17 @@ function _buildStatsReport(closed) {
     const slLevels = [50, 75, 100, 150, 200, 300], tpLevels = [25, 50, 75];
     const slR = slLevels.map(sl => ({ tag: `Hard SL −${sl}%`, ...simulate(sl, null) }));
     const tpR = tpLevels.map(tp => ({ tag: `Hard TP +${tp}%`, ...simulate(null, tp) }));
-    const line = r => `| ${r.tag} | ${$(r.net)} | ${(r.net - base.net) >= 0 ? "+" : ""}${$(r.net - base.net)} | ${r.wins}/${r.losses} | ${$(r.worst)} |`;
+    const line = r => `| ${r.tag} | ${$(r.net)} | ${(r.net - base.net) >= 0 ? "+" : ""}${$(r.net - base.net)} | ${r.wins}/${r.losses} | ${$(r.worst)} | ${$(r.net1lot)} | ${$(r.worst1lot)} |`;
     const bestSl = slR.slice().sort((a, b) => b.net - a.net)[0];
     const bestTp = tpR.slice().sort((a, b) => b.net - a.net)[0];
     const combo = simulate(parseInt(bestSl.tag.match(/\d+/)[0]), parseInt(bestTp.tag.match(/\d+/)[0]));
     sltpBlock = `Replaying your **${valid.length}** trades (with MAE+MFE) under hard rules. "+vs base" = change vs your actual exits.
 
-| Rule | Net | +vs base | W/L | Worst single |
-|------|-----|----------|-----|--------------|
-| Baseline (actual exits) | ${$(base.net)} | — | — | — |
+Left = raw dollars (historical, mixed size). Net 1-lot / Worst 1-lot = every trade normalized to exactly 1 contract (forward, size-independent).
+
+| Rule | Net $ | +vs base | W/L | Worst $ | Net 1-lot | Worst 1-lot |
+|------|-----|----------|-----|--------------|-----------|-------------|
+| Baseline (actual exits) | ${$(base.net)} | — | — | — | ${$(base.net1lot)} | ${$(base.worst1lot)} |
 ${slR.map(line).join("\n")}
 ${tpR.map(line).join("\n")}
 
@@ -7964,7 +7973,7 @@ function _tpSlGridPanel(closed) {
     const maeTs = t._autoMAE?.ts || t._autoMAE?.date;
     const mfeTs = t._autoMFE?.ts || t._autoMFE?.date;
     const maeFirst = (!maeTs || !mfeTs) ? true : new Date(maeTs) <= new Date(mfeTs);
-    return { premium: prem, mae, mfe, realized, maeFirst };
+    return { premium: prem, mae, mfe, realized, maeFirst, contracts: t.contracts || 1 };
   }).filter(Boolean);
 
   if (trades.length < 5) return "";
@@ -7973,7 +7982,7 @@ function _tpSlGridPanel(closed) {
   const tpPcts = [25, 50, 75];
 
   function simulate(slPct, tpPct) {
-    let net = 0, wins = 0, losses = 0, slHits = 0, tpHits = 0, holds = 0, worst = Infinity;
+    let net = 0, wins = 0, losses = 0, slHits = 0, tpHits = 0, holds = 0, worst = Infinity, net1lot = 0, worst1lot = Infinity;
     for (const t of trades) {
       const slThresh = (slPct / 100) * t.premium;   // dollars of loss that triggers SL
       const tpThresh = (tpPct / 100) * t.premium;   // dollars of gain that triggers TP
@@ -7995,11 +8004,13 @@ function _tpSlGridPanel(closed) {
       if (wouldSl && wouldTp) {
         if (t.maeFirst) slHits++; else tpHits++;
       }
-      net += pnl;
+      const pc = pnl / (t.contracts || 1);
+      net += pnl; net1lot += pc;
       if (pnl > 0) wins++; else if (pnl < 0) losses++;
       if (pnl < worst) worst = pnl;
+      if (pc < worst1lot) worst1lot = pc;
     }
-    return { net, wins, losses, slHits, tpHits, holds, worst, n: trades.length };
+    return { net, wins, losses, slHits, tpHits, holds, worst, n: trades.length, net1lot, worst1lot };
   }
 
   const rows = [];
@@ -8026,6 +8037,8 @@ function _tpSlGridPanel(closed) {
     <td style="font-variant-numeric:tabular-nums">${r.wins}/${r.losses}</td>
     <td style="font-variant-numeric:tabular-nums">${r.slHits}/${r.tpHits}/${r.holds}</td>
     <td style="font-variant-numeric:tabular-nums;color:${C.neg}">-$${Math.abs(r.worst).toFixed(0)}</td>
+    <td style="font-variant-numeric:tabular-nums;color:${r.net1lot>=0?C.pos:C.neg};border-left:1px solid ${C.borderVis}">${r.net1lot>=0?"+$":"-$"}${Math.abs(r.net1lot).toFixed(0)}</td>
+    <td style="font-variant-numeric:tabular-nums;color:${C.neg}">-$${Math.abs(r.worst1lot).toFixed(0)}</td>
   </tr>`;
 
   return sectionHdr("TP / SL — WHAT-IF SIMULATOR") + `
@@ -8042,12 +8055,12 @@ function _tpSlGridPanel(closed) {
       </div>
       <div style="font-size:10px;color:${C.textSec};font-weight:600;margin:8px 0 4px">TOP 5 BY NET P&L:</div>
       <table style="width:100%;font-size:11px">
-        <thead><tr><th>SL</th><th>TP</th><th>NET</th><th>W/L</th><th>SL/TP/HOLD</th><th>WORST</th></tr></thead>
+        <thead><tr><th>SL</th><th>TP</th><th>NET $</th><th>W/L</th><th>SL/TP/HOLD</th><th>WORST $</th><th style="border-left:1px solid ${C.borderVis}">NET 1-LOT</th><th>WORST 1-LOT</th></tr></thead>
         <tbody>${topNet.map(fmtRow).join("")}</tbody>
       </table>
       <div style="font-size:10px;color:${C.textSec};font-weight:600;margin:12px 0 4px">TOP 5 BY LEAST-CATASTROPHIC WORST TRADE:</div>
       <table style="width:100%;font-size:11px">
-        <thead><tr><th>SL</th><th>TP</th><th>NET</th><th>W/L</th><th>SL/TP/HOLD</th><th>WORST</th></tr></thead>
+        <thead><tr><th>SL</th><th>TP</th><th>NET $</th><th>W/L</th><th>SL/TP/HOLD</th><th>WORST $</th><th style="border-left:1px solid ${C.borderVis}">NET 1-LOT</th><th>WORST 1-LOT</th></tr></thead>
         <tbody>${topWorst.map(fmtRow).join("")}</tbody>
       </table>
       <div style="font-size:9px;color:${C.textMut};margin-top:8px;font-style:italic">
