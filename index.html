@@ -6033,6 +6033,10 @@ function renderStatsRisk(closed) {
   // Largest win/loss
   const bestTrade = wins.length ? wins.reduce((a,b)=>(a.realizedPnl||0)>(b.realizedPnl||0)?a:b) : null;
   const worstTrade = losses.length ? losses.reduce((a,b)=>(a.realizedPnl||0)<(b.realizedPnl||0)?a:b) : null;
+  // Per-contract (size-normalized): a $5k loss on 10 lots is very different from 1 lot.
+  const _perCt = t => (t.realizedPnl||0)/(t.contracts||1);
+  const bestTradePC = wins.length ? wins.reduce((a,b)=>_perCt(a)>_perCt(b)?a:b) : null;
+  const worstTradePC = losses.length ? losses.reduce((a,b)=>_perCt(a)<_perCt(b)?a:b) : null;
 
   // Position sizing buckets
   let sizingHTML = "";
@@ -6077,6 +6081,8 @@ function renderStatsRisk(closed) {
       ${kpiCard("Max Drawdown", dd.maxDD>0?"$"+dd.maxDD.toFixed(0):"$0", C.neg, dd.ddPct>0?dd.ddPct.toFixed(1)+"% from peak":"")}
       ${kpiCard("Largest Win", bestTrade?fmt$(bestTrade.realizedPnl):"—", C.pos, bestTrade?bestTrade.ticker:"")}
       ${kpiCard("Largest Loss", worstTrade?fmt$(worstTrade.realizedPnl):"—", C.neg, worstTrade?worstTrade.ticker:"")}
+      ${kpiCard("Largest Win / Contract", bestTradePC?fmt$(_perCt(bestTradePC)):"—", C.pos, bestTradePC?`${bestTradePC.ticker} · ${bestTradePC.contracts||1}x`:"")}
+      ${kpiCard("Largest Loss / Contract", worstTradePC?fmt$(_perCt(worstTradePC)):"—", C.neg, worstTradePC?`${worstTradePC.ticker} · ${worstTradePC.contracts||1}x`:"")}
     </div>
 
     ${sectionHdr("STREAKS")}
@@ -7255,6 +7261,10 @@ function _buildStatsReportHTML(closed, chartsHTML = "") {
   const expectancy = closed.length ? net / closed.length : 0;
   const best = closed.reduce((m, t) => Math.max(m, t.realizedPnl || 0), -Infinity);
   const worst = closed.reduce((m, t) => Math.min(m, t.realizedPnl || 0), Infinity);
+  // Size-normalized: $ per contract, so a big $ loss on big size doesn't dominate.
+  const _pc = t => (t.realizedPnl || 0) / (t.contracts || 1);
+  const bestPC = closed.reduce((m, t) => Math.max(m, _pc(t)), -Infinity);
+  const worstPC = closed.reduce((m, t) => Math.min(m, _pc(t)), Infinity);
 
   const kpi = (label, val, sub, color) => `<div class="kpi"><div class="kl">${label}</div><div class="kv"${color ? ` style="color:${color}"` : ""}>${val}</div>${sub ? `<div class="ks">${sub}</div>` : ""}</div>`;
   const kpis = [
@@ -7267,6 +7277,7 @@ function _buildStatsReportHTML(closed, chartsHTML = "") {
     kpi("Expectancy", $(expectancy), "per trade"),
     kpi("Premium Collected", $(totalPrem), "across all trades"),
     kpi("Best / Worst", `<span style="color:${G}">${$(best)}</span> / <span style="color:${R}">${$(worst)}</span>`, "single trades"),
+    kpi("Best / Worst per Contract", `<span style="color:${G}">${$(bestPC)}</span> / <span style="color:${R}">${$(worstPC)}</span>`, "$ per contract — size-normalized"),
   ].join("");
 
   // ── MAE/MFE + SL/TP ──
