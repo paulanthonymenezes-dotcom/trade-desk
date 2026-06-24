@@ -17,6 +17,8 @@
 //
 // Arm it (only after verification): set SYNC_WRITE_ENABLED=1 in Vercel env.
 
+import { reconcile } from "./reconcile.js";
+
 const SUPABASE_URL = "https://arjpswrirszerhpbojgs.supabase.co";
 // Service-role key (bypasses RLS so we can read AND write the state row). MUST be
 // set in Vercel env — without it the state read comes back empty (RLS), and the
@@ -275,6 +277,16 @@ export default async function handler(req, res) {
 
     // APPEND-ONLY: only adds new closed trades; never touches existing ones.
     const summary = applyFlexAppendOnly(recon, state);
+
+    // FLAG-ONLY reconciliation: desk vs broker, per underlying, cumulatively since
+    // the go-live cutoff. Never modifies trades — only writes state.reconcileFlags
+    // for the user to review. `since` defaults to a forward cutoff so frozen history
+    // isn't re-flagged (override by setting state.reconcileSince).
+    const since = state.reconcileSince || "2026-06-20";
+    const rec = reconcile(csv, state, since);
+    rec.generatedAt = new Date().toISOString().slice(0, 10);
+    state.reconcileFlags = rec;
+    summary.reconcile = { since, flaggedCount: rec.flaggedCount, flags: rec.flags.slice(0, 20) };
 
     if (dryRun) {
       return res.status(200).json({ s: "ok", mode: (req.method === "POST") ? "verify-csv (no write)" : "dry-run (no write)", ...summary });
