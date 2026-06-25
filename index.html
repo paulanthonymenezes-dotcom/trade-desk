@@ -9681,7 +9681,7 @@ function _computeStopLevels(t, opts) {
   return {
     F0, iv: sig0, creditPts, creditUsd: t.premiumCollected, width, dte, contracts, isPut, mult,
     maxLossPts, maxLossUsd: maxLossPts * mult * contracts,
-    warn75: lvl(0.75), stop100: lvl(1.0),
+    warn150: lvl(1.5), stop200: lvl(2.0),
   };
 }
 // Underlying NQ price at entry, read from the stored FirstRate candle nearest entry.
@@ -9806,7 +9806,7 @@ function renderGuardrails() {
   el.innerHTML = `
     <div style="margin-bottom:14px">
       <div style="font-size:18px;color:${C.text};font-weight:600">🛡️ Guardrails</div>
-      <div style="font-size:11px;color:${C.textSec};margin-top:2px">The moment you fill, punch in your credit + strikes → get the exact buy-back prices to rest your TP/stop, and the /NQ level to alert on. Loss measured as % of credit (your TP 50% / SL 100%).</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">The moment you fill, punch in your credit + strikes → get the exact buy-back prices to rest your TP/stop, and the /NQ level to alert on. Loss measured as % of credit (your TP 75% / SL 200%).</div>
     </div>
     <div class="card" style="padding:14px 16px;margin-bottom:14px">
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
@@ -9856,7 +9856,7 @@ function _runGuard() {
 
   // ── Output 1 & 3: premium order prices — exact arithmetic, no model. ──
   // Buy-back value (cost to close) at each loss/gain level, in the same points
-  // your IBKR ticket shows: TP +50% → 0.5×credit, −75% → 1.75×, −100% → 2.0×.
+  // your IBKR ticket shows: TP +75% → 0.25×credit, −150% → 2.5×, −200% → 3.0×.
   const usd = (pts) => `$${(pts * 20).toFixed(0)}/ct`;
   const pCard = (label, mult, sub, color, big) => `
     <div style="flex:1 1 180px;background:${C.bg};border:1px solid ${C.borderVis};border-top:3px solid ${color};border-radius:9px;padding:11px 13px">
@@ -9884,9 +9884,9 @@ function _runGuard() {
   out.innerHTML = `
     <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px">① Buy-back prices — rest these as limit orders (exact)</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-      ${pCard("Take profit +50%", 0.5, "close here to bank half the credit", C.pos)}
-      ${pCard("Warn −75%", 1.75, "tighten up / get ready", C.warn)}
-      ${pCard("STOP −100%", 2.0, "hard exit — max you'll lose = the credit", "#ff453a")}
+      ${pCard("Take profit +75%", 0.25, "close here to bank three-quarters of the credit", C.pos)}
+      ${pCard("Warn −150%", 2.5, "tighten up / get ready", C.warn)}
+      ${pCard("STOP −200%", 3.0, "hard exit — max you'll lose = 2× the credit", "#ff453a")}
     </div>
     <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">② /NQ price alert — set the alert here (estimate)</div>
     <div class="card" style="padding:10px 14px">
@@ -9895,10 +9895,10 @@ function _runGuard() {
         <span>Breakeven /NQ <b style="color:${C.text}">${be.toFixed(0)}</b></span>
         <span>Max loss <b style="color:${C.neg}">${usd((Math.abs(shortK - longK) - creditPts))}</b></span>
       </div>
-      ${m ? lvlRow("−75% near", m.warn75, C.warn) : ""}
-      ${m ? lvlRow("−100% near", m.stop100, "#ff453a") : ""}
+      ${m ? lvlRow("−150% near", m.warn150, C.warn) : ""}
+      ${m ? lvlRow("−200% near", m.stop200, "#ff453a") : ""}
       <div style="font-size:10px;color:${C.textSec};margin-top:9px;border-top:1px solid ${C.borderVis};padding-top:8px">
-        💡 <b>Quick rule if you skip the math:</b> set your /NQ alert a touch ${isPut ? "above" : "below"} the short strike (<b style="color:${C.text}">${shortK}</b>) — the −75/−100% zone reliably lands ${isPut ? "around/just above" : "around/just below"} it.
+        💡 <b>Quick rule if you skip the math:</b> use the modeled <b style="color:#ff453a">−200% level</b> above — at a 200%-of-credit stop, /NQ has pushed well ${isPut ? "below" : "above"} your short strike (<b style="color:${C.text}">${shortK}</b>), deeper toward the long. Set the alert at that number.
       </div>
     </div>
     <div style="font-size:9px;color:${C.textMut};margin-top:9px">Premium prices (①) are exact — place them. /NQ levels (②) are modeled (Black-76 + vol-expansion) and drift with IV; a fast/violent move hits them sooner, so they err early. Telegram alerts coming next.</div>`;
