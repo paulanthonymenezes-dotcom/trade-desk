@@ -9813,10 +9813,27 @@ function _nqsSelectedDays() {
 }
 function _nqsStats(days, bi) {
   const rs = [], ns = [];
-  for (const x of days) { if (x.r[bi] != null) rs.push(x.r[bi]); if (x.n[bi] != null) ns.push(x.n[bi]); }
+  for (const x of days) { if (x.h[bi] != null && x.l[bi] != null) rs.push(x.h[bi] - x.l[bi]); if (x.c[bi] != null && x.o[bi] != null) ns.push(x.c[bi] - x.o[bi]); }
   if (!rs.length) return null;
   const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
   return { range: mean(rs), net: mean(ns), n: rs.length, up: ns.filter(v => v > 0).length, down: ns.filter(v => v < 0).length, maxR: Math.max(...rs), minR: Math.min(...rs) };
+}
+// Hold window: from entry slot ei to exit slot xj, how far NQ travels from the
+// entry price (%) — max DOWN (hurts bull puts), max UP (hurts bear calls), and net
+// drift — averaged across the days, plus the single worst push each way.
+function _nqsHold(days, ei, xj) {
+  const ups = [], downs = [], nets = [];
+  for (const x of days) {
+    const entry = x.o[ei], exit = x.c[xj];
+    if (entry == null || exit == null) continue;
+    let hi = -Infinity, lo = Infinity;
+    for (let k = ei; k <= xj; k++) { if (x.h[k] != null) hi = Math.max(hi, x.h[k]); if (x.l[k] != null) lo = Math.min(lo, x.l[k]); }
+    if (!isFinite(hi) || !isFinite(lo)) continue;
+    ups.push((hi - entry) / entry * 100); downs.push((entry - lo) / entry * 100); nets.push((exit - entry) / entry * 100);
+  }
+  if (!nets.length) return null;
+  const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+  return { up: mean(ups), down: mean(downs), net: mean(nets), worstUp: Math.max(...ups), worstDown: Math.max(...downs), n: nets.length };
 }
 function _nqsSetTF(v) { _nqsTimeframe = v; renderNqScreener(); }
 function _nqsSetBucket(v) { _nqsBucket = v; renderNqScreener(); }
@@ -9826,7 +9843,7 @@ function renderNqScreener() {
   const d = STATE.nqScreener;
   if (!d) { el.innerHTML = `<div style="padding:40px;text-align:center;color:${C.textSec};font-size:12px">No NQ screener data yet. Run <code>scripts/nq_screener.py --write</code> after a FirstRate update.</div>`; return; }
   const buckets = d.buckets, days = _nqsSelectedDays();
-  const haveData = buckets.map((b, i) => days.some(x => x.r[i] != null) ? i : -1).filter(i => i >= 0);
+  const haveData = buckets.map((b, i) => days.some(x => x.h[i] != null) ? i : -1).filter(i => i >= 0);
   const bi = buckets.indexOf(_nqsBucket);
   const stat = bi >= 0 ? _nqsStats(days, bi) : null;
   const usd = p => "$" + Math.round(p * 20).toLocaleString();
@@ -9858,6 +9875,35 @@ function renderNqScreener() {
         <div><div style="font-size:16px;color:${C.textSec};font-variant-numeric:tabular-nums">${stat.minR.toFixed(0)}–${stat.maxR.toFixed(0)} pts</div><div style="font-size:11px;color:${C.textMut}">spread of ranges · ${stat.n} days</div></div>
       </div>
     </div>` : `<div class="card" style="padding:16px;color:${C.textSec};font-size:12px;margin-bottom:16px">No data for ${_nqsBucket} in this window.</div>`}
+    ${(() => {
+      if (bi < 0) return "";
+      const closeIdx = buckets.indexOf("16:00");
+      const horizons = [["+1h", 4], ["+2h", 8], ["+3h", 12], ["+4h", 16], ["+6h", 24]];
+      const hr = [];
+      for (const [lab, off] of horizons) { const xj = bi + off; if (xj > 95) continue; const h = _nqsHold(days, bi, xj); if (h) hr.push([lab, buckets[xj], h]); }
+      if (closeIdx > bi) { const h = _nqsHold(days, bi, closeIdx); if (h) hr.push(["to close", "16:00", h]); }
+      if (!hr.length) return "";
+      const pc = v => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+      const hl = hr.find(r => r[0] === "+3h") || hr[Math.min(2, hr.length - 1)];
+      return `
+      <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">⏱ Hold from ${_nqsBucket} — how far NQ travels by exit</div>
+      <div class="card" style="padding:6px 4px;margin-bottom:18px">
+        <div style="font-size:12px;color:${C.text};padding:8px 12px 10px;line-height:1.55">Enter <b>${_nqsBucket}</b> → hold to <b>${hl[1]}</b> (${hl[0]}): NQ averages <b style="color:${C.neg}">−${hl[2].down.toFixed(2)}%</b> down / <b style="color:${C.pos}">+${hl[2].up.toFixed(2)}%</b> up, netting <b>${pc(hl[2].net)}</b>. Worst drop seen: <b style="color:${C.neg}">−${hl[2].worstDown.toFixed(2)}%</b>.</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="color:${C.textSec};font-size:9px;text-align:left;letter-spacing:.06em">
+            <th style="padding:6px 10px">HOLD TO</th><th>AVG MAX ↓ (bull-put risk)</th><th>AVG MAX ↑ (bear-call risk)</th><th>AVG NET</th><th>WORST ↓</th><th>DAYS</th></tr></thead>
+          <tbody>${hr.map(([lab, t, h]) => `<tr style="border-top:1px solid ${C.bgHover}">
+            <td style="padding:6px 10px;color:${C.text};font-variant-numeric:tabular-nums">${t} <span style="color:${C.textMut};font-size:10px">${lab}</span></td>
+            <td style="font-variant-numeric:tabular-nums;color:${C.neg};font-weight:600">−${h.down.toFixed(2)}%</td>
+            <td style="font-variant-numeric:tabular-nums;color:${C.pos}">+${h.up.toFixed(2)}%</td>
+            <td style="font-variant-numeric:tabular-nums;color:${netCol(h.net)}">${pc(h.net)}</td>
+            <td style="font-variant-numeric:tabular-nums;color:${C.neg};font-size:11px">−${h.worstDown.toFixed(2)}%</td>
+            <td style="font-variant-numeric:tabular-nums;color:${C.textMut};font-size:11px">${h.n}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+        <div style="font-size:10px;color:${C.textMut};padding:6px 12px">↓ = max drop from your entry price (hurts bull puts) · ↑ = max rise (hurts bear calls), as % of NQ. Change the entry with the <b>Time</b> dropdown above.</div>
+      </div>`;
+    })()}
     <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">All slots — most active first (click a row to select)</div>
     <div class="card" style="padding:6px 4px">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
