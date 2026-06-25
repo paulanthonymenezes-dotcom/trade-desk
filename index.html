@@ -377,6 +377,7 @@ table{width:100%;border-collapse:collapse}
 #main.dashboard-mode #tab-forward.active,
 #main.dashboard-mode #tab-eecharts.active,
 #main.dashboard-mode #tab-guardrails.active,
+#main.dashboard-mode #tab-nqscreener.active,
 #main.dashboard-mode #tab-resources.active,
 #main.dashboard-mode #tab-calendar.active,
 #main.dashboard-mode #tab-forecast.active{display:block;grid-column:1/-1}
@@ -586,6 +587,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn active" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">Statistics</span></button>
   <button class="side-btn" onclick="switchTab('guardrails',this)"><span class="nav-icon">🛡️</span><span class="side-label">Guardrails</span></button>
   <button class="side-btn" onclick="switchTab('eecharts',this)"><span class="nav-icon">📈</span><span class="side-label">Entry/Exit Charts</span></button>
+  <button class="side-btn" onclick="switchTab('nqscreener',this)"><span class="nav-icon">🔭</span><span class="side-label">NQ Screener</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
   <button class="side-btn" onclick="switchTab('calendar',this)"><span class="nav-icon">📅</span><span class="side-label">Calendar</span></button>
   <button class="side-btn" onclick="switchTab('resources',this)"><span class="nav-icon">🔗</span><span class="side-label">Resources</span></button>
@@ -705,6 +707,11 @@ table{width:100%;border-collapse:collapse}
   <!-- GUARDRAILS TAB -->
   <div id="tab-guardrails" class="section" style="display:none">
     <div id="guardrails-content" style="max-width:760px;margin:0 auto"></div>
+  </div>
+
+  <!-- NQ SCREENER TAB -->
+  <div id="tab-nqscreener" class="section" style="display:none">
+    <div id="nqscreener-content" style="max-width:1100px;margin:0 auto"></div>
   </div>
 
   <!-- CALENDAR TAB -->
@@ -9791,6 +9798,84 @@ function _removeResource(i) {
 //   • exact premium buy-back prices for +50% TP, −75% warn, −100% stop (no model)
 //   • the modeled /NQ underlying level that = −75% / −100% (your price alert)
 // Standalone — does NOT depend on the (often stale) IBKR trade history.
+// ── NQ Screener: average intraday NQ movement by 15-min slot, over a chosen
+// lookback. Reads state.nqScreener (precomputed by scripts/nq_screener.py from the
+// FirstRate 1-min file). Pure read/compute — no trade data involved. ──
+let _nqsTimeframe = "2w", _nqsBucket = "09:30", _nqsFrom = "", _nqsTo = "";
+const _NQS_TF = [["3d","Last 3 days",3],["4d","Last 4 days",4],["1w","Last week",7],["2w","Last 2 weeks",14],["1m","Last month",30],["3m","Last 3 months",90],["custom","Custom range",0]];
+function _nqsSelectedDays() {
+  const d = STATE.nqScreener; if (!d) return [];
+  const days = d.days || [];
+  if (_nqsTimeframe === "custom") { const a = _nqsFrom || "0000", b = _nqsTo || "9999"; return days.filter(x => x.d >= a && x.d <= b); }
+  const n = (_NQS_TF.find(t => t[0] === _nqsTimeframe) || [,,14])[2];
+  const cutoff = new Date(new Date(d.generatedThrough + "T00:00:00Z").getTime() - n * 86400000).toISOString().slice(0, 10);
+  return days.filter(x => x.d >= cutoff && x.d <= d.generatedThrough);
+}
+function _nqsStats(days, bi) {
+  const rs = [], ns = [];
+  for (const x of days) { if (x.r[bi] != null) rs.push(x.r[bi]); if (x.n[bi] != null) ns.push(x.n[bi]); }
+  if (!rs.length) return null;
+  const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+  return { range: mean(rs), net: mean(ns), n: rs.length, up: ns.filter(v => v > 0).length, down: ns.filter(v => v < 0).length, maxR: Math.max(...rs), minR: Math.min(...rs) };
+}
+function _nqsSetTF(v) { _nqsTimeframe = v; renderNqScreener(); }
+function _nqsSetBucket(v) { _nqsBucket = v; renderNqScreener(); }
+function _nqsSetCustom() { _nqsFrom = (document.getElementById('nqs-from')||{}).value || ""; _nqsTo = (document.getElementById('nqs-to')||{}).value || ""; renderNqScreener(); }
+function renderNqScreener() {
+  const el = document.getElementById("nqscreener-content"); if (!el) return;
+  const d = STATE.nqScreener;
+  if (!d) { el.innerHTML = `<div style="padding:40px;text-align:center;color:${C.textSec};font-size:12px">No NQ screener data yet. Run <code>scripts/nq_screener.py --write</code> after a FirstRate update.</div>`; return; }
+  const buckets = d.buckets, days = _nqsSelectedDays();
+  const haveData = buckets.map((b, i) => days.some(x => x.r[i] != null) ? i : -1).filter(i => i >= 0);
+  const bi = buckets.indexOf(_nqsBucket);
+  const stat = bi >= 0 ? _nqsStats(days, bi) : null;
+  const usd = p => "$" + Math.round(p * 20).toLocaleString();
+  const arrow = n => n > 0 ? "▲" : n < 0 ? "▼" : "–";
+  const netCol = n => n > 0 ? C.pos : n < 0 ? C.neg : C.textSec;
+  const rows = haveData.map(i => ({ b: buckets[i], ...(_nqsStats(days, i) || { range: 0, net: 0, n: 0, up: 0, down: 0, minR: 0, maxR: 0 }) })).filter(r => r.n > 0).sort((a, b) => b.range - a.range);
+  const maxRange = rows.length ? rows[0].range : 1;
+  const tfLabel = (_NQS_TF.find(t => t[0] === _nqsTimeframe) || [,"window"])[1];
+  const sel = (id, oh, opts, w) => `<select id="${id}" onchange="${oh}" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:8px 10px;font-size:14px;${w ? `min-width:${w}px` : ''}">${opts}</select>`;
+  el.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-size:18px;color:${C.text};font-weight:600">🔭 NQ Screener — intraday movement</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">Average /NQ move per 15-min slot (ET), from FirstRate 1-min data. <b>Range</b> = avg high−low in the slot; <b>Net</b> = avg drift (direction). Data through ${d.generatedThrough}.</div>
+    </div>
+    <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end">
+      <div><div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Timeframe</div>${sel('nqs-tf', "_nqsSetTF(this.value)", _NQS_TF.map(t => `<option value="${t[0]}"${_nqsTimeframe === t[0] ? " selected" : ""}>${t[1]}</option>`).join(""), 150)}</div>
+      <div><div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Time (15-min ET)</div>${sel('nqs-bk', "_nqsSetBucket(this.value)", haveData.map(i => `<option value="${buckets[i]}"${buckets[i] === _nqsBucket ? " selected" : ""}>${buckets[i]} ET</option>`).join(""), 130)}</div>
+      ${_nqsTimeframe === "custom" ? `
+        <div><div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">From</div><input id="nqs-from" type="date" value="${_nqsFrom}" onchange="_nqsSetCustom()" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:13px"></div>
+        <div><div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">To</div><input id="nqs-to" type="date" value="${_nqsTo}" onchange="_nqsSetCustom()" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:7px 9px;font-size:13px"></div>` : ""}
+      <div style="font-size:10px;color:${C.textMut};margin-left:auto">${days.length} session days in scope</div>
+    </div>
+    ${stat ? `
+    <div class="card" style="padding:16px 18px;margin-bottom:16px;border-left:3px solid ${C.accent}">
+      <div style="font-size:11px;color:${C.textSec};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${_nqsBucket} ET · ${tfLabel}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:28px;align-items:baseline">
+        <div><div style="font-size:34px;font-weight:700;color:${C.text};font-variant-numeric:tabular-nums">${stat.range.toFixed(1)} <span style="font-size:15px;color:${C.textSec}">pts</span></div><div style="font-size:11px;color:${C.textMut}">avg range · ${usd(stat.range)}/contract</div></div>
+        <div><div style="font-size:22px;font-weight:600;color:${netCol(stat.net)};font-variant-numeric:tabular-nums">${arrow(stat.net)} ${Math.abs(stat.net).toFixed(1)} pts</div><div style="font-size:11px;color:${C.textMut}">avg net drift · ${stat.up} up / ${stat.down} down</div></div>
+        <div><div style="font-size:16px;color:${C.textSec};font-variant-numeric:tabular-nums">${stat.minR.toFixed(0)}–${stat.maxR.toFixed(0)} pts</div><div style="font-size:11px;color:${C.textMut}">spread of ranges · ${stat.n} days</div></div>
+      </div>
+    </div>` : `<div class="card" style="padding:16px;color:${C.textSec};font-size:12px;margin-bottom:16px">No data for ${_nqsBucket} in this window.</div>`}
+    <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">All slots — most active first (click a row to select)</div>
+    <div class="card" style="padding:6px 4px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="color:${C.textSec};font-size:9px;text-align:left;letter-spacing:.06em">
+          <th style="padding:6px 10px">TIME (ET)</th><th>AVG RANGE</th><th style="width:36%"></th><th>$/CT</th><th>AVG NET</th><th>UP/DN</th></tr></thead>
+        <tbody>${rows.map(r => { const on = r.b === _nqsBucket, w = Math.round(r.range / maxRange * 100);
+          return `<tr onclick="_nqsSetBucket('${r.b}')" style="cursor:pointer;border-top:1px solid ${C.bgHover};${on ? `background:${C.accent}14` : ''}">
+            <td style="padding:6px 10px;color:${on ? C.accent : C.text};font-weight:${on ? '700' : '500'};font-variant-numeric:tabular-nums">${r.b}</td>
+            <td style="font-variant-numeric:tabular-nums;color:${C.text};font-weight:600">${r.range.toFixed(1)}</td>
+            <td><div style="height:7px;width:${w}%;background:${C.accent};border-radius:3px;opacity:.7"></div></td>
+            <td style="font-variant-numeric:tabular-nums;color:${C.textSec}">${usd(r.range)}</td>
+            <td style="font-variant-numeric:tabular-nums;color:${netCol(r.net)}">${arrow(r.net)} ${Math.abs(r.net).toFixed(1)}</td>
+            <td style="font-variant-numeric:tabular-nums;color:${C.textMut};font-size:11px">${r.up}/${r.down}</td>
+          </tr>`; }).join("")}</tbody>
+      </table>
+    </div>`;
+}
+
 function renderGuardrails() {
   const el = document.getElementById("guardrails-content");
   if (!el) return;
@@ -16040,7 +16125,7 @@ mktLoadAll();
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'resources', 'calendar'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'resources', 'calendar'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -16107,6 +16192,8 @@ function switchTab(tab, btn) {
     if (typeof renderForward === 'function') renderForward();
   } else if (tab === 'eecharts') {
     if (typeof renderEntryExitCharts === 'function') renderEntryExitCharts();
+  } else if (tab === 'nqscreener') {
+    if (typeof renderNqScreener === 'function') renderNqScreener();
   } else if (tab === 'guardrails') {
     if (typeof renderGuardrails === 'function') renderGuardrails();
   } else if (tab === 'resources') {
