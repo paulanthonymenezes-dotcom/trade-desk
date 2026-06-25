@@ -291,6 +291,19 @@ export default async function handler(req, res) {
     if (dryRun) {
       return res.status(200).json({ s: "ok", mode: (req.method === "POST") ? "verify-csv (no write)" : "dry-run (no write)", ...summary });
     }
+
+    // CIRCUIT BREAKER: a normal nightly sync appends a handful of new closed trades.
+    // If it suddenly wants to add a large batch, the dedup match (entryTime + leg
+    // symbol) has failed — e.g. the reconstruction's entryTime no longer lines up
+    // with restored trades — and writing would DUPLICATE history. Refuse and flag,
+    // never corrupt. (Override per-run with ?force=1 once a large batch is verified.)
+    const MAX_APPEND_PER_RUN = 25;
+    if (summary.added > MAX_APPEND_PER_RUN && req.query.force !== "1") {
+      return res.status(200).json({ s: "error", mode: "refused (circuit breaker)",
+        errmsg: `refused: would append ${summary.added} trades (> ${MAX_APPEND_PER_RUN}). Likely a dedup mismatch that would duplicate history — NOT writing. Run ?dryRun=1 to inspect; add ?force=1 only if the batch is genuinely all-new.`,
+        ...summary });
+    }
+
     await saveState(state);
     return res.status(200).json({ s: "ok", mode: "WROTE (append-only)", ...summary });
   } catch (e) {
