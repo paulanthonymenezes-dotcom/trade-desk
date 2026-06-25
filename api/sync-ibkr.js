@@ -191,10 +191,26 @@ function reconstructFlexTrades(csvText) {
 function applyFlexAppendOnly(recon, STATE) {
   const existing = STATE.trades || [];
   const legs = t => [t.shortSymbol, t.longSymbol].filter(Boolean);
+  // Match on leg SYMBOL + DATE proximity, NOT entryTime. Restored trades had their
+  // entryTime cleaned to the real morning fill, while a raw Flex reconstruction uses
+  // the evening session time — so entryTime equality wrongly treats existing trades
+  // as new and DUPLICATES them. Leg symbols (series+strike+expiry) are highly unique;
+  // a ±1.5-day window absorbs the evening→next-session-day date shift.
+  const dnear = (a, b) => {
+    if (!a || !b) return false;
+    const da = Date.parse(String(a).slice(0, 10) + "T00:00:00Z");
+    const db = Date.parse(String(b).slice(0, 10) + "T00:00:00Z");
+    return isFinite(da) && isFinite(db) && Math.abs(da - db) <= 36 * 3600 * 1000;
+  };
   const isPresent = (r) => {
     const rl = legs(r);
-    return existing.some(e => e.entryTime && e.entryTime === r.entryTime &&
-      legs(e).some(s => rl.includes(s)));
+    if (rl.length) {
+      return existing.some(e => legs(e).some(s => rl.includes(s)) &&
+        (dnear(e.entryDate, r.entryDate) || dnear(e.exitDate, r.exitDate)));
+    }
+    // no leg symbols (plain stock): match ticker + close date + ~same realized P&L
+    return existing.some(e => e.ticker === r.ticker && dnear(e.exitDate, r.exitDate) &&
+      Math.abs((+e.realizedPnl || 0) - (+r.realizedPnl || 0)) < 1);
   };
   let nid = Math.max(0, ...existing.map(t => t.id || 0)) + 1;
   let added = 0, skipped = 0, openSkipped = 0;
