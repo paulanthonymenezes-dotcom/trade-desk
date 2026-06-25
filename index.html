@@ -9835,6 +9835,28 @@ function _nqsHold(days, ei, xj) {
   const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
   return { up: mean(ups), down: mean(downs), net: mean(nets), worstUp: Math.max(...ups), worstDown: Math.max(...downs), n: nets.length };
 }
+// Multi-day hold: enter day D at slot ei, exit N trading days later at the same time.
+// Excursion spans D (ei→end) + the full in-between days + the exit day (start→ei).
+function _nqsHoldMulti(allDays, selDays, idxByDate, ei, N) {
+  const ups = [], downs = [], nets = [];
+  for (const day of selDays) {
+    const si = idxByDate[day.d];
+    if (si == null || si + N >= allDays.length) continue;
+    const a = allDays[si], b = allDays[si + N];
+    const entry = a.o[ei], exit = b.c[ei];
+    if (entry == null || exit == null) continue;
+    let hi = -Infinity, lo = Infinity;
+    const scan = (dy, from, to) => { for (let k = from; k <= to; k++) { if (dy.h[k] != null) hi = Math.max(hi, dy.h[k]); if (dy.l[k] != null) lo = Math.min(lo, dy.l[k]); } };
+    scan(a, ei, 95);
+    for (let j = si + 1; j < si + N; j++) scan(allDays[j], 0, 95);
+    scan(b, 0, ei);
+    if (!isFinite(hi) || !isFinite(lo)) continue;
+    ups.push((hi - entry) / entry * 100); downs.push((entry - lo) / entry * 100); nets.push((exit - entry) / entry * 100);
+  }
+  if (!nets.length) return null;
+  const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+  return { up: mean(ups), down: mean(downs), net: mean(nets), worstUp: Math.max(...ups), worstDown: Math.max(...downs), n: nets.length };
+}
 function _nqsSetTF(v) { _nqsTimeframe = v; renderNqScreener(); }
 function _nqsSetBucket(v) { _nqsBucket = v; renderNqScreener(); }
 function _nqsSetCustom() { _nqsFrom = (document.getElementById('nqs-from')||{}).value || ""; _nqsTo = (document.getElementById('nqs-to')||{}).value || ""; renderNqScreener(); }
@@ -9882,6 +9904,9 @@ function renderNqScreener() {
       const hr = [];
       for (const [lab, off] of horizons) { const xj = bi + off; if (xj > 95) continue; const h = _nqsHold(days, bi, xj); if (h) hr.push([lab, buckets[xj], h]); }
       if (closeIdx > bi) { const h = _nqsHold(days, bi, closeIdx); if (h) hr.push(["to close", "16:00", h]); }
+      // multi-day (up to 3 trading days), exit at the same time of day
+      const idxByDate = {}; d.days.forEach((x, i) => idxByDate[x.d] = i);
+      for (const N of [1, 2, 3]) { const h = _nqsHoldMulti(d.days, days, idxByDate, bi, N); if (h) hr.push([`+${N}d`, _nqsBucket, h]); }
       if (!hr.length) return "";
       const pc = v => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
       const hl = hr.find(r => r[0] === "+3h") || hr[Math.min(2, hr.length - 1)];
