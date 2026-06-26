@@ -248,7 +248,7 @@ function applyFlexAppendOnly(recon, STATE) {
   // RECENCY GUARD: only append trades that closed recently. A genuinely new trade is
   // days old at most; an "old" reconstructed trade that isn't matched is a dedup miss
   // (e.g. a slightly different regrouping) that would DUPLICATE history. Block it.
-  const staleCutoff = new Date(Date.now() - 12 * 86400000).toISOString().slice(0, 10);
+  const staleCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
   let nid = Math.max(0, ...existing.map(t => t.id || 0)) + 1;
   let added = 0, skipped = 0, openSkipped = 0, staleSkipped = 0;
   const addedTrades = [];
