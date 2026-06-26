@@ -154,10 +154,43 @@ function reconstructFlexTrades(csvText) {
     return t;
   };
 
-  const posg = {};
-  for (const t of legtrips) { const g = [t.under, t.expiry, t.odate, t.asset].join("|"); (posg[g] = posg[g] || []).push(t); }
   const trades = [];
-  for (const g in posg) trades.push(mkTrade(posg[g], posg[g][0].asset, "Closed"));
+  // Stocks: simple grouping by open-date (no spread/roll concept).
+  const stkg = {};
+  for (const t of legtrips.filter(t => t.asset === "STK")) { const g = [t.under, t.odate].join("|"); (stkg[g] = stkg[g] || []).push(t); }
+  for (const g in stkg) trades.push(mkTrade(stkg[g], "STK", "Closed"));
+  // Options: ROLL-AWARE. The user runs credit spreads and rolls the LONG leg down on
+  // adverse moves. So a trade = one SHORT-leg round-trip + every LONG round-trip that
+  // opens during the short's life and protects it (put long below the short / call
+  // long above). This keeps rolled-down longs with their short (true net P&L from
+  // FifoPnlRealized) and separates concurrent spreads by nearest protecting strike —
+  // instead of lump-by-expiry-day (which merged unrelated trades).
+  const byExp = {};
+  for (const t of legtrips.filter(t => t.asset !== "STK")) { const k = [t.under, t.expiry, t.asset].join("|"); (byExp[k] = byExp[k] || []).push(t); }
+  for (const k in byExp) {
+    const grp = byExp[k];
+    const shorts = grp.filter(t => t.short).sort((a, b) => (a.odt || "").localeCompare(b.odt || ""));
+    const longs = grp.filter(t => !t.short);
+    const assign = new Array(longs.length).fill(-1);
+    longs.forEach((l, li) => {
+      let best = -1, bestD = Infinity;
+      shorts.forEach((s, si) => {
+        if (!(s.odt <= l.odt && l.odt <= s.xdt)) return;
+        const ss = F(s.strike), ls = F(l.strike);
+        const protects = (l.side === "P" && ss > ls) || (l.side === "C" && ss < ls);
+        if (protects && Math.abs(ss - ls) < bestD) { bestD = Math.abs(ss - ls); best = si; }
+      });
+      assign[li] = best;
+    });
+    shorts.forEach((s, si) => {
+      const tlegs = [s, ...longs.filter((l, li) => assign[li] === si)];
+      const tr = mkTrade(tlegs, s.asset, "Closed");
+      tr.rollCount = Math.max(0, tlegs.filter(x => !x.short).length - 1);
+      if (tr.rollCount) tr.tradeType += ` (rolled ×${tr.rollCount})`;
+      trades.push(tr);
+    });
+    longs.forEach((l, li) => { if (assign[li] < 0) trades.push(mkTrade([l], l.asset, "Closed")); });
+  }
 
   const st2 = {};
   for (const r of rows) {
@@ -212,11 +245,16 @@ function applyFlexAppendOnly(recon, STATE) {
     return existing.some(e => e.ticker === r.ticker && dnear(e.exitDate, r.exitDate) &&
       Math.abs((+e.realizedPnl || 0) - (+r.realizedPnl || 0)) < 1);
   };
+  // RECENCY GUARD: only append trades that closed recently. A genuinely new trade is
+  // days old at most; an "old" reconstructed trade that isn't matched is a dedup miss
+  // (e.g. a slightly different regrouping) that would DUPLICATE history. Block it.
+  const staleCutoff = new Date(Date.now() - 12 * 86400000).toISOString().slice(0, 10);
   let nid = Math.max(0, ...existing.map(t => t.id || 0)) + 1;
-  let added = 0, skipped = 0, openSkipped = 0;
+  let added = 0, skipped = 0, openSkipped = 0, staleSkipped = 0;
   const addedTrades = [];
   for (const r of recon) {
     if (r.status !== "Closed") { openSkipped++; continue; } // open positions sync when you open the desk
+    if (r.exitDate && r.exitDate < staleCutoff) { staleSkipped++; continue; } // too old to be new
     if (isPresent(r)) { skipped++; continue; }
     r.id = nid++;
     addedTrades.push(r);
@@ -225,7 +263,7 @@ function applyFlexAppendOnly(recon, STATE) {
   STATE.trades = existing.concat(addedTrades);
   STATE.nextId = Math.max(0, ...STATE.trades.map(t => t.id || 0)) + 1;
   return {
-    added, skipped, openSkipped, existing: existing.length, total: STATE.trades.length,
+    added, skipped, openSkipped, staleSkipped, existing: existing.length, total: STATE.trades.length,
     addedSample: addedTrades.slice(0, 10).map(t => ({ ticker: t.ticker, type: t.tradeType, entryDate: t.entryDate, entryTime: t.entryTime, exitDate: t.exitDate, short: t.shortSymbol, pnl: t.realizedPnl })),
   };
 }
