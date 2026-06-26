@@ -4294,6 +4294,7 @@ function renderDiary() {
       <button onclick="currentDiaryId=null;document.getElementById('diary-detail-panel').innerHTML='<div style=\\'padding:40px;text-align:center;color:var(--text-secondary);font-size:12px\\'>Select a trade to view details</div>';document.querySelectorAll('#diary-list-panel .card').forEach(c=>c.style.outline='');" style="background:none;border:none;color:${C.textSec};font-size:16px;cursor:pointer">← BACK</button>
       <div style="font-variant-numeric:tabular-nums;font-size:14px;color:${C.text};font-weight:600">${t.ticker} · ${t.longStrike}/${t.shortStrike}</div>
       <span class="badge" style="background:${statusColors[t.status]||"#374151"}22;color:${statusColors[t.status]||C.text}">${t.status}</span>
+      ${t.ideaSource?`<span class="badge" title="Idea source" style="background:${C.accent}22;color:${C.accent}">📍 ${escapeHtml(t.ideaSource)}</span>`:""}
     </div>
 
     <!-- Trade facts -->
@@ -4366,9 +4367,11 @@ function renderDiary() {
         </div>
         <div>
           <div class="lbl">Idea Source</div>
-          <select onchange="updateTradeField(${t.id},'ideaSource',this.value)" style="font-size:11px">
+          <select onchange="_setIdeaSource(${t.id},this.value)" style="font-size:11px">
             <option value="">—</option>
-            ${["Brent D","The Options Seller","Longwashere","Lyn Alden","Seasonax","Finviz Heat Map","Personal Knowledge","News / Event","Other"].map(o=>`<option${t.ideaSource===o?" selected":""}>${o}</option>`).join("")}
+            ${_ideaSources().map(o=>`<option${t.ideaSource===o?" selected":""}>${escapeHtml(o)}</option>`).join("")}
+            ${t.ideaSource && !_ideaSources().includes(t.ideaSource)?`<option selected>${escapeHtml(t.ideaSource)}</option>`:""}
+            <option value="__add__">+ Add new source…</option>
           </select>
         </div>
         <div>
@@ -12498,6 +12501,23 @@ function openDiary(id) {
   renderDiary();
 }
 // ── Inline diary field update ─────────────────────────────────────────────────
+// User-editable idea-source list (who the trade idea came from). Seeded with the
+// defaults; grows as the user adds sources via the "+ Add new source…" option.
+function _ideaSources() {
+  if (!Array.isArray(STATE.ideaSources)) STATE.ideaSources = ["Me / Own DD", "Brent Donnelly", "The Options Seller", "Seasonax", "Longwashere", "Lyn Alden", "Finviz Heat Map", "News / Event", "Other"];
+  return STATE.ideaSources;
+}
+function _setIdeaSource(id, v) {
+  if (v === "__add__") {
+    const name = (prompt("New idea source (e.g. a newsletter or person):") || "").trim();
+    if (!name) { renderDiary(); return; }            // cancelled — reset the select
+    const list = _ideaSources(); if (!list.includes(name)) list.push(name);
+    updateTradeField(id, "ideaSource", name);
+  } else {
+    updateTradeField(id, "ideaSource", v);
+  }
+  renderDiary();
+}
 function updateTradeField(id, field, value) {
   STATE.trades = STATE.trades.map(t => t.id===id ? {...t, [field]: value} : t);
   save();
