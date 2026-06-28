@@ -9960,24 +9960,37 @@ function renderNqScreener() {
 // ── NQ Sessions: per-day opening swing (from the 9:30 open) + Initial Balance
 // (IBH/IBL = high/low of the first hour 9:30–10:30). Built from the stored nqScreener
 // per-slot OHLC — no new data. Shown in points, dollars ($20/pt), and %. ──
-let _nqSessTf = "2w";
+let _nqSessTf = "2w", _nqSessMode = "us";
 function _nqSessSetTf(v) { _nqSessTf = v; renderNqSessions(); }
+function _nqSessSetMode(v) { _nqSessMode = v; renderNqSessions(); }
 function renderNqSessions() {
   const el = document.getElementById("nqsessions-content"); if (!el) return;
   const d = STATE.nqScreener;
   if (!d) { el.innerHTML = `<div style="padding:40px;text-align:center;color:${C.textSec};font-size:12px">No NQ data yet. Run <code>scripts/refresh_nq.py</code> after a FirstRate update.</div>`; return; }
-  const B = d.buckets, iOpen = B.indexOf("09:30"), iIBend = B.indexOf("10:30"), iClose = B.indexOf("16:00");
   const n = (_NQS_TF.find(t => t[0] === _nqSessTf) || [, , 14])[2];
   const cutoff = new Date(new Date(d.generatedThrough + "T00:00:00Z").getTime() - n * 86400000).toISOString().slice(0, 10);
-  const days = (d.days || []).filter(x => x.d >= cutoff && x.d <= d.generatedThrough);
+  const allDays = d.days || [];
+  const idx = {}; allDays.forEach((x, i) => idx[x.d] = i);
+  const sel = allDays.filter(x => x.d >= cutoff && x.d <= d.generatedThrough);
+  const isEdt = ds => { const md = ds.slice(5); return md >= "03-08" && md < "11-01"; };  // US DST 2026
+  const asia = _nqSessMode === "asia";
   const rows = [];
-  for (const x of days) {
-    const open = x.o[iOpen]; if (open == null) continue;
-    let hi = -Infinity, lo = Infinity;
-    for (let k = iOpen; k <= iClose; k++) { if (x.h[k] != null) hi = Math.max(hi, x.h[k]); if (x.l[k] != null) lo = Math.min(lo, x.l[k]); }
-    if (!isFinite(hi) || !isFinite(lo)) continue;
+  for (const x of sel) {
+    let openSlot, ibEnd, hi = -Infinity, lo = Infinity;
+    if (asia) {
+      const oh = isEdt(x.d) ? 20 : 19;                  // Tokyo 9:00 JST = 20:00 EDT / 19:00 EST
+      openSlot = oh * 4; ibEnd = openSlot + 4;          // first hour = Initial Balance
+      const closeNext = (isEdt(x.d) ? 2 : 1) * 4;       // Tokyo 15:00 JST = 02:00/01:00 ET next day
+      for (let k = openSlot; k <= 95; k++) { if (x.h[k] != null) hi = Math.max(hi, x.h[k]); if (x.l[k] != null) lo = Math.min(lo, x.l[k]); }
+      const nx = allDays[idx[x.d] + 1];                 // chain into next ET calendar day
+      if (nx) for (let k = 0; k <= closeNext; k++) { if (nx.h[k] != null) hi = Math.max(hi, nx.h[k]); if (nx.l[k] != null) lo = Math.min(lo, nx.l[k]); }
+    } else {
+      openSlot = 38; ibEnd = 42;                        // 9:30 ET open, 10:30 IB end
+      for (let k = openSlot; k <= 64; k++) { if (x.h[k] != null) hi = Math.max(hi, x.h[k]); if (x.l[k] != null) lo = Math.min(lo, x.l[k]); }  // through 16:00
+    }
+    const open = x.o[openSlot]; if (open == null || !isFinite(hi) || !isFinite(lo)) continue;
     let ibh = -Infinity, ibl = Infinity;
-    for (let k = iOpen; k < iIBend; k++) { if (x.h[k] != null) ibh = Math.max(ibh, x.h[k]); if (x.l[k] != null) ibl = Math.min(ibl, x.l[k]); }
+    for (let k = openSlot; k < ibEnd; k++) { if (x.h[k] != null) ibh = Math.max(ibh, x.h[k]); if (x.l[k] != null) ibl = Math.min(ibl, x.l[k]); }
     rows.push({ d: x.d, open, up: hi - open, down: open - lo,
       ib: (isFinite(ibh) && isFinite(ibl)) ? ibh - ibl : null, ibh: isFinite(ibh) ? ibh : null, ibl: isFinite(ibl) ? ibl : null });
   }
@@ -9995,9 +10008,13 @@ function renderNqSessions() {
   el.innerHTML = `
     <div style="margin-bottom:14px">
       <div style="font-size:18px;color:${C.text};font-weight:600">📊 NQ Sessions — opening swing & Initial Balance</div>
-      <div style="font-size:11px;color:${C.textSec};margin-top:2px">From the <b>9:30 ET open</b>: largest move up/down through the cash session, and the <b>Initial Balance</b> (IBH/IBL = high/low of the first hour, 9:30–10:30). Points · dollars ($20/pt) · % of open. Data through ${d.generatedThrough}.</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">${asia
+        ? `<b>Asia / Japan session</b> — from the <b>Tokyo 9:00 JST open</b> (≈8 PM ET): largest move up/down through Tokyo cash (to 15:00 JST, ≈2 AM ET), and the <b>Initial Balance</b> (first hour, 9:00–10:00 JST).`
+        : `<b>US session</b> — from the <b>9:30 ET open</b>: largest move up/down through the cash session, and the <b>Initial Balance</b> (first hour, 9:30–10:30 ET).`} Same /NQ data · points · dollars ($20/pt) · % of open. Data through ${d.generatedThrough}.</div>
     </div>
-    <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;gap:12px;align-items:flex-end">
+    <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+      <div><div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Session</div>
+        <div style="display:flex;gap:6px">${[["us", "🇺🇸 US (9:30 ET)"], ["asia", "🇯🇵 Asia (Tokyo)"]].map(([m, lab]) => `<button onclick="_nqSessSetMode('${m}')" class="btn btn-g" style="font-size:11px;padding:7px 11px;${_nqSessMode === m ? `background:${C.accent}22;color:${C.accent};border-color:${C.accent}` : ''}">${lab}</button>`).join("")}</div></div>
       <div><div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Timeframe</div>
         <select onchange="_nqSessSetTf(this.value)" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:8px 10px;font-size:14px;min-width:150px">${_NQS_TF.map(t => `<option value="${t[0]}"${_nqSessTf === t[0] ? " selected" : ""}>${t[1]}</option>`).join("")}</select></div>
       <div style="font-size:10px;color:${C.textMut};margin-left:auto">${rows.length} sessions</div>
