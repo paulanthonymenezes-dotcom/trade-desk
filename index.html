@@ -10005,6 +10005,35 @@ function renderNqSessions() {
     <div style="font-size:11px;color:${C.textMut}">${sub}</div></div>`;
   const avgOpen = mean(rows.map(r => r.open));
 
+  // Post-IB "margin of safety": from the price at the END of the first hour (IB),
+  // how far NQ moves through the rest of the session — cumulatively by each later
+  // hour. Answers "if I enter once the open settles, how much room do I need?"
+  const hourMarks = [1, 2, 3, 4, 5];
+  const piAgg = hourMarks.map(() => ({ ups: [], downs: [] }));
+  const piClose = { ups: [], downs: [] };
+  for (const x of sel) {
+    let anchor, bars = [];
+    if (asia) {
+      const oh = isEdt(x.d) ? 20 : 19, os = oh * 4, ie = os + 4; anchor = x.o[ie];
+      for (let k = ie; k <= 95; k++) bars.push([x.h[k], x.l[k]]);
+      const nx = allDays[idx[x.d] + 1], cn = (isEdt(x.d) ? 2 : 1) * 4;
+      if (nx) for (let k = 0; k <= cn; k++) bars.push([nx.h[k], nx.l[k]]);
+    } else { anchor = x.o[42]; for (let k = 42; k <= 64; k++) bars.push([x.h[k], x.l[k]]); }
+    if (anchor == null) continue;
+    hourMarks.forEach((h, hi) => {
+      const end = Math.min(h * 4, bars.length); let hh = -Infinity, ll = Infinity;
+      for (let j = 0; j < end; j++) { if (bars[j][0] != null) hh = Math.max(hh, bars[j][0]); if (bars[j][1] != null) ll = Math.min(ll, bars[j][1]); }
+      if (end > 0 && isFinite(hh)) { piAgg[hi].ups.push(hh - anchor); piAgg[hi].downs.push(anchor - ll); }
+    });
+    let hh = -Infinity, ll = Infinity;
+    for (const b of bars) { if (b[0] != null) hh = Math.max(hh, b[0]); if (b[1] != null) ll = Math.min(ll, b[1]); }
+    if (isFinite(hh)) { piClose.ups.push(hh - anchor); piClose.downs.push(anchor - ll); }
+  }
+  const piAnchorTime = asia ? "10:00 JST" : "10:30 ET";
+  const piRows = hourMarks.map((h, hi) => ({ lab: `+${h}h`, up: mean(piAgg[hi].ups), down: mean(piAgg[hi].downs), worst: piAgg[hi].downs.length ? Math.max(...piAgg[hi].downs) : 0, n: piAgg[hi].ups.length }))
+    .filter(r => r.n > 0);
+  piRows.push({ lab: "to close", up: mean(piClose.ups), down: mean(piClose.downs), worst: piClose.downs.length ? Math.max(...piClose.downs) : 0, n: piClose.ups.length });
+
   el.innerHTML = `
     <div style="margin-bottom:14px">
       <div style="font-size:18px;color:${C.text};font-weight:600">📊 NQ Sessions — opening swing & Initial Balance</div>
@@ -10028,6 +10057,21 @@ function renderNqSessions() {
         ${card("Biggest single ↑", Math.max(...ups), usd(Math.max(...ups)), C.pos)}
         ${card("Biggest single ↓", Math.max(...downs), usd(Math.max(...downs)), C.neg)}
       </div>
+    </div>
+    <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🎯 Post-IB margin of safety — move from the ${piAnchorTime} price (after the first hour settles)</div>
+    <div class="card" style="padding:6px 4px;margin-bottom:18px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="color:${C.textSec};font-size:9px;text-align:left;letter-spacing:.06em">
+          <th style="padding:6px 10px">BY</th><th>AVG MAX ↑ (rise)</th><th>AVG MAX ↓ (drop)</th><th>WORST ↓</th><th>DAYS</th></tr></thead>
+        <tbody>${piRows.map(r => `<tr style="border-top:1px solid ${C.bgHover}">
+          <td style="padding:6px 10px;color:${C.text};font-variant-numeric:tabular-nums">${r.lab}</td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.pos}">+${r.up.toFixed(0)} <span style="color:${C.textMut};font-size:10px">${(r.up / avgOpen * 100).toFixed(2)}% · ${usd(r.up)}</span></td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.neg}">−${r.down.toFixed(0)} <span style="color:${C.textMut};font-size:10px">${(r.down / avgOpen * 100).toFixed(2)}% · ${usd(r.down)}</span></td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.neg};font-size:11px">−${r.worst.toFixed(0)} (${(r.worst / avgOpen * 100).toFixed(2)}%)</td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.textMut};font-size:11px">${r.n}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <div style="font-size:10px;color:${C.textMut};padding:6px 12px">From the price at the end of the first hour (<b>${piAnchorTime}</b>), how far NQ travels by each later hour — your room once the open settles. ↓ = drop (bull-put risk) · ↑ = rise (bear-call risk).</div>
     </div>
     <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">By session (newest first)</div>
     <div class="card" style="padding:6px 4px">
