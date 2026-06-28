@@ -378,6 +378,7 @@ table{width:100%;border-collapse:collapse}
 #main.dashboard-mode #tab-eecharts.active,
 #main.dashboard-mode #tab-guardrails.active,
 #main.dashboard-mode #tab-nqscreener.active,
+#main.dashboard-mode #tab-nqsessions.active,
 #main.dashboard-mode #tab-resources.active,
 #main.dashboard-mode #tab-calendar.active,
 #main.dashboard-mode #tab-forecast.active{display:block;grid-column:1/-1}
@@ -588,6 +589,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('guardrails',this)"><span class="nav-icon">🛡️</span><span class="side-label">Guardrails</span></button>
   <button class="side-btn" onclick="switchTab('eecharts',this)"><span class="nav-icon">📈</span><span class="side-label">Entry/Exit Charts</span></button>
   <button class="side-btn" onclick="switchTab('nqscreener',this)"><span class="nav-icon">🔭</span><span class="side-label">NQ Screener</span></button>
+  <button class="side-btn" onclick="switchTab('nqsessions',this)"><span class="nav-icon">📊</span><span class="side-label">NQ Sessions</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
   <button class="side-btn" onclick="switchTab('calendar',this)"><span class="nav-icon">📅</span><span class="side-label">Calendar</span></button>
   <button class="side-btn" onclick="switchTab('resources',this)"><span class="nav-icon">🔗</span><span class="side-label">Resources</span></button>
@@ -712,6 +714,11 @@ table{width:100%;border-collapse:collapse}
   <!-- NQ SCREENER TAB -->
   <div id="tab-nqscreener" class="section" style="display:none">
     <div id="nqscreener-content" style="max-width:1100px;margin:0 auto"></div>
+  </div>
+
+  <!-- NQ SESSIONS TAB -->
+  <div id="tab-nqsessions" class="section" style="display:none">
+    <div id="nqsessions-content" style="max-width:1100px;margin:0 auto"></div>
   </div>
 
   <!-- CALENDAR TAB -->
@@ -9950,6 +9957,79 @@ function renderNqScreener() {
     </div>`;
 }
 
+// ── NQ Sessions: per-day opening swing (from the 9:30 open) + Initial Balance
+// (IBH/IBL = high/low of the first hour 9:30–10:30). Built from the stored nqScreener
+// per-slot OHLC — no new data. Shown in points, dollars ($20/pt), and %. ──
+let _nqSessTf = "2w";
+function _nqSessSetTf(v) { _nqSessTf = v; renderNqSessions(); }
+function renderNqSessions() {
+  const el = document.getElementById("nqsessions-content"); if (!el) return;
+  const d = STATE.nqScreener;
+  if (!d) { el.innerHTML = `<div style="padding:40px;text-align:center;color:${C.textSec};font-size:12px">No NQ data yet. Run <code>scripts/refresh_nq.py</code> after a FirstRate update.</div>`; return; }
+  const B = d.buckets, iOpen = B.indexOf("09:30"), iIBend = B.indexOf("10:30"), iClose = B.indexOf("16:00");
+  const n = (_NQS_TF.find(t => t[0] === _nqSessTf) || [, , 14])[2];
+  const cutoff = new Date(new Date(d.generatedThrough + "T00:00:00Z").getTime() - n * 86400000).toISOString().slice(0, 10);
+  const days = (d.days || []).filter(x => x.d >= cutoff && x.d <= d.generatedThrough);
+  const rows = [];
+  for (const x of days) {
+    const open = x.o[iOpen]; if (open == null) continue;
+    let hi = -Infinity, lo = Infinity;
+    for (let k = iOpen; k <= iClose; k++) { if (x.h[k] != null) hi = Math.max(hi, x.h[k]); if (x.l[k] != null) lo = Math.min(lo, x.l[k]); }
+    if (!isFinite(hi) || !isFinite(lo)) continue;
+    let ibh = -Infinity, ibl = Infinity;
+    for (let k = iOpen; k < iIBend; k++) { if (x.h[k] != null) ibh = Math.max(ibh, x.h[k]); if (x.l[k] != null) ibl = Math.min(ibl, x.l[k]); }
+    rows.push({ d: x.d, open, up: hi - open, down: open - lo,
+      ib: (isFinite(ibh) && isFinite(ibl)) ? ibh - ibl : null, ibh: isFinite(ibh) ? ibh : null, ibl: isFinite(ibl) ? ibl : null });
+  }
+  if (!rows.length) { el.innerHTML = `<div style="padding:40px;text-align:center;color:${C.textSec};font-size:12px">No sessions in this window.</div>`; return; }
+  const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
+  const ups = rows.map(r => r.up), downs = rows.map(r => r.down), ibs = rows.filter(r => r.ib != null).map(r => r.ib);
+  const usd = p => "$" + Math.round(p * 20).toLocaleString();
+  const pc = (p, o) => (p / o * 100).toFixed(2) + "%";
+  const tfLabel = (_NQS_TF.find(t => t[0] === _nqSessTf) || [, "window"])[1];
+  const card = (lbl, pts, sub, col) => `<div style="flex:1 1 150px"><div style="font-size:10px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px">${lbl}</div>
+    <div style="font-size:24px;font-weight:700;color:${col};font-variant-numeric:tabular-nums">${pts.toFixed(0)} <span style="font-size:12px;color:${C.textSec}">pts</span></div>
+    <div style="font-size:11px;color:${C.textMut}">${sub}</div></div>`;
+  const avgOpen = mean(rows.map(r => r.open));
+
+  el.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-size:18px;color:${C.text};font-weight:600">📊 NQ Sessions — opening swing & Initial Balance</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">From the <b>9:30 ET open</b>: largest move up/down through the cash session, and the <b>Initial Balance</b> (IBH/IBL = high/low of the first hour, 9:30–10:30). Points · dollars ($20/pt) · % of open. Data through ${d.generatedThrough}.</div>
+    </div>
+    <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;gap:12px;align-items:flex-end">
+      <div><div style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Timeframe</div>
+        <select onchange="_nqSessSetTf(this.value)" style="background:${C.bg};border:1px solid ${C.borderVis};color:${C.text};border-radius:7px;padding:8px 10px;font-size:14px;min-width:150px">${_NQS_TF.map(t => `<option value="${t[0]}"${_nqSessTf === t[0] ? " selected" : ""}>${t[1]}</option>`).join("")}</select></div>
+      <div style="font-size:10px;color:${C.textMut};margin-left:auto">${rows.length} sessions</div>
+    </div>
+    <div class="card" style="padding:16px 18px;margin-bottom:16px">
+      <div style="font-size:11px;color:${C.textSec};text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Averages · ${tfLabel}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:24px">
+        ${card("Avg swing ↑ from open", mean(ups), `${usd(mean(ups))} · ${pc(mean(ups), avgOpen)}`, C.pos)}
+        ${card("Avg swing ↓ from open", mean(downs), `${usd(mean(downs))} · ${pc(mean(downs), avgOpen)}`, C.neg)}
+        ${card("Avg Initial Balance range", mean(ibs), `${usd(mean(ibs))} · ${pc(mean(ibs), avgOpen)}`, C.accent)}
+        ${card("Biggest single ↑", Math.max(...ups), usd(Math.max(...ups)), C.pos)}
+        ${card("Biggest single ↓", Math.max(...downs), usd(Math.max(...downs)), C.neg)}
+      </div>
+    </div>
+    <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">By session (newest first)</div>
+    <div class="card" style="padding:6px 4px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="color:${C.textSec};font-size:9px;text-align:left;letter-spacing:.06em">
+          <th style="padding:6px 10px">DATE</th><th>OPEN</th><th>MAX ↑</th><th>MAX ↓</th><th>IBH</th><th>IBL</th><th>IB RANGE</th></tr></thead>
+        <tbody>${rows.slice().reverse().map(r => `<tr style="border-top:1px solid ${C.bgHover}">
+          <td style="padding:6px 10px;color:${C.text};font-variant-numeric:tabular-nums">${r.d.slice(5)}</td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.textSec}">${r.open.toFixed(0)}</td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.pos}">+${r.up.toFixed(0)} <span style="color:${C.textMut};font-size:10px">${pc(r.up, r.open)}</span></td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.neg}">−${r.down.toFixed(0)} <span style="color:${C.textMut};font-size:10px">${pc(r.down, r.open)}</span></td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.textSec}">${r.ibh != null ? r.ibh.toFixed(0) : "—"}</td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.textSec}">${r.ibl != null ? r.ibl.toFixed(0) : "—"}</td>
+          <td style="font-variant-numeric:tabular-nums;color:${C.text};font-weight:600">${r.ib != null ? r.ib.toFixed(0) + ` <span style="color:${C.textMut};font-size:10px;font-weight:400">${pc(r.ib, r.open)}</span>` : "—"}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+}
+
 function renderGuardrails() {
   const el = document.getElementById("guardrails-content");
   if (!el) return;
@@ -16216,7 +16296,7 @@ mktLoadAll();
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'resources', 'calendar'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'resources', 'calendar'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -16285,6 +16365,8 @@ function switchTab(tab, btn) {
     if (typeof renderEntryExitCharts === 'function') renderEntryExitCharts();
   } else if (tab === 'nqscreener') {
     if (typeof renderNqScreener === 'function') renderNqScreener();
+  } else if (tab === 'nqsessions') {
+    if (typeof renderNqSessions === 'function') renderNqSessions();
   } else if (tab === 'guardrails') {
     if (typeof renderGuardrails === 'function') renderGuardrails();
   } else if (tab === 'resources') {
