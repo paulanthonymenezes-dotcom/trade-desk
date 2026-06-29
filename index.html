@@ -5649,6 +5649,7 @@ function renderStatsOverview(closed) {
   const bySector = buildCompactBreakdown(closed, t=>getSector(t.ticker)||"Unknown");
   const byStrategy = buildCompactBreakdown(closed, t=>t.strategyType||t.tradeType?.replace('⭐ ','')||"Unknown");
   const byEntry = buildCompactBreakdown(closed, t=>t.entryType||"Unknown");
+  const bySource = buildCompactBreakdown(closed, t=>t.ideaSource||"Untagged");
 
   return `
     ${_tradingReviewPanel(closed)}
@@ -5724,6 +5725,11 @@ function renderStatsOverview(closed) {
       </div>
 
       ${statBreakdownCard(byTicker.slice(0,10), "BY TICKER")}
+    </div>
+
+    <!-- By Idea Source — which ideas actually make money -->
+    <div style="margin-bottom:14px">
+      ${statBreakdownCard(bySource, "📍 BY IDEA SOURCE — which ideas make money (tag trades in the Diary)")}
     </div>
 
     <!-- Two-column: By Sector + By Strategy -->
