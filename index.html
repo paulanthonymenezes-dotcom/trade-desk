@@ -10258,7 +10258,7 @@ function renderEntryExitCharts() {
         <div style="width:1px;background:${C.borderVis}"></div>
         ${pane(30, "30-min · context")}
         <div style="width:1px;background:${C.borderVis}"></div>
-        ${pane(240, "4-hour · 2 weeks")}
+        ${pane(240, "4-hour · 4 weeks")}
       </div>
     </div>`;
   }).join("");
@@ -10459,12 +10459,12 @@ async function _buildReportCharts(closed, onProgress) {
         ${typeof mae === "number" ? ` · MAE ${pct(mae)}` : ""}${typeof mfe === "number" ? ` · MFE ${pct(mfe)}` : ""}</span></div>
       <div style="margin-top:4px">${fig(urls[5], "5-min · execution · MAE/MFE", true)}</div>
       <div style="margin-top:8px">${fig(urls[30], "30-min · context", true)}</div>
-      <div style="margin-top:8px">${fig(urls[240], "4-hour · 2 weeks", true)}</div>
+      <div style="margin-top:8px">${fig(urls[240], "4-hour · 4 weeks", true)}</div>
     </div>`;
     done++; if (onProgress) onProgress(done, withC.length);
   }
   return `<h2>NQ Charts — Entry &amp; Exit (${withC.length})</h2>
-    <div class="muted" style="margin-bottom:10px">Each trade, full size: 5-min (execution, with MAE/MFE) · 30-min (context) · 4-hour (2 weeks). Blue tag = entry, green/red = exit.</div>${blocks}`;
+    <div class="muted" style="margin-bottom:10px">Each trade, full size: 5-min (execution, with MAE/MFE) · 30-min (context) · 4-hour (4 weeks). Blue tag = entry, green/red = exit.</div>${blocks}`;
 }
 
 // AI Week Ahead — forward-focused Claude call. Different prompt from the
