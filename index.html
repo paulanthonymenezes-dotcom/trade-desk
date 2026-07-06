@@ -1236,6 +1236,10 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Max $ Loss per Trade (% of account)</label><input id="s-rule-maxloss" type="number" step="0.1" placeholder="2"></div>
     </div>
     <div class="g2">
+      <div class="frow"><label>🛑 Max Daily Loss (% of account)</label><input id="s-rule-maxdaily" type="number" step="0.1" placeholder="3"></div>
+      <div class="frow" style="display:flex;align-items:flex-end"><span id="s-rule-maxdaily-dollar" style="font-size:11px;color:var(--text-secondary);font-variant-numeric:tabular-nums"></span></div>
+    </div>
+    <div class="g2">
       <div class="frow"><label>Default Spread SL %</label><input id="s-rule-spreadsl" type="number" placeholder="100"></div>
       <div class="frow" style="display:flex;align-items:flex-end;gap:14px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
@@ -5072,7 +5076,7 @@ function renderMorningChecklist() {
     // ── 1. MINDSET (compact)
     left += `<div class="card" style="${S}">
       <div style="${H}">🧠 MINDSET</div>
-      <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:10px;align-items:end">
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:end">
         <div>
           <div style="${L}">ENERGY</div>
           <div style="display:flex;gap:3px">${[1,2,3,4,5].map(n=>
@@ -5089,25 +5093,15 @@ function renderMorningChecklist() {
             ).join('')}
           </select>
         </div>
-        <div>
-          <div style="${L}">BIASES TODAY</div>
-          <input type="text" id="cl-biases" placeholder="" value="${escHtml(cl.biases||'')}" style="${I}padding:5px 8px;">
-        </div>
       </div>
     </div>`;
 
     // ── 2. OVERNIGHT & MARKET NARRATIVE (Donnelly "overnight story")
     left += `<div class="card" style="${S}">
       <div style="${H}">🌙 OVERNIGHT & MARKET NARRATIVE</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <div>
-          <div style="${L}">FUTURES / PRE-MARKET</div>
-          <textarea id="cl-futures" placeholder="" style="${I}min-height:40px;resize:vertical">${escHtml(cl.futures||'')}</textarea>
-        </div>
-        <div>
-          <div style="${L}">CRYPTO / OVERNIGHT</div>
-          <textarea id="cl-crypto" placeholder="" style="${I}min-height:40px;resize:vertical">${escHtml(cl.crypto||'')}</textarea>
-        </div>
+      <div style="margin-bottom:8px">
+        <div style="${L}">FUTURES / PRE-MARKET</div>
+        <textarea id="cl-futures" placeholder="" style="${I}min-height:40px;resize:vertical">${escHtml(cl.futures||'')}</textarea>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
         <div>
@@ -5125,30 +5119,22 @@ function renderMorningChecklist() {
       </div>
     </div>`;
 
-    // ── 3. POSITIONING & PAIN TRADE (Donnelly crowd/pain concept)
-    left += `<div class="card" style="${S}">
-      <div style="${H}">🎯 POSITIONING & PAIN TRADE</div>
-      <div style="margin-bottom:8px">
-        <div style="${L}">WHERE IS THE CROWD POSITIONED?</div>
-        <textarea id="cl-crowdPos" placeholder="" style="${I}min-height:40px;resize:vertical">${escHtml(cl.crowdPos||'')}</textarea>
-      </div>
-      <div>
-        <div style="${L}color:rgba(255,255,255,0.6)">WHAT IS THE PAIN TRADE? Which move would hurt the most people?</div>
-        <textarea id="cl-painTrade" placeholder="" style="${I}min-height:40px;resize:vertical;border-color:rgba(255,255,255,0.15);">${escHtml(cl.painTrade||'')}</textarea>
-      </div>
-    </div>`;
-
     // ── 4. RISK PARAMETERS (compact)
+    const _sr = STATE.standingRules || {};
+    const _dailyPct = _sr.maxDailyLossPct ?? 3, _perPct = _sr.maxTradeLossPct ?? 2;
+    const _dailyLim = bal ? Math.round(bal * _dailyPct / 100) : 0;
+    const _perLim = bal ? Math.round(bal * _perPct / 100) : 0;
     left += `<div class="card" style="${S}">
       <div style="${H}">📊 RISK — ${open.length} OPEN POSITIONS</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      ${bal ? `<div style="display:flex;gap:10px;margin-bottom:10px;padding:8px 10px;border:1px solid ${C.neg}55;border-radius:5px;background:${C.negDim}">
+        <div style="flex:1"><div style="${L}color:${C.neg}">🛑 DAILY STOP</div><div style="font-size:18px;font-weight:700;color:${C.neg};font-variant-numeric:tabular-nums">${_dailyPct}%</div><div style="font-size:9px;color:rgba(255,255,255,0.45)">= −$${_dailyLim.toLocaleString()} today · done for the day</div></div>
+        <div style="flex:1;border-left:1px solid ${C.border};padding-left:10px"><div style="${L}color:rgba(255,255,255,0.6)">PER-POSITION MAX</div><div style="font-size:18px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums">${_perPct}%</div><div style="font-size:9px;color:rgba(255,255,255,0.45)">= −$${_perLim.toLocaleString()} · set the stop in your broker</div></div>
+      </div>
+      <div style="font-size:9px;color:rgba(255,255,255,0.35);margin:-4px 0 10px">Rule is the %, recomputed off balance each morning — the $ is just today's number. Change it in Settings → Standing Rules.</div>` : `<div style="font-size:10px;color:${C.warn};margin-bottom:8px">Set account balance + Max Daily Loss % in Settings to compute your hard limits.</div>`}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div>
           <div style="${L}">ACCOUNT</div>
           <input type="text" id="cl-account" placeholder="" value="${cl.account || (bal ? '$'+bal.toLocaleString() : '')}" style="${I}font-size:11px;">
-        </div>
-        <div>
-          <div style="${L}">MAX LOSS TODAY</div>
-          <input type="text" id="cl-maxLoss" placeholder="" value="${escHtml(cl.maxLoss||'')}" style="${I}font-size:11px;">
         </div>
         <div>
           <div style="${L}">PROFIT TARGET</div>
@@ -5226,20 +5212,19 @@ function renderMorningChecklist() {
     // Read-only per-position
     if (cl.perPosition?.length) {
       for (const p of cl.perPosition) {
-        const statusColor = p.earlyOrRight==='right'?C.pos:p.earlyOrRight==='broken'?C.neg:p.earlyOrRight==='early'?C.warn:'rgba(255,255,255,0.5)';
-        const convBar = p.conviction ? '█'.repeat(p.conviction) + '░'.repeat(5-p.conviction) : '—';
+        const sv = p.stillValid || p.earlyOrRight || '';
+        const svLabel = sv==='right'?'valid':sv;
+        const statusColor = (sv==='valid'||sv==='right')?C.pos:sv==='broken'?C.neg:sv==='shaky'?C.warn:'rgba(255,255,255,0.5)';
+        const plan = p.planToday || p.exitPlan || '';
         const t = open.find(tr=>tr.ticker===p.ticker && String(tr.shortStrike)===String(p.shortStrike));
         right += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid ${C.border};border-radius:4px;background:${C.bg};width:100%;box-sizing:border-box">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
             <span style="color:#fff;font-weight:600;font-size:12px">${p.ticker}</span>
-            <span style="color:${statusColor};font-size:10px;font-weight:600;text-transform:uppercase">${p.earlyOrRight||'?'}</span>
+            <span style="color:${statusColor};font-size:10px;font-weight:600;text-transform:uppercase">${svLabel||'?'}</span>
           </div>
-          <div style="display:flex;gap:12px;font-size:10px;margin-bottom:4px;flex-wrap:wrap">
-            <span style="color:${C.textSec}">Conviction: <span style="color:${C.warn};font-family:monospace">${convBar}</span></span>
-            ${p.invalidation ? `<span style="color:rgba(255,255,255,0.4)">Kill: ${escHtml(p.invalidation)}</span>` : ''}
-            ${p.exitPlan ? `<span style="color:${C.neg}">Exit: ${escHtml(p.exitPlan)}</span>` : ''}
-          </div>
-          ${t?.thesis ? `<div style="color:rgba(255,255,255,0.4);font-size:9px">${escHtml(t.thesis)}</div>` : ''}
+          ${p.invalidation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:3px">Kill: ${escHtml(p.invalidation)}</div>` : ''}
+          ${plan ? `<div style="font-size:10px;color:${C.pos}">Plan: ${escHtml(plan)}</div>` : ''}
+          ${t?.thesis ? `<div style="color:rgba(255,255,255,0.4);font-size:9px;margin-top:3px">${escHtml(t.thesis)}</div>` : ''}
         </div>`;
       }
     } else {
@@ -5263,13 +5248,6 @@ function renderMorningChecklist() {
         <div style="color:#fff;font-size:11px;white-space:pre-wrap">${escHtml(cl.narrative)}</div>
       </div>`;
     }
-    if (cl.crowdPos || cl.painTrade) {
-      right += `<div class="card" style="${S}margin-top:8px">
-        <div style="${H}">POSITIONING & PAIN TRADE</div>
-        ${cl.crowdPos ? `<div style="font-size:10px;color:${C.textSec};margin-bottom:2px">CROWD</div><div style="color:#fff;font-size:11px;margin-bottom:8px">${escHtml(cl.crowdPos)}</div>` : ''}
-        ${cl.painTrade ? `<div style="font-size:10px;color:${C.neg};margin-bottom:2px">PAIN TRADE</div><div style="color:#fff;font-size:11px">${escHtml(cl.painTrade)}</div>` : ''}
-      </div>`;
-    }
   } else if (open.length) {
     // Editable per-position with Conviction + Early/Right/Broken
     for (const t of open) {
@@ -5287,31 +5265,23 @@ function renderMorningChecklist() {
           <div style="font-size:10px;color:${C.neg}">Max: $${maxLoss.toFixed(0)}</div>
         </div>
         ${t.thesis ? `<div style="padding:6px 8px;margin-bottom:8px;border:1px solid ${C.border};border-radius:3px;background:${C.bgCard};font-size:10px;color:rgba(255,255,255,0.7)">${escHtml(t.thesis)}</div>` : `<div style="font-size:10px;color:${C.neg};margin-bottom:8px">⚠ No thesis recorded</div>`}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:8px;margin-bottom:8px;align-items:end">
           <div>
-            <div style="${L}">CONVICTION (1-5)</div>
-            <div style="display:flex;gap:3px">${[1,2,3,4,5].map(n=>
-              `<button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${C.warn}';this.style.color='#000';this.parentElement.nextElementSibling.value='${n}'" style="flex:1;height:26px;border:1px solid ${C.border};border-radius:3px;background:${existing.conviction==n?C.warn:'transparent'};color:${existing.conviction==n?'#000':'rgba(255,255,255,0.5)'};font-size:10px;cursor:pointer">${n}</button>`
-            ).join('')}<input type="hidden" class="cl-conviction" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" value="${existing.conviction||''}"></div>
+            <div style="${L}">STILL VALID?</div>
+            <div style="display:flex;gap:3px">${['Valid','Shaky','Broken'].map(v => {
+              const col = v==='Valid'?C.pos:v==='Broken'?C.neg:C.warn;
+              const isActive = (existing.stillValid||existing.earlyOrRight)===v.toLowerCase();
+              return `<button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${col}';this.style.color='${v==='Broken'?'#fff':'#000'}';this.parentElement.nextElementSibling.value='${v.toLowerCase()}'" style="flex:1;min-width:52px;height:26px;border:1px solid ${C.border};border-radius:3px;background:${isActive?col:'transparent'};color:${isActive?(v==='Broken'?'#fff':'#000'):'rgba(255,255,255,0.5)'};font-size:10px;cursor:pointer;font-weight:${isActive?'600':'400'}">${v.toUpperCase()}</button>`;
+            }).join('')}<input type="hidden" class="cl-stillvalid" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" value="${existing.stillValid||existing.earlyOrRight||''}"></div>
           </div>
           <div>
-            <div style="${L}">AM I EARLY OR AM I RIGHT?</div>
-            <div style="display:flex;gap:3px">${['Early','Right','Broken'].map(v => {
-              const col = v==='Right'?C.pos:v==='Broken'?C.neg:C.warn;
-              const isActive = existing.earlyOrRight===v.toLowerCase();
-              return `<button onclick="this.parentElement.querySelectorAll('button').forEach(b=>{b.style.background='transparent';b.style.color='rgba(255,255,255,0.5)'});this.style.background='${col}';this.style.color='${v==='Broken'?'#fff':'#000'}';this.parentElement.nextElementSibling.value='${v.toLowerCase()}'" style="flex:1;height:26px;border:1px solid ${C.border};border-radius:3px;background:${isActive?col:'transparent'};color:${isActive?(v==='Broken'?'#fff':'#000'):'rgba(255,255,255,0.5)'};font-size:10px;cursor:pointer;font-weight:${isActive?'600':'400'}">${v.toUpperCase()}</button>`;
-            }).join('')}<input type="hidden" class="cl-early-right" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" value="${existing.earlyOrRight||''}"></div>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div>
-            <div style="${L}">INVALIDATION (what kills this)</div>
+            <div style="${L}">KILL LEVEL (what invalidates this)</div>
             <input type="text" class="cl-invalidation" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="" value="${escHtml(existing.invalidation||'')}" style="${I}font-size:10px;">
           </div>
-          <div>
-            <div style="${L}">EXIT PLAN (if broken)</div>
-            <input type="text" class="cl-exitplan" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="" value="${escHtml(existing.exitPlan||'')}" style="${I}font-size:10px;border-color:${C.neg}44;">
-          </div>
+        </div>
+        <div>
+          <div style="${L}color:${C.pos}">MY PLAN ON THIS TODAY — what will I actually do?</div>
+          <input type="text" class="cl-plantoday" data-ticker="${t.ticker}" data-strike="${t.shortStrike}" placeholder="e.g. take profit at 75%, or roll/close if it breaks kill level" value="${escHtml(existing.planToday||existing.exitPlan||'')}" style="${I}font-size:10px;border-color:${C.pos}44;">
         </div>
       </div>`;
     }
@@ -5378,10 +5348,9 @@ function renderChecklistReadOnly(cl, open, date, compact) {
 
   // Mindset row
   const energyBar = cl.energy ? '🟢'.repeat(cl.energy) + '⚫'.repeat(5-cl.energy) : '—';
-  h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;${s}">
+  h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;${s}">
     <div><span style="${lbl}">ENERGY</span><br>${energyBar}</div>
     <div><span style="${lbl}">MOOD</span><br><span style="color:#fff">${cl.mood||'—'}</span></div>
-    <div><span style="${lbl}">BIASES</span><br><span style="color:#fff">${escHtml(cl.biases||'None')}</span></div>
   </div>`;
 
   // Risk
@@ -5392,10 +5361,9 @@ function renderChecklistReadOnly(cl, open, date, compact) {
   </div>`;
 
   // Overnight
-  if (cl.futures || cl.crypto || cl.ivOutlook || cl.gapRisk) {
+  if (cl.futures || cl.ivOutlook || cl.gapRisk) {
     h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;${s}">`;
     if (cl.futures) h += `<div><span style="${lbl}">FUTURES</span><br><span style="color:#fff">${escHtml(cl.futures)}</span></div>`;
-    if (cl.crypto) h += `<div><span style="${lbl}">CRYPTO</span><br><span style="color:#fff">${escHtml(cl.crypto)}</span></div>`;
     if (cl.ivOutlook) h += `<div><span style="${lbl}">IV/VIX</span><br><span style="color:#fff">${escHtml(cl.ivOutlook)}</span></div>`;
     if (cl.gapRisk) h += `<div><span style="${lbl}">GAP RISK</span><br><span style="color:#fff">${escHtml(cl.gapRisk)}</span></div>`;
     h += `</div>`;
@@ -5430,21 +5398,19 @@ function saveMorningChecklist(date) {
   if (!STATE.dailyJournal) STATE.dailyJournal = {};
   if (!STATE.dailyJournal[date]) STATE.dailyJournal[date] = {};
 
-  // Gather per-position data (with conviction + early/right/broken)
+  // Gather per-position data (still valid? + kill level + plan today)
   const perPosition = [];
   document.querySelectorAll('.cl-invalidation').forEach(input => {
     const ticker = input.dataset.ticker;
     const strike = input.dataset.strike;
-    const convEl = document.querySelector(`.cl-conviction[data-ticker="${ticker}"][data-strike="${strike}"]`);
-    const earlyEl = document.querySelector(`.cl-early-right[data-ticker="${ticker}"][data-strike="${strike}"]`);
-    const exitEl = document.querySelector(`.cl-exitplan[data-ticker="${ticker}"][data-strike="${strike}"]`);
+    const validEl = document.querySelector(`.cl-stillvalid[data-ticker="${ticker}"][data-strike="${strike}"]`);
+    const planEl = document.querySelector(`.cl-plantoday[data-ticker="${ticker}"][data-strike="${strike}"]`);
     perPosition.push({
       ticker,
       shortStrike: strike,
-      conviction: convEl ? convEl.value : '',
-      earlyOrRight: earlyEl ? earlyEl.value : '',
+      stillValid: validEl ? validEl.value : '',
       invalidation: input.value.trim(),
-      exitPlan: exitEl ? exitEl.value.trim() : ''
+      planToday: planEl ? planEl.value.trim() : ''
     });
   });
 
@@ -5463,21 +5429,21 @@ function saveMorningChecklist(date) {
     decisionRules.push(input.value.trim());
   });
 
+  // Max loss is rule-derived (% of balance), not a manual field — snapshot it for the record
+  const _svBal = STATE.accountBalance || 0;
+  const _svPct = (STATE.standingRules||{}).maxDailyLossPct ?? 3;
   STATE.dailyJournal[date].checklist = {
     energy: document.getElementById('cl-energy')?.value || '',
     mood: document.getElementById('cl-mood')?.value || '',
-    biases: document.getElementById('cl-biases')?.value?.trim() || '',
     account: document.getElementById('cl-account')?.value?.trim() || '',
-    maxLoss: document.getElementById('cl-maxLoss')?.value?.trim() || '',
+    maxLossPct: _svPct,
+    maxLoss: _svBal ? `${_svPct}% (−$${Math.round(_svBal*_svPct/100).toLocaleString()})` : '',
     profitTarget: document.getElementById('cl-profitTarget')?.value?.trim() || '',
     perPosition,
     futures: document.getElementById('cl-futures')?.value?.trim() || '',
-    crypto: document.getElementById('cl-crypto')?.value?.trim() || '',
     ivOutlook: document.getElementById('cl-ivOutlook')?.value?.trim() || '',
     gapRisk: document.getElementById('cl-gapRisk')?.value?.trim() || '',
     narrative: document.getElementById('cl-narrative')?.value?.trim() || '',
-    crowdPos: document.getElementById('cl-crowdPos')?.value?.trim() || '',
-    painTrade: document.getElementById('cl-painTrade')?.value?.trim() || '',
     scheduledEvents,
     decisionRules,
     plan: document.getElementById('cl-plan')?.value?.trim() || '',
@@ -8701,7 +8667,99 @@ function renderStatsDiscipline(closed) {
   closed.forEach(t=>{ if(t.lessonLearned && t.lessonLearned.trim()) lessons[t.lessonLearned.trim()]=(lessons[t.lessonLearned.trim()]||0)+1; });
   const lessonRows = Object.entries(lessons).sort((a,b)=>b[1]-a[1]);
 
+  // ── DAILY LOSS DISCIPLINE — nightly forensics: each day's realized P&L vs the limit
+  const _dlBal = STATE.accountBalance || 0;
+  const _dlPct = (STATE.standingRules||{}).maxDailyLossPct ?? 3;
+  const _dlLimit = _dlBal ? Math.round(_dlBal * _dlPct / 100) : 0;
+  const _byDay = {};
+  closed.forEach(t=>{ const d=String(t.exitDate||"").slice(0,10); if(d) _byDay[d]=(_byDay[d]||0)+(t.realizedPnl||0); });
+  const _days = Object.entries(_byDay).sort((a,b)=>a[0]<b[0]?1:-1);   // recent first
+  const _breachDays = _dlLimit ? _days.filter(([d,p])=>p < -_dlLimit) : [];
+  const _worstDay = _days.reduce((w,cur)=> cur[1] < (w?w[1]:0) ? cur : w, null);
+  const dailyLossBlock = _dlLimit ? `
+    ${sectionHdr("DAILY LOSS DISCIPLINE")}
+    <div class="g3" style="margin-bottom:8px">
+      <div class="card" style="padding:10px"><div class="lbl">DAILY LIMIT</div><div style="font-variant-numeric:tabular-nums;font-size:16px;color:${C.neg}">${_dlPct}%</div><div style="font-size:9px;color:${C.textSec}">= −$${_dlLimit.toLocaleString()} of $${_dlBal.toLocaleString()}</div></div>
+      <div class="card" style="padding:10px"><div class="lbl">DAYS BREACHED</div><div style="font-variant-numeric:tabular-nums;font-size:16px;color:${_breachDays.length?C.neg:C.pos}">${_breachDays.length}</div><div style="font-size:9px;color:${C.textSec}">of ${_days.length} trading days</div></div>
+      <div class="card" style="padding:10px"><div class="lbl">WORST DAY</div><div style="font-variant-numeric:tabular-nums;font-size:16px;color:${C.neg}">${_worstDay?fmt$(_worstDay[1]):"—"}</div><div style="font-size:9px;color:${C.textSec}">${_worstDay?_worstDay[0]:""}</div></div>
+    </div>
+    <div class="card" style="padding:10px;margin-bottom:10px">
+      <div style="font-size:9px;color:${C.textSec};margin-bottom:8px">LAST ${Math.min(_days.length,15)} TRADING DAYS · red line = −$${_dlLimit.toLocaleString()} limit</div>
+      ${_days.slice(0,15).map(([d,p])=>{
+        const breach = p < -_dlLimit;
+        const mag = Math.min(Math.abs(p)/(_dlLimit*1.5),1)*50;
+        const col = p>=0?C.pos:breach?C.neg:C.warn;
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:10px">
+          <span style="width:52px;color:${C.textSec};font-variant-numeric:tabular-nums">${d.slice(5)}</span>
+          <span style="width:64px;text-align:right;color:${col};font-variant-numeric:tabular-nums">${fmt$(p)}</span>
+          <div style="flex:1;height:11px;background:${C.bg};border-radius:2px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;bottom:0;${p>=0?`left:50%;width:${mag}%`:`right:50%;width:${mag}%`};background:${col}"></div>
+            <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:${C.borderVis}"></div>
+            <div style="position:absolute;top:0;bottom:0;right:${50 - (100/1.5)/2}%;width:1px;background:${C.neg}"></div>
+          </div>
+          ${breach?`<span title="breached daily limit">🛑</span>`:`<span style="width:14px"></span>`}
+        </div>`;
+      }).join("")}
+    </div>` : `<div class="card" style="padding:10px;margin-bottom:10px;font-size:10px;color:${C.warn}">Set account balance + Max Daily Loss % in Settings to grade your days against a limit.</div>`;
+
+  // ── 200% STOP BREACHES — trades that went past −200% of credit at their worst (modeled MAE)
+  const _stopBreaches = [];
+  closed.forEach(t=>{
+    const prem = t.premiumCollected, mae = getMAE(t);
+    if (!prem || mae == null) return;
+    const pct = mae / prem * 100;
+    if (pct > 200) _stopBreaches.push({ t, pct, won: (t.realizedPnl||0) > 0 });
+  });
+  _stopBreaches.sort((a,b)=>b.pct-a.pct);
+  const _maeUniverse = closed.filter(t=>getMAE(t)!=null && t.premiumCollected).length;
+  const _rode = _stopBreaches.filter(b=>b.won).length, _lost = _stopBreaches.length - _rode;
+  const stopBreachBlock = _maeUniverse ? `
+    ${sectionHdr("200% STOP BREACHES")}
+    <div style="font-size:10px;color:${C.textSec};margin-bottom:8px">Trades that sank past −200% of credit at their worst — the ones you should have been stopped out of. <span style="color:${C.warn}">${_rode} you rode back to a win</span> (lucky — reinforces the habit), <span style="color:${C.neg}">${_lost} lost</span>.</div>
+    <div class="card" style="padding:10px;margin-bottom:10px">
+      <div style="font-size:9px;color:${C.textSec};margin-bottom:6px">${_stopBreaches.length} breach${_stopBreaches.length===1?'':'es'} of ${_maeUniverse} trades with modeled MAE</div>
+      ${_stopBreaches.length ? _stopBreaches.slice(0,10).map(b=>`<div style="display:flex;align-items:center;gap:8px;font-size:10px;margin-bottom:3px">
+        <span style="width:46px;color:#fff">${escapeHtml(b.t.ticker)}</span>
+        <span style="width:70px;color:${C.textSec};font-variant-numeric:tabular-nums">${b.t.exitDate||''}</span>
+        <span style="width:52px;text-align:right;color:${C.neg};font-variant-numeric:tabular-nums;font-weight:600">−${Math.round(b.pct)}%</span>
+        <span style="flex:1;text-align:right;font-size:9px;color:${b.won?C.warn:C.neg}">${b.won?'rode to +$'+Math.round(b.t.realizedPnl):'lost $'+Math.round(Math.abs(b.t.realizedPnl||0))}</span>
+      </div>`).join('') : `<div style="font-size:10px;color:${C.pos}">✓ No trade breached −200% of credit. Clean.</div>`}
+    </div>` : '';
+
+  // ── CORRELATION — 2+ positions open in the same underlying at once (one bet, not diversified)
+  const _rootOf = tk => String(tk||'').replace(/^\//,'').replace(/[FGHJKMNQUVXZ]\d$/,'').toUpperCase();
+  const _byRoot2 = {};
+  closed.forEach(t=>{
+    if(!t.entryDate || !t.exitDate) return;
+    const r = _rootOf(t.ticker);
+    (_byRoot2[r] = _byRoot2[r]||[]).push({ s: t.entryDate+'T'+(t.entryTime||'00:00'), e: t.exitDate+'T'+(t.exitTime||'23:59') });
+  });
+  const _concur = [];
+  Object.entries(_byRoot2).forEach(([r,ivs])=>{
+    if(ivs.length<2) return;
+    const evs = [];
+    ivs.forEach(iv=>{ evs.push([iv.s,1]); evs.push([iv.e,-1]); });
+    evs.sort((a,b)=> a[0]<b[0]?-1 : a[0]>b[0]?1 : a[1]-b[1]);
+    let cur=0, mx=0, stacks=0, wasStacked=false;
+    evs.forEach(([,d])=>{ cur+=d; if(cur>mx)mx=cur; if(cur>=2 && !wasStacked){stacks++;wasStacked=true;} if(cur<2)wasStacked=false; });
+    if(mx>=2) _concur.push({ root:r, max:mx, stacks });
+  });
+  _concur.sort((a,b)=> b.max-a.max || b.stacks-a.stacks);
+  const correlationBlock = _concur.length ? `
+    ${sectionHdr("CORRELATION — STACKED POSITIONS")}
+    <div style="font-size:10px;color:${C.textSec};margin-bottom:8px">Times you had 2+ positions open in the same underlying at once — that's one bigger bet, not diversification. A gap hits all of them together.</div>
+    <div class="card" style="padding:10px;margin-bottom:10px">
+      ${_concur.slice(0,8).map(c=>`<div style="display:flex;align-items:center;gap:8px;font-size:10px;margin-bottom:3px">
+        <span style="width:60px;color:#fff">${escapeHtml(c.root)}</span>
+        <span style="flex:1;color:${C.textSec}">peaked at <span style="color:${c.max>=3?C.neg:C.warn};font-weight:600">${c.max} open at once</span></span>
+        <span style="color:${C.textSec};font-variant-numeric:tabular-nums">${c.stacks}× stacked</span>
+      </div>`).join('')}
+    </div>` : '';
+
   return `
+    ${dailyLossBlock}
+    ${stopBreachBlock}
+    ${correlationBlock}
     ${discScore!==null ? `
     <div class="card" style="padding:10px;text-align:center;margin-bottom:10px">
       <div class="lbl">DISCIPLINE SCORE</div>
@@ -12762,6 +12820,11 @@ function openSettings() {
   const sr = STATE.standingRules || {};
   document.getElementById("s-rule-maxpos").value = sr.maxPositionPct ?? 5;
   document.getElementById("s-rule-maxloss").value = sr.maxTradeLossPct ?? 2;
+  document.getElementById("s-rule-maxdaily").value = sr.maxDailyLossPct ?? 3;
+  const _mdBal = STATE.accountBalance || 0;
+  const _mdEl = document.getElementById("s-rule-maxdaily-dollar");
+  const _syncDaily = () => { const p = parseFloat(document.getElementById("s-rule-maxdaily").value) || 0; _mdEl.textContent = _mdBal ? `= −$${Math.round(_mdBal * p / 100).toLocaleString()} / day` : "set account balance above"; };
+  document.getElementById("s-rule-maxdaily").oninput = _syncDaily; _syncDaily();
   document.getElementById("s-rule-spreadsl").value = sr.defaultSpreadSLPct ?? 100;
   document.getElementById("s-rule-requirestop").checked = sr.requireStop !== false;
   document.getElementById("s-rule-requiresrc").checked = sr.requireSourceForFollow !== false;
@@ -12797,6 +12860,7 @@ function saveSettings() {
   STATE.standingRules = {
     maxPositionPct: parseFloat(document.getElementById("s-rule-maxpos").value) || 5,
     maxTradeLossPct: parseFloat(document.getElementById("s-rule-maxloss").value) || 2,
+    maxDailyLossPct: parseFloat(document.getElementById("s-rule-maxdaily").value) || 3,
     defaultSpreadSLPct: parseFloat(document.getElementById("s-rule-spreadsl").value) || 100,
     requireStop: document.getElementById("s-rule-requirestop").checked,
     requireSourceForFollow: document.getElementById("s-rule-requiresrc").checked,
