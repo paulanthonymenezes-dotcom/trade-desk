@@ -358,6 +358,11 @@ export default async function handler(req, res) {
         ...summary });
     }
 
+    // Stamp the true last-sync time. The browser also sets lastAutoSync, but the
+    // server cron is what actually pulls — without this the UI shows a stale time
+    // (last time the app was open) and understates freshness.
+    state.lastAutoSync = new Date().toISOString();
+    state.lastAutoSyncSource = "flex-cron";
     await saveState(state);
     return res.status(200).json({ s: "ok", mode: "WROTE (append-only)", ...summary });
   } catch (e) {
