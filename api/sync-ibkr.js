@@ -102,15 +102,35 @@ function reconstructFlexTrades(csvText) {
   const state = {}, legtrips = [];
   for (const r of rows) {
     if (r.cat === "CASH") continue;
-    const k = ikey(r); let st = state[k]; if (!st) { st = { net: 0, odt: null, odate: null, pnl: 0, oproc: 0, oqty: 0 }; state[k] = st; }
-    if (st.net === 0) { st.odt = r.dt; st.odate = r.tdate; st.pnl = 0; st.oproc = 0; st.oqty = 0; }
-    if (r.code === "O") { st.oproc += r.proc; st.oqty += Math.abs(r.qty); }
-    st.net += r.qty; st.pnl += r.pnl;
-    if (Math.abs(st.net) < 1e-6) {
-      legtrips.push({ asset: r.cat, under: isOpt(r.cat) ? (r.und || r.sym) : r.sym, strike: isOpt(r.cat) ? r.strike : "",
-        expiry: isOpt(r.cat) ? r.expiry : "", side: isOpt(r.cat) ? r.pc : "", sym: r.sym, odt: st.odt, odate: st.odate,
-        exit: r.tdate, xdt: r.dt, pnl: Math.round(st.pnl * 100) / 100, oproc: Math.round(st.oproc), oqty: st.oqty, short: st.oproc > 0 });
-      st.odt = null;
+    const k = ikey(r); let st = state[k]; if (!st) { st = { net: 0, opens: [], pnl: 0, last: null }; state[k] = st; }
+    // Split each fill into its CLOSE part (reduces |net| toward 0) and OPEN part
+    // (grows |net|), at the quantity level. Combined close-and-open fills ("C;O")
+    // and short<->long sign-flips break into the right legs, so rapid 0DTE legging
+    // reconstructs as real spreads instead of bogus naked/degenerate legs.
+    const qa = Math.abs(r.qty), ppu = qa ? r.proc / qa : 0;
+    let rem = r.qty, fifoUsed = false;
+    while (Math.abs(rem) > 1e-6) {
+      if (Math.abs(st.net) < 1e-6) {                       // fresh open
+        st.opens.push({ dt: r.dt, odate: r.tdate, qty: rem, proc: ppu * Math.abs(rem) });
+        st.net += rem; rem = 0;
+      } else if ((st.net > 0) !== (rem > 0)) {              // closing — reduces |net|
+        const step = Math.min(Math.abs(rem), Math.abs(st.net)) * (rem > 0 ? 1 : -1);
+        st.net += step; rem -= step;
+        if (!fifoUsed) { st.pnl += r.pnl; fifoUsed = true; }   // fifo belongs to the close
+        st.last = r.dt;
+        if (Math.abs(st.net) < 1e-6) {                     // round-trip complete
+          const oqty = st.opens.reduce((s, o) => s + o.qty, 0);
+          legtrips.push({ asset: r.cat, under: isOpt(r.cat) ? (r.und || r.sym) : r.sym, strike: isOpt(r.cat) ? r.strike : "",
+            expiry: isOpt(r.cat) ? r.expiry : "", side: isOpt(r.cat) ? r.pc : "", sym: r.sym,
+            odt: st.opens[0].dt, odate: st.opens[0].odate, exit: r.tdate, xdt: st.last,
+            pnl: Math.round(st.pnl * 100) / 100, oproc: Math.round(st.opens.reduce((s, o) => s + o.proc, 0)),
+            oqty: st.opens.reduce((s, o) => s + Math.abs(o.qty), 0), short: oqty < 0 });
+          st.opens = []; st.pnl = 0;
+        }
+      } else {                                             // same sign — add to position
+        st.opens.push({ dt: r.dt, odate: r.tdate, qty: rem, proc: ppu * Math.abs(rem) });
+        st.net += rem; rem = 0;
+      }
     }
   }
 
@@ -171,14 +191,29 @@ function reconstructFlexTrades(csvText) {
     const grp = byExp[k];
     const shorts = grp.filter(t => t.short).sort((a, b) => (a.odt || "").localeCompare(b.odt || ""));
     const longs = grp.filter(t => !t.short);
-    const assign = new Array(longs.length).fill(-1);
+    const assign = new Array(longs.length).fill(-1), taken = new Set();
+    const sideOk = (l, s) => { const ss = F(s.strike), ls = F(l.strike); return (l.side === "P" && ss > ls) || (l.side === "C" && ss < ls); };
+    // Pass 1: COMBO match — he legs spreads in as combos, so short and long share an
+    // open timestamp. Bind those 1:1 first so a closer-strike short can't steal a
+    // combo long by pure strike distance and orphan the real short as a "naked" put.
     longs.forEach((l, li) => {
       let best = -1, bestD = Infinity;
       shorts.forEach((s, si) => {
-        if (!(s.odt <= l.odt && l.odt <= s.xdt)) return;
-        const ss = F(s.strike), ls = F(l.strike);
-        const protects = (l.side === "P" && ss > ls) || (l.side === "C" && ss < ls);
-        if (protects && Math.abs(ss - ls) < bestD) { bestD = Math.abs(ss - ls); best = si; }
+        if (taken.has(si) || s.odt !== l.odt || !sideOk(l, s)) return;
+        const d = Math.abs(F(s.strike) - F(l.strike));
+        if (d < bestD) { bestD = d; best = si; }
+      });
+      if (best >= 0) { assign[li] = best; taken.add(best); }
+    });
+    // Pass 2: rolls — a rolled-down long opens mid-life (different timestamp); pair it
+    // to the nearest time-overlapping protecting short.
+    longs.forEach((l, li) => {
+      if (assign[li] >= 0) return;
+      let best = -1, bestD = Infinity;
+      shorts.forEach((s, si) => {
+        if (!(s.odt <= l.odt && l.odt <= s.xdt) || !sideOk(l, s)) return;
+        const d = Math.abs(F(s.strike) - F(l.strike));
+        if (d < bestD) { bestD = d; best = si; }
       });
       assign[li] = best;
     });
