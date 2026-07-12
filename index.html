@@ -875,6 +875,7 @@ table{width:100%;border-collapse:collapse}
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=25;calcSpreadTP()">25%</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=50;calcSpreadTP()">50%</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=75;calcSpreadTP()">75%</button>
+          <button type="button" class="btn btn-p" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=90;calcSpreadTP()" title="Recommended">90% ★</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadTPPct').value=100;calcSpreadTP()">100%</button>
         </div>
       </div>
@@ -888,8 +889,9 @@ table{width:100%;border-collapse:collapse}
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=25;calcSpreadSL()">25%</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=50;calcSpreadSL()">50%</button>
-          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=75;calcSpreadSL()">75%</button>
           <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=100;calcSpreadSL()">100%</button>
+          <button type="button" class="btn btn-g" style="font-size:10px;padding:3px 8px;color:var(--warning)" onclick="document.getElementById('tf-spreadSLPct').value=200;calcSpreadSL()" title="Decide off the chart here">200%</button>
+          <button type="button" class="btn btn-p" style="font-size:10px;padding:3px 8px" onclick="document.getElementById('tf-spreadSLPct').value=250;calcSpreadSL()" title="Hard wall — recommended">250% ★</button>
         </div>
       </div>
     </div>
@@ -1240,7 +1242,7 @@ table{width:100%;border-collapse:collapse}
       <div class="frow" style="display:flex;align-items:flex-end"><span id="s-rule-maxdaily-dollar" style="font-size:11px;color:var(--text-secondary);font-variant-numeric:tabular-nums"></span></div>
     </div>
     <div class="g2">
-      <div class="frow"><label>Default Spread SL %</label><input id="s-rule-spreadsl" type="number" placeholder="100"></div>
+      <div class="frow"><label>Default Spread SL % <span style="color:var(--text-muted);font-size:9px">(hard wall)</span></label><input id="s-rule-spreadsl" type="number" placeholder="250"></div>
       <div class="frow" style="display:flex;align-items:flex-end;gap:14px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
           <input type="checkbox" id="s-rule-requirestop" style="accent-color:var(--positive)">
@@ -1475,7 +1477,7 @@ let STATE = {
   standingRules: {
     maxPositionPct: 5,    // max risk per trade as % of account
     maxTradeLossPct: 2,   // max $ loss per trade as % of account (hard stop sizing)
-    defaultSpreadSLPct: 100, // default spread SL when none set on a trade
+    defaultSpreadSLPct: 250, // default spread SL when none set on a trade (hard wall)
     requireStop: true,    // every trade must have an SL
     requireSourceForFollow: true, // follow trades must name a source
   },
@@ -9762,7 +9764,7 @@ function _computeStopLevels(t, opts) {
   return {
     F0, iv: sig0, creditPts, creditUsd: t.premiumCollected, width, dte, contracts, isPut, mult,
     maxLossPts, maxLossUsd: maxLossPts * mult * contracts,
-    warn150: lvl(1.5), stop200: lvl(2.0),
+    warn200: lvl(2.0), stop250: lvl(2.5),
   };
 }
 // Underlying NQ price at entry, read from the stored FirstRate candle nearest entry.
@@ -10251,9 +10253,9 @@ function _runGuard() {
   out.innerHTML = `
     <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px">① Buy-back prices — rest these as limit orders (exact)</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-      ${pCard("Take profit +75%", 0.25, "close here to bank three-quarters of the credit", C.pos)}
-      ${pCard("Warn −150%", 2.5, "tighten up / get ready", C.warn)}
-      ${pCard("STOP −200%", 3.0, "hard exit — max you'll lose = 2× the credit", "#ff453a")}
+      ${pCard("Take profit +90%", 0.10, "buy back here to bank ~full value — don't chase the last sliver into gamma", C.pos)}
+      ${pCard("Decide −200%", 3.0, "look at the chart: below key level / 20EMA → out now; holding it → you have room", C.warn)}
+      ${pCard("HARD STOP −250%", 3.5, "mechanical wall — bracket order, never roll through it (this is #595)", "#ff453a")}
     </div>
     <div style="font-size:11px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">② /NQ price alert — set the alert here (estimate)</div>
     <div class="card" style="padding:10px 14px">
@@ -10262,10 +10264,10 @@ function _runGuard() {
         <span>Breakeven /NQ <b style="color:${C.text}">${be.toFixed(0)}</b></span>
         <span>Max loss <b style="color:${C.neg}">${usd((Math.abs(shortK - longK) - creditPts))}</b></span>
       </div>
-      ${m ? lvlRow("−150% near", m.warn150, C.warn) : ""}
-      ${m ? lvlRow("−200% near", m.stop200, "#ff453a") : ""}
+      ${m ? lvlRow("−200% decide", m.warn200, C.warn) : ""}
+      ${m ? lvlRow("−250% HARD stop", m.stop250, "#ff453a") : ""}
       <div style="font-size:10px;color:${C.textSec};margin-top:9px;border-top:1px solid ${C.borderVis};padding-top:8px">
-        💡 <b>Quick rule if you skip the math:</b> use the modeled <b style="color:#ff453a">−200% level</b> above — at a 200%-of-credit stop, /NQ has pushed well ${isPut ? "below" : "above"} your short strike (<b style="color:${C.text}">${shortK}</b>), deeper toward the long. Set the alert at that number.
+        💡 <b>The rule:</b> at the <b style="color:${C.warn}">−200% level</b>, check the chart — if /NQ is below your key level / 20EMA, exit now; if it's holding the level, you have room. The <b style="color:#ff453a">−250% level</b> is the hard wall: set a bracket order there and never roll through it. Both are ${isPut ? "below" : "above"} your short strike (<b style="color:${C.text}">${shortK}</b>).
       </div>
     </div>
     <div style="font-size:9px;color:${C.textMut};margin-top:9px">Premium prices (①) are exact — place them. /NQ levels (②) are modeled (Black-76 + vol-expansion) and drift with IV; a fast/violent move hits them sooner, so they err early. Telegram alerts coming next.</div>`;
@@ -12825,7 +12827,7 @@ function openSettings() {
   const _mdEl = document.getElementById("s-rule-maxdaily-dollar");
   const _syncDaily = () => { const p = parseFloat(document.getElementById("s-rule-maxdaily").value) || 0; _mdEl.textContent = _mdBal ? `= −$${Math.round(_mdBal * p / 100).toLocaleString()} / day` : "set account balance above"; };
   document.getElementById("s-rule-maxdaily").oninput = _syncDaily; _syncDaily();
-  document.getElementById("s-rule-spreadsl").value = sr.defaultSpreadSLPct ?? 100;
+  document.getElementById("s-rule-spreadsl").value = sr.defaultSpreadSLPct ?? 250;
   document.getElementById("s-rule-requirestop").checked = sr.requireStop !== false;
   document.getElementById("s-rule-requiresrc").checked = sr.requireSourceForFollow !== false;
   renderFollowSourcesList();
@@ -12861,7 +12863,7 @@ function saveSettings() {
     maxPositionPct: parseFloat(document.getElementById("s-rule-maxpos").value) || 5,
     maxTradeLossPct: parseFloat(document.getElementById("s-rule-maxloss").value) || 2,
     maxDailyLossPct: parseFloat(document.getElementById("s-rule-maxdaily").value) || 3,
-    defaultSpreadSLPct: parseFloat(document.getElementById("s-rule-spreadsl").value) || 100,
+    defaultSpreadSLPct: parseFloat(document.getElementById("s-rule-spreadsl").value) || 250,
     requireStop: document.getElementById("s-rule-requirestop").checked,
     requireSourceForFollow: document.getElementById("s-rule-requiresrc").checked,
   };
