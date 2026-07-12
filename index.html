@@ -10193,7 +10193,7 @@ function renderGuardrails() {
         </div>
         <div>
           <div style="color:#fff;font-weight:600;margin-bottom:4px">③ PROTECT</div>
-          • Stop = conditional/alert on <b>NQ underlying</b> (not spread stop-limit — wicks)<br>• Daily loss <b>~3%</b> → one stop-out, done<br>• Size so a stop fits the daily cap
+          • Stop = <b>alert</b> at −200% NQ level → out on a candle <b>CLOSE</b> below your line/20EMA (a real break), <b>not a wick tag</b><br>• Daily loss <b>~3%</b> → one stop-out, done<br>• Size so a stop fits the daily cap
         </div>
       </div>
       <div style="font-size:9px;color:${C.textMut};margin-top:9px;border-top:1px solid ${C.borderVis};padding-top:7px">The one that matters most: <b style="color:${C.neg}">honor the 200% stop, never roll.</b> That single habit is worth ~$59k on your history.</div>
