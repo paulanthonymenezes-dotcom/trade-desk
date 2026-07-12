@@ -12237,7 +12237,7 @@ function gradeEntry() {
   const POS = "var(--positive)", WARN = "var(--warning)", NEG = "var(--negative)", MUT = "rgba(255,255,255,0.25)";
   const gw = width == null ? [MUT, "—"] : (width >= 100 && width <= 350) ? [POS, "✓ sweet spot"] : (width < 100) ? [WARN, "very tight"] : (width < 500) ? [WARN, "wide — thin edge"] : [NEG, "✗ too wide (your losses live here)"];
   const gd = delta == null ? [MUT, "—"] : (delta >= 0.10 && delta <= 0.20) ? [POS, "✓ sweet spot"] : (delta < 0.10) ? [WARN, "safe, low credit"] : (delta <= 0.25) ? [NEG, "✗ too close (flips negative)"] : [NEG, "✗ way too close"];
-  const gi = iv == null ? [MUT, "—"] : (iv >= 35) ? [POS, "✓ rich premium"] : (iv >= 25) ? [POS, "✓ ok"] : (iv >= 20) ? [WARN, "lean"] : [NEG, "✗ too low — you're underpaid"];
+  const gi = iv == null ? [MUT, "—"] : (iv >= 35) ? [POS, "✓ rich (best)"] : (iv >= 25) ? [POS, "✓ good"] : (iv >= 20) ? [POS, "✓ ok"] : [NEG, "✗ under 20% — you're underpaid"];
   const parts = [gw, gd, gi];
   const anyBlank = width == null || delta == null || iv == null;
   const anyRed = parts.some(g => g[0] === NEG);
@@ -12257,7 +12257,7 @@ function gradeEntry() {
         ${chip("SHORT Δ", delta != null ? delta.toFixed(2) : "—", gd)}
         ${chip("ENTRY IV", iv != null ? iv + "%" : "—", gi)}
       </div>
-      <div style="font-size:8px;color:var(--text-muted);margin-top:6px">Your sweet spots (from your own trades): width 200–350pt · short Δ 0.10–0.20 · IV 25%+ (35%+ best)</div>
+      <div style="font-size:8px;color:var(--text-muted);margin-top:6px">Your sweet spots (from your own trades): width 200–350pt · short Δ 0.10–0.20 · IV 20%+ floor (35%+ best)</div>
     </div>`;
 }
 
