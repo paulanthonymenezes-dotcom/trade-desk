@@ -10178,7 +10178,25 @@ function renderGuardrails() {
   el.innerHTML = `
     <div style="margin-bottom:14px">
       <div style="font-size:18px;color:${C.text};font-weight:600">🛡️ Guardrails</div>
-      <div style="font-size:11px;color:${C.textSec};margin-top:2px">The moment you fill, punch in your credit + strikes → get the exact buy-back prices to rest your TP/stop, and the /NQ level to alert on. Loss measured as % of credit (your TP 75% / SL 200%).</div>
+      <div style="font-size:11px;color:${C.textSec};margin-top:2px">The moment you fill, punch in your credit + strikes → get the exact buy-back prices to rest your TP/stop, and the /NQ level to alert on. Loss measured as % of credit (your TP 90% / SL 200%).</div>
+    </div>
+    <div class="card" style="padding:12px 14px;margin-bottom:14px;border:1px solid ${C.pos}55;background:${C.pos}0a">
+      <div style="font-size:12px;color:${C.pos};font-weight:700;letter-spacing:.03em;margin-bottom:10px">📋 MY TRADING RULES — built from my own data</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;font-size:11px;color:${C.text};line-height:1.7">
+        <div>
+          <div style="color:${C.warn};font-weight:600;margin-bottom:4px">① ENTER</div>
+          • Short-strike <b>Δ 0.15–0.20</b><br>• <b>IV 20%+</b> (35%+ best)<br>• <b>~300-wide</b> spread<br>• <b>10:30am+</b>, best 12–2pm<br>• Avoid the open & overnight
+        </div>
+        <div>
+          <div style="color:${C.neg};font-weight:600;margin-bottom:4px">② EXIT</div>
+          • <b>TP 90%</b> of credit<br>• Gear up 150–175%<br>• <b>HARD stop 200%</b><br>• <b>NEVER roll</b> the long leg<br>• No overnight NQ holds
+        </div>
+        <div>
+          <div style="color:#fff;font-weight:600;margin-bottom:4px">③ PROTECT</div>
+          • Stop = conditional/alert on <b>NQ underlying</b> (not spread stop-limit — wicks)<br>• Daily loss <b>~3%</b> → one stop-out, done<br>• Size so a stop fits the daily cap
+        </div>
+      </div>
+      <div style="font-size:9px;color:${C.textMut};margin-top:9px;border-top:1px solid ${C.borderVis};padding-top:7px">The one that matters most: <b style="color:${C.neg}">honor the 200% stop, never roll.</b> That single habit is worth ~$59k on your history.</div>
     </div>
     <div class="card" style="padding:14px 16px;margin-bottom:14px">
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
