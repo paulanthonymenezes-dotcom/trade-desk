@@ -823,8 +823,8 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Trade Type</label><select id="tf-tradeType"></select></div>
     </div>
     <div class="g3">
-      <div class="frow"><label>Short Strike</label><input id="tf-shortStrike" type="number"></div>
-      <div class="frow"><label>Long Strike</label><input id="tf-longStrike" type="number"></div>
+      <div class="frow"><label>Short Strike</label><input id="tf-shortStrike" type="number" oninput="gradeEntry()"></div>
+      <div class="frow"><label>Long Strike</label><input id="tf-longStrike" type="number" oninput="gradeEntry()"></div>
       <div class="frow"><label>Contracts</label><input id="tf-contracts" type="number" value="1"></div>
     </div>
     <div class="g3">
@@ -837,8 +837,8 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Status</label><select id="tf-status"><option>Open</option><option>Closed</option><option>Rolled</option><option>Expired</option></select></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
-      <div class="frow"><label>Delta at Entry</label><input id="tf-deltaEntry" type="number" step="0.01" placeholder="e.g. -0.18"></div>
-      <div class="frow"><label>POP at Entry (%)</label><input id="tf-pop" type="number" placeholder="e.g. 78"></div>
+      <div class="frow"><label>Short Delta</label><input id="tf-deltaEntry" type="number" step="0.01" placeholder="e.g. 0.18" oninput="gradeEntry()"></div>
+      <div class="frow"><label>Entry IV (%)</label><input id="tf-entryIV" type="number" step="0.1" placeholder="e.g. 32" oninput="gradeEntry()"></div>
       <div class="frow"><label>Entry Type</label><select id="tf-entryType"><option value="">Select...</option></select></div>
       <div class="frow"><label>Asset Class</label><select id="tf-assetClass">
         <option value="Options">Options</option>
@@ -849,6 +849,9 @@ table{width:100%;border-collapse:collapse}
         <option value="Crypto">Crypto</option>
       </select></div>
     </div>
+
+    <!-- ENTRY GRADE — width auto, delta+IV from your broker; graded vs your data-backed sweet spots -->
+    <div id="entry-grade" style="margin-bottom:10px"></div>
 
     <!-- REQUIRED EXIT RULES -->
     <div style="background:var(--bg-primary);border:1px solid var(--positive-dim);border-radius:4px;padding:10px;margin-bottom:10px">
@@ -11737,7 +11740,8 @@ function openTradeModal(id=null) {
   document.getElementById("tf-spreadSLCalc").textContent = t?.spreadSL ? `= $${parseFloat(t.spreadSL).toFixed(2)}` : "";
   document.getElementById("tf-deltaEntry").value = t?.deltaEntry||"";
   updateSRPicks(t?.ticker||"");
-  document.getElementById("tf-pop").value = t?.pop||"";
+  document.getElementById("tf-entryIV").value = t?.entryIV||"";
+  gradeEntry();
   document.getElementById("tf-assetClass").value = t?.assetClass||"Options";
   document.getElementById("tf-thesis").value = t?.thesis||"";
   document.getElementById("tf-exitThesis").value = t?.exitThesis||"";
@@ -12220,6 +12224,43 @@ function calcSpreadTP() {
   el.textContent = tp ? `= $${tp}` : "";
 }
 
+// ── Entry grade — width auto, delta+IV typed from broker; graded vs the sweet
+// spots found in the trader's own /NQ history (Databento delta/IV + width study):
+// width 200–350pt, short delta 0.10–0.20 (flips negative past 0.20), IV 25%+ (35%+ best).
+function gradeEntry() {
+  const el = document.getElementById("entry-grade"); if (!el) return;
+  const num = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? null : v; };
+  const ss = num("tf-shortStrike"), ls = num("tf-longStrike");
+  const width = (ss != null && ls != null && ls > 0) ? Math.abs(ss - ls) : null;
+  const dRaw = num("tf-deltaEntry"); const delta = dRaw != null ? Math.abs(dRaw) : null;
+  const iv = num("tf-entryIV");
+  const POS = "var(--positive)", WARN = "var(--warning)", NEG = "var(--negative)", MUT = "rgba(255,255,255,0.25)";
+  const gw = width == null ? [MUT, "—"] : (width >= 100 && width <= 350) ? [POS, "✓ sweet spot"] : (width < 100) ? [WARN, "very tight"] : (width < 500) ? [WARN, "wide — thin edge"] : [NEG, "✗ too wide (your losses live here)"];
+  const gd = delta == null ? [MUT, "—"] : (delta >= 0.10 && delta <= 0.20) ? [POS, "✓ sweet spot"] : (delta < 0.10) ? [WARN, "safe, low credit"] : (delta <= 0.25) ? [NEG, "✗ too close (flips negative)"] : [NEG, "✗ way too close"];
+  const gi = iv == null ? [MUT, "—"] : (iv >= 35) ? [POS, "✓ rich premium"] : (iv >= 25) ? [POS, "✓ ok"] : (iv >= 20) ? [WARN, "lean"] : [NEG, "✗ too low — you're underpaid"];
+  const parts = [gw, gd, gi];
+  const anyBlank = width == null || delta == null || iv == null;
+  const anyRed = parts.some(g => g[0] === NEG);
+  const allGreen = parts.every(g => g[0] === POS);
+  const v = anyBlank ? [MUT, "fill in short delta + IV to grade the entry"]
+          : anyRed ? [NEG, "⚠ RECONSIDER — a red below is exactly where you bleed money"]
+          : allGreen ? [POS, "✓ GOOD SETUP — this is your money zone"]
+          : [WARN, "OK — not your best; size down accordingly"];
+  const chip = (lbl, val, g) => `<div style="flex:1;text-align:center;padding:6px 4px;border:1px solid ${g[0]};border-radius:4px;background:${g[0]}1a">
+      <div style="font-size:9px;color:var(--text-secondary);letter-spacing:.04em">${lbl}</div>
+      <div style="font-size:14px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums">${val}</div>
+      <div style="font-size:9px;color:${g[0]};line-height:1.2;margin-top:1px">${g[1]}</div></div>`;
+  el.innerHTML = `<div style="border:1px solid ${v[0]}66;border-radius:5px;padding:8px;background:${v[0]}0f">
+      <div style="font-size:10px;color:${v[0]};font-weight:700;letter-spacing:.03em;margin-bottom:7px">🎯 ENTRY GRADE — ${v[1]}</div>
+      <div style="display:flex;gap:6px">
+        ${chip("WIDTH", width != null ? width + " pt" : "—", gw)}
+        ${chip("SHORT Δ", delta != null ? delta.toFixed(2) : "—", gd)}
+        ${chip("ENTRY IV", iv != null ? iv + "%" : "—", gi)}
+      </div>
+      <div style="font-size:8px;color:var(--text-muted);margin-top:6px">Your sweet spots (from your own trades): width 200–350pt · short Δ 0.10–0.20 · IV 25%+ (35%+ best)</div>
+    </div>`;
+}
+
 // ── Pre-trade checklist (browser) ────────────────────────────────────────────
 function runBrowserChecklist(trade) {
   const flags = [];
@@ -12398,7 +12439,7 @@ function saveTrade() {
     tpLevel: getSRLabel(ticker, tpPrice) || "custom",
     slLevel: getSRLabel(ticker, slPrice) || "custom",
     deltaEntry: document.getElementById("tf-deltaEntry").value,
-    pop: document.getElementById("tf-pop").value,
+    entryIV: document.getElementById("tf-entryIV").value,
     entryType: document.getElementById("tf-entryType").value,
     assetClass: document.getElementById("tf-assetClass").value,
     // FX aliases
