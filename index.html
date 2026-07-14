@@ -578,6 +578,40 @@ table{width:100%;border-collapse:collapse}
 
 
 
+<style>
+#mobile-app{display:none}
+@media(max-width:680px){
+  body>*:not(#mobile-app){display:none!important}
+  #mobile-app{display:flex;flex-direction:column;position:fixed;inset:0;background:var(--bg-primary);z-index:9000;font-family:'Inter',system-ui,sans-serif}
+  #m-header{padding:14px 16px 12px;border-bottom:1px solid var(--border-visible);display:flex;justify-content:space-between;align-items:baseline;flex:0 0 auto}
+  #m-title{font-size:15px;font-weight:700;color:var(--text-primary);letter-spacing:2px}
+  #m-sub{font-size:10px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+  #m-content{flex:1;overflow-y:auto;padding:16px 16px 96px;-webkit-overflow-scrolling:touch}
+  #m-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--bg-surface);border-top:1px solid var(--border-visible);padding-bottom:env(safe-area-inset-bottom,0)}
+  .m-navbtn{flex:1;background:none;border:none;color:var(--text-muted);font-size:10px;padding:9px 0 8px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
+  .m-navbtn span{font-size:19px;line-height:1}
+  .m-navbtn.active{color:var(--accent)}
+  .m-conv{flex:1;padding:22px 0;font-size:26px;font-weight:800;border:2px solid var(--border-visible);border-radius:12px;background:var(--bg-surface);color:var(--text-secondary)}
+  .m-conv.on{border-color:var(--accent);color:var(--accent);background:var(--accent-faint,rgba(59,130,246,0.12))}
+  .m-chip{padding:11px 14px;border-radius:22px;border:1.5px solid var(--border-visible);background:var(--bg-surface);color:var(--text-secondary);font-size:13px;cursor:pointer}
+  .m-chip.on{border-color:var(--positive);background:var(--positive-faint,rgba(34,197,94,0.14));color:var(--positive);font-weight:600}
+  .m-log{width:100%;padding:17px;border:none;border-radius:12px;background:var(--positive);color:#04140a;font-size:16px;font-weight:800;letter-spacing:1px;cursor:pointer}
+  .m-log:disabled{background:var(--bg-surface);color:var(--text-muted)}
+  .m-lbl{font-size:10px;letter-spacing:1px;color:var(--text-muted);text-transform:uppercase;margin:22px 0 9px}
+  .m-lbl:first-child{margin-top:2px}
+}
+</style>
+<div id="mobile-app">
+  <div id="m-header"><div id="m-title">THE DESK</div><div id="m-sub"></div></div>
+  <div id="m-content"></div>
+  <nav id="m-nav">
+    <button class="m-navbtn active" data-mv="tag" onclick="mNav('tag')"><span>⚡</span>Tag</button>
+    <button class="m-navbtn" data-mv="stats" onclick="mNav('stats')"><span>📊</span>Stats</button>
+    <button class="m-navbtn" data-mv="journal" onclick="mNav('journal')"><span>📓</span>Journal</button>
+    <button class="m-navbtn" data-mv="trades" onclick="mNav('trades')"><span>📋</span>Trades</button>
+  </nav>
+</div>
+
 <nav id="left-sidebar">
   <button class="side-btn" onclick="switchTab('premarket',this)"><span class="nav-icon">☀</span><span class="side-label">Pre-Market</span></button>
   <button class="side-btn" onclick="switchTab('positions',this)"><span class="nav-icon">▣</span><span class="side-label">Positions</span></button>
@@ -2878,6 +2912,8 @@ function renderAll() {
   const diaryEl = document.getElementById('tab-diary') || document.getElementById('diary-detail-panel');
   if (currentDiaryId && !_userIsTypingIn(diaryEl)) renderDiary();
   renderIncompleteBanner();
+  reconcileEntryTags();
+  renderMobile();
 }
 
 function renderKPIs() {
@@ -12792,6 +12828,127 @@ function updateTradeField(id, field, value) {
   save();
 }
 
+// ── MOBILE APP ───────────────────────────────────────────────────────────────
+// A phone-first face of the desk. Quick-tag logs conviction + source(s) in 3 taps
+// at trade time; IBKR sync fills the trade later, and reconcileEntryTags() matches
+// the tag to it by entry timestamp. Same Supabase state as desktop.
+let _mDraft = { conviction: null, sources: [] };
+function _isMobile() { return window.matchMedia("(max-width:680px)").matches; }
+function mNav(view) {
+  STATE._mView = view;
+  document.querySelectorAll(".m-navbtn").forEach(b => b.classList.toggle("active", b.dataset.mv === view));
+  renderMobile();
+}
+function renderMobile() {
+  const el = document.getElementById("m-content"); if (!el || !_isMobile()) return;
+  const ae = document.activeElement;
+  if (ae && el.contains(ae) && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
+  const v = STATE._mView || "tag";
+  const sub = document.getElementById("m-sub");
+  const closed = (STATE.trades || []).filter(t => t.status !== "Open" && t.realizedPnl != null);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const todayPnl = closed.filter(t => String(t.exitDate || "").slice(0,10) === today).reduce((s,t)=>s+(+t.realizedPnl||0),0);
+  if (sub) sub.textContent = `today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}`;
+  if (v === "tag") el.innerHTML = renderMTag();
+  else if (v === "stats") el.innerHTML = renderMStats(closed);
+  else if (v === "journal") el.innerHTML = renderMJournal();
+  else el.innerHTML = renderMTrades();
+}
+function renderMTag() {
+  const pending = (STATE.entryTags || []).filter(t => !t.matched).length;
+  const chips = _ideaSources().map(s =>
+    `<div class="m-chip ${_mDraft.sources.includes(s)?"on":""}" onclick="mToggleSrc('${escAttr(s)}')">${escapeHtml(s)}</div>`).join("");
+  const recent = (STATE.entryTags || []).slice(-6).reverse().map(t => {
+    const tm = new Date(t.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"});
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
+      <span style="color:var(--text-secondary)">${tm} · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}</span>
+      <span style="color:${t.matched?"var(--positive)":"var(--text-muted)"};font-size:10px">${t.matched?"✓ merged":"pending"}</span></div>`;
+  }).join("") || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No tags yet — log your next entry.</div>`;
+  const ready = _mDraft.conviction != null && _mDraft.sources.length > 0;
+  return `
+    <div class="m-lbl">Conviction</div>
+    <div style="display:flex;gap:10px">${[1,2,3].map(n=>`<button class="m-conv ${_mDraft.conviction===n?"on":""}" onclick="mSetConv(${n})">${n}</button>`).join("")}</div>
+    <div class="m-lbl">Source <span style="text-transform:none;color:var(--text-muted)">· tap all that apply</span></div>
+    <div style="display:flex;flex-wrap:wrap;gap:9px">${chips}<div class="m-chip" style="border-style:dashed" onclick="mAddSrc()">+ add</div></div>
+    <div style="margin-top:26px"><button class="m-log" ${ready?"":"disabled"} onclick="mLogTag()">${ready?"⚡ LOG TAG":"pick conviction + a source"}</button></div>
+    <div class="m-lbl">Recent tags ${pending?`<span style="color:var(--warning);text-transform:none">· ${pending} pending merge</span>`:""}</div>
+    ${recent}`;
+}
+function mSetConv(n){ _mDraft.conviction = (_mDraft.conviction===n?null:n); renderMobile(); }
+function mToggleSrc(s){ const i=_mDraft.sources.indexOf(s); if(i>=0)_mDraft.sources.splice(i,1); else _mDraft.sources.push(s); renderMobile(); }
+function mAddSrc(){ const n=(prompt("New source (person / newsletter / tool):")||"").trim(); if(!n) return; const l=_ideaSources(); if(!l.includes(n))l.push(n); if(!_mDraft.sources.includes(n))_mDraft.sources.push(n); save(); renderMobile(); }
+function mLogTag(){
+  if(_mDraft.conviction==null||!_mDraft.sources.length) return;
+  if(!Array.isArray(STATE.entryTags)) STATE.entryTags=[];
+  STATE.entryTags.push({ id:"tag_"+Date.now(), ts:new Date().toISOString(), conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), matched:null });
+  _mDraft={conviction:null,sources:[]};
+  reconcileEntryTags(); save(); renderMobile();
+}
+function _etToMs(dateStr, hm){
+  if(!dateStr) return null;
+  const [Y,M,D]=dateStr.split("-").map(Number); const [h,mi]=(hm||"12:00").split(":").map(Number);
+  const guess=Date.UTC(Y,M-1,D,h||0,mi||0);
+  const tz=new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",timeZoneName:"short"}).formatToParts(new Date(guess)).find(p=>p.type==="timeZoneName").value;
+  return guess + (tz==="EDT"?4:5)*3600000;
+}
+function reconcileEntryTags(){
+  if(!Array.isArray(STATE.entryTags)||!STATE.entryTags.length) return;
+  const trades=STATE.trades||[]; let changed=false;
+  for(const tag of STATE.entryTags){
+    if(tag.matched) continue;
+    const tt=Date.parse(tag.ts); let best=null,bd=10*60000;
+    for(const tr of trades){
+      if(tr._taggedBy) continue;
+      const te=_etToMs(tr.entryDate,tr.entryTime); if(te==null) continue;
+      const d=Math.abs(te-tt); if(d<bd){bd=d;best=tr;}
+    }
+    if(best){ best.conviction=tag.conviction; best.ideaSources=tag.sources.slice(); best.ideaSource=best.ideaSource||tag.sources[0]; best._taggedBy=tag.id; tag.matched=best.id; changed=true; }
+  }
+  if(changed) save();
+}
+function renderMTrades(){
+  const t=(STATE.trades||[]).filter(x=>x.realizedPnl!=null).slice().sort((a,b)=>String(b.exitDate||b.entryDate||"").localeCompare(String(a.exitDate||a.entryDate||""))).slice(0,40);
+  if(!t.length) return `<div style="color:var(--text-muted)">No closed trades.</div>`;
+  return t.map(x=>{
+    const p=+x.realizedPnl||0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--border-subtle)">
+      <div><div style="font-size:14px;color:var(--text-primary)">${escapeHtml(x.ticker||"")} <span style="font-size:11px;color:var(--text-muted)">${escapeHtml((x.tradeType||"").slice(0,18))}</span></div>
+      <div style="font-size:10px;color:var(--text-muted)">${x.exitDate||x.entryDate||""}${x.conviction?` · conv ${x.conviction}`:""}${(x.ideaSources&&x.ideaSources.length)?" · "+x.ideaSources.map(escapeHtml).join(", "):""}</div></div>
+      <div style="font-size:15px;font-weight:700;color:${p>=0?"var(--positive)":"var(--negative)"};font-variant-numeric:tabular-nums">${p>=0?"+":""}$${Math.round(p).toLocaleString()}</div></div>`;
+  }).join("");
+}
+function renderMStats(closed){
+  if(!closed.length) return `<div style="color:var(--text-muted)">No data yet.</div>`;
+  const net=closed.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=closed.filter(t=>+t.realizedPnl>0).length;
+  const nq=closed.filter(t=>String(t.ticker||"").startsWith("/NQ"));
+  const stat=(l,v,c)=>`<div style="flex:1;text-align:center;padding:14px 6px;border:1px solid var(--border-visible);border-radius:10px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:20px;font-weight:700;color:${c||"var(--text-primary)"};font-variant-numeric:tabular-nums;margin-top:3px">${v}</div></div>`;
+  return `<div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?"var(--positive)":"var(--negative)")}${stat("Win rate",Math.round(wins/closed.length*100)+"%")}</div>
+    <div style="display:flex;gap:9px">${stat("Trades",closed.length)}${stat("/NQ trades",nq.length)}</div>
+    <div class="m-lbl">Full stats, guardrails & charts → open the desk on your Mac.</div>`;
+}
+function renderMJournal(){
+  const t=(STATE.trades||[]).filter(x=>x.realizedPnl!=null).slice().sort((a,b)=>String(b.exitDate||b.entryDate||"").localeCompare(String(a.exitDate||a.entryDate||""))).slice(0,25);
+  return `<div class="m-lbl" style="margin-top:2px">Tap a trade to journal it</div>` + t.map(x=>{
+    const p=+x.realizedPnl||0, has=(x.journalNote||x.thesis||"").trim();
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex;justify-content:space-between;align-items:center" onclick="mToggleJ('${x.id}')">
+        <div style="font-size:13px;color:var(--text-primary)">${escapeHtml(x.ticker||"")} <span style="color:var(--text-muted);font-size:11px">${x.exitDate||x.entryDate||""}</span> ${has?'<span style="color:var(--positive)">✎</span>':""}</div>
+        <div style="font-size:13px;color:${p>=0?"var(--positive)":"var(--negative)"}">${p>=0?"+":""}$${Math.round(p)}</div></div>
+      <div id="mj-${x.id}" style="display:none;margin-top:8px">
+        <textarea id="mjt-${x.id}" style="width:100%;box-sizing:border-box;min-height:80px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:8px;padding:10px;font-size:14px" placeholder="What happened? What did you learn?">${escapeHtml(x.journalNote||"")}</textarea>
+        <button class="m-log" style="margin-top:8px;padding:12px;font-size:14px" onclick="mSaveJ('${x.id}')">SAVE JOURNAL</button>
+      </div></div>`;
+  }).join("");
+}
+function mToggleJ(id){ const e=document.getElementById("mj-"+id); if(e) e.style.display=e.style.display==="none"?"block":"none"; }
+function mSaveJ(id){ const ta=document.getElementById("mjt-"+id); if(!ta) return; const idn=isNaN(+id)?id:+id; STATE.trades=STATE.trades.map(t=>String(t.id)===String(idn)?{...t,journalNote:ta.value}:t); save(); mToggleJ(id); }
+// Bootstrap: keep the mobile view alive independently of the desktop render path
+// (which can bail mid-way on the sign-in gate). Safety-net interval only fires when
+// the content is empty, so it never interrupts interaction.
+window.addEventListener("resize", () => { if (_isMobile()) renderMobile(); });
+document.addEventListener("DOMContentLoaded", () => { if (_isMobile()) setTimeout(renderMobile, 300); });
+setInterval(() => { if (_isMobile()) { const c = document.getElementById("m-content"); if (c && c.innerHTML.trim() === "") renderMobile(); } }, 1200);
+
 // Set or clear a tradeType override. When set, applyFlexReconstruction will
 // replace the auto-classified tradeType with this value on every sync so the
 // manual label sticks. Pass "" to clear (use auto-classification).
@@ -12933,6 +13090,7 @@ function saveSettings() {
 function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+function escAttr(s){ return String(s==null?"":s).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
 
 // ── Cash flows list (Settings) — deposits (+) and withdrawals (−) ─────────────
 // Stored in STATE.deposits[] for legacy compat (name kept). A withdrawal is a
