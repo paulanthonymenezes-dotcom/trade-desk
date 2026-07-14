@@ -5657,6 +5657,7 @@ function renderStatsOverview(closed) {
   const byStrategy = buildCompactBreakdown(closed, t=>t.strategyType||t.tradeType?.replace('⭐ ','')||"Unknown");
   const byEntry = buildCompactBreakdown(closed, t=>t.entryType||"Unknown");
   const bySource = buildCompactBreakdown(closed, t=>t.ideaSource||"Untagged");
+  const byConviction = buildCompactBreakdown(closed.filter(t=>t.conviction!=null&&t.conviction!==""), t=>"Conviction "+t.conviction);
 
   return `
     ${_tradingReviewPanel(closed)}
@@ -5738,6 +5739,9 @@ function renderStatsOverview(closed) {
     <div style="margin-bottom:14px">
       ${statBreakdownCard(bySource, "📍 BY IDEA SOURCE — which ideas make money (tag trades in the Diary)")}
     </div>
+    ${byConviction.length ? `<div style="margin-bottom:14px">
+      ${statBreakdownCard(byConviction, "🎯 BY CONVICTION — does your gut predict your winners? (tag on the phone at entry)")}
+    </div>` : ""}
 
     <!-- Two-column: By Sector + By Strategy -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
@@ -12844,6 +12848,7 @@ function renderMobile() {
   const ae = document.activeElement;
   if (ae && el.contains(ae) && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
   const v = STATE._mView || "tag";
+  document.querySelectorAll(".m-navbtn").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
   const sub = document.getElementById("m-sub");
   const closed = (STATE.trades || []).filter(t => t.status !== "Open" && t.realizedPnl != null);
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -12918,25 +12923,46 @@ function renderMTrades(){
   }).join("");
 }
 function renderMStats(closed){
-  if(!closed.length) return `<div style="color:var(--text-muted)">No data yet.</div>`;
+  if(!closed.length) return `<div style="color:var(--text-muted)">No closed trades yet.</div>`;
+  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)";
   const net=closed.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=closed.filter(t=>+t.realizedPnl>0).length;
   const nq=closed.filter(t=>String(t.ticker||"").startsWith("/NQ"));
-  const stat=(l,v,c)=>`<div style="flex:1;text-align:center;padding:14px 6px;border:1px solid var(--border-visible);border-radius:10px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:20px;font-weight:700;color:${c||"var(--text-primary)"};font-variant-numeric:tabular-nums;margin-top:3px">${v}</div></div>`;
-  return `<div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?"var(--positive)":"var(--negative)")}${stat("Win rate",Math.round(wins/closed.length*100)+"%")}</div>
-    <div style="display:flex;gap:9px">${stat("Trades",closed.length)}${stat("/NQ trades",nq.length)}</div>
-    <div class="m-lbl">Full stats, guardrails & charts → open the desk on your Mac.</div>`;
+  const bal=STATE.accountBalance||0, dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, lim=Math.round(bal*dpct/100);
+  const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  const todayPnl=Math.round(closed.filter(t=>String(t.exitDate||"").slice(0,10)===today).reduce((s,t)=>s+(+t.realizedPnl||0),0));
+  const stat=(l,v,c)=>`<div style="flex:1;text-align:center;padding:13px 6px;border:1px solid var(--border-visible);border-radius:10px"><div style="font-size:9px;color:${MU};text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:19px;font-weight:700;color:${c||"var(--text-primary)"};font-variant-numeric:tabular-nums;margin-top:3px">${v}</div></div>`;
+  const agg=(trades,keyfn)=>{const m={};trades.forEach(t=>{let ks=keyfn(t);if(!Array.isArray(ks))ks=[ks];ks.forEach(k=>{if(k==null||k==="")return;if(!m[k])m[k]={n:0,w:0,pnl:0};m[k].n++;m[k].pnl+=(+t.realizedPnl||0);if((+t.realizedPnl||0)>0)m[k].w++;});});return Object.entries(m).sort((a,b)=>b[1].pnl-a[1].pnl);};
+  const brk=(items,title,hint)=> items.length
+    ? `<div class="m-lbl">${title}</div>`+items.map(([k,v])=>{const wr=Math.round(v.w/v.n*100),c=wr>=70?G:wr>=50?"var(--warning)":R;return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border-subtle);font-size:13px"><span style="color:var(--text-primary)">${escapeHtml(k)}</span><span style="display:flex;gap:12px;align-items:baseline;font-variant-numeric:tabular-nums"><span style="color:${MU};font-size:11px">${v.n}t</span><span style="color:${c};font-size:11px">${wr}%</span><span style="color:${v.pnl>=0?G:R};min-width:66px;text-align:right">${v.pnl>=0?"+":""}$${Math.round(v.pnl).toLocaleString()}</span></span></div>`;}).join("")
+    : `<div class="m-lbl">${title}</div><div style="font-size:12px;color:${MU};padding:2px 0 8px">${hint}</div>`;
+  const byConv=agg(closed.filter(t=>t.conviction!=null&&t.conviction!==""),t=>"Conviction "+t.conviction);
+  const bySrc=agg(closed,t=>(t.ideaSources&&t.ideaSources.length)?t.ideaSources:(t.ideaSource?[t.ideaSource]:[]));
+  return `
+    <div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?G:R)}${stat("Win rate",Math.round(wins/closed.length*100)+"%")}</div>
+    <div style="display:flex;gap:9px">${stat("Trades",closed.length)}${stat("/NQ",nq.length)}</div>
+    ${bal?`<div class="m-lbl">Today vs daily stop</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid ${todayPnl<=-lim?R:"var(--border-visible)"};border-radius:10px">
+        <span style="font-size:18px;font-weight:700;color:${todayPnl>=0?G:R};font-variant-numeric:tabular-nums">${todayPnl>=0?"+":""}$${todayPnl.toLocaleString()}</span>
+        <span style="font-size:11px;color:${MU}">stop −$${lim.toLocaleString()} (${dpct}%)</span></div>`:""}
+    ${brk(byConv,"🎯 By conviction","Tag trades at entry to see if your gut predicts winners.")}
+    ${brk(bySrc,"📍 By source","Tag a source to see which ideas actually pay.")}
+    <div class="m-lbl">Full stats, guardrails & charts → the desk on your Mac.</div>`;
 }
 function renderMJournal(){
-  const t=(STATE.trades||[]).filter(x=>x.realizedPnl!=null).slice().sort((a,b)=>String(b.exitDate||b.entryDate||"").localeCompare(String(a.exitDate||a.entryDate||""))).slice(0,25);
-  return `<div class="m-lbl" style="margin-top:2px">Tap a trade to journal it</div>` + t.map(x=>{
-    const p=+x.realizedPnl||0, has=(x.journalNote||x.thesis||"").trim();
-    return `<div style="padding:10px 0;border-bottom:1px solid var(--border-subtle)">
-      <div style="display:flex;justify-content:space-between;align-items:center" onclick="mToggleJ('${x.id}')">
-        <div style="font-size:13px;color:var(--text-primary)">${escapeHtml(x.ticker||"")} <span style="color:var(--text-muted);font-size:11px">${x.exitDate||x.entryDate||""}</span> ${has?'<span style="color:var(--positive)">✎</span>':""}</div>
-        <div style="font-size:13px;color:${p>=0?"var(--positive)":"var(--negative)"}">${p>=0?"+":""}$${Math.round(p)}</div></div>
-      <div id="mj-${x.id}" style="display:none;margin-top:8px">
-        <textarea id="mjt-${x.id}" style="width:100%;box-sizing:border-box;min-height:80px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:8px;padding:10px;font-size:14px" placeholder="What happened? What did you learn?">${escapeHtml(x.journalNote||"")}</textarea>
-        <button class="m-log" style="margin-top:8px;padding:12px;font-size:14px" onclick="mSaveJ('${x.id}')">SAVE JOURNAL</button>
+  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)";
+  const recent=(STATE.trades||[]).filter(x=>x.realizedPnl!=null).slice().sort((a,b)=>String(b.exitDate||b.entryDate||"").localeCompare(String(a.exitDate||a.entryDate||""))).slice(0,30);
+  const noted=recent.filter(x=>(x.journalNote||"").trim()).length;
+  return `<div class="m-lbl" style="margin-top:2px">Journal · ${noted}/${recent.length} recent trades noted · tap to write</div>` + recent.map(x=>{
+    const p=+x.realizedPnl||0, has=(x.journalNote||"").trim();
+    const tags=[x.conviction?"conv "+x.conviction:"",(x.ideaSources&&x.ideaSources.length)?x.ideaSources.join(", "):(x.ideaSource||"")].filter(Boolean).join(" · ");
+    return `<div style="padding:11px 0;border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start" onclick="mToggleJ('${x.id}')">
+        <div><div style="font-size:14px;color:var(--text-primary)">${escapeHtml(x.ticker||"")} <span style="color:${MU};font-size:11px">${x.exitDate||x.entryDate||""}</span> ${has?'<span style="color:'+G+'">✎</span>':'<span style="color:'+MU+';font-size:11px">+ note</span>'}</div>
+        ${tags?`<div style="font-size:10px;color:${MU};margin-top:2px">${escapeHtml(tags)}</div>`:""}</div>
+        <div style="font-size:14px;font-weight:700;color:${p>=0?G:R};font-variant-numeric:tabular-nums">${p>=0?"+":""}$${Math.round(p)}</div></div>
+      <div id="mj-${x.id}" style="display:none;margin-top:9px">
+        <textarea id="mjt-${x.id}" style="width:100%;box-sizing:border-box;min-height:90px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:8px;padding:11px;font-size:15px" placeholder="What happened? What did you learn?">${escapeHtml(x.journalNote||"")}</textarea>
+        <button class="m-log" style="margin-top:9px;padding:13px;font-size:14px" onclick="mSaveJ('${x.id}')">SAVE JOURNAL</button>
       </div></div>`;
   }).join("");
 }
