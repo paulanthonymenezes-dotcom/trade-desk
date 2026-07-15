@@ -12841,8 +12841,8 @@ function openDiary(id) {
 // User-editable idea-source list (who the trade idea came from). Seeded with the
 // defaults; grows as the user adds sources via the "+ Add new source…" option.
 function _ideaSources() {
-  if (!Array.isArray(STATE.ideaSources)) STATE.ideaSources = ["Me / Own DD", "Brent Donnelly", "The Options Seller", "Seasonax", "Longwashere", "Lyn Alden", "Finviz Heat Map", "News / Event", "Vibes", "Other"];
-  if (!STATE.ideaSources.includes("Vibes")) { const oi = STATE.ideaSources.indexOf("Other"); if (oi >= 0) STATE.ideaSources.splice(oi, 0, "Vibes"); else STATE.ideaSources.push("Vibes"); }
+  if (!Array.isArray(STATE.ideaSources)) STATE.ideaSources = ["Me / Own DD", "Brent Donnelly", "The Options Seller", "Seasonax", "Longwashere", "Lyn Alden", "Finviz Heat Map", "News / Event", "GEX", "Vibes", "Other"];
+  ["Vibes", "GEX"].forEach(s => { if (!STATE.ideaSources.includes(s)) { const oi = STATE.ideaSources.indexOf("Other"); if (oi >= 0) STATE.ideaSources.splice(oi, 0, s); else STATE.ideaSources.push(s); } });
   return STATE.ideaSources;
 }
 function _setIdeaSource(id, v) {
