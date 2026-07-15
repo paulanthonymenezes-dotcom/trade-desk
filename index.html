@@ -1976,6 +1976,10 @@ async function save() {
   }
 }
 
+// Flips true once load() has resolved (cloud, localStorage, or empty). The mobile
+// view keys off this so it never flashes the built-in IBKR_SEED before real data
+// arrives (that caused open positions to "appear then disappear" on the AM tab).
+let _dataLoaded = false;
 async function load() {
   try {
     const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
@@ -1988,6 +1992,7 @@ async function load() {
       const d = rows[0].data;
       STATE = {...STATE, ...d, quotes:{}, candles:{}};
       _migrateDeposits();
+      _dataLoaded = true;
       return;
     }
   } catch(e) {}
@@ -1997,6 +2002,7 @@ async function load() {
     if (s) { const d = JSON.parse(s); STATE = {...STATE, ...d, quotes:{}, candles:{}}; }
   } catch(e) {}
   _migrateDeposits();
+  _dataLoaded = true;
 }
 
 // One-time migration: the legacy single ytdDeposits field becomes a row in
@@ -12864,6 +12870,7 @@ function renderMobile() {
   let syncStr = "—";
   if (STATE.lastAutoSync) { try { syncStr = new Date(STATE.lastAutoSync).toLocaleString("en-US",{timeZone:"America/New_York",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}); } catch(e){} }
   if (sub) sub.innerHTML = `<div style="text-align:right;opacity:.65;font-size:9px">⟳ IBKR ${syncStr}</div><div style="text-align:right">today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}</div>`;
+  if (!_dataLoaded) { el.innerHTML = `<div style="padding:48px 0;text-align:center;color:var(--text-muted);font-size:13px">Loading your desk…</div>`; return; }
   if (v === "am") { el.innerHTML = renderMAM(); if (!_macroCalEvents.length) _mLoadMacro(); }
   else if (v === "tag") el.innerHTML = renderMTag();
   else if (v === "stats") el.innerHTML = renderMStats(closed);
@@ -12945,8 +12952,12 @@ function renderMAM(){
   } else {
     perTradeBlock=card("Per-trade stop (200%)", perSL?"−$"+perSL.toLocaleString():"—", perSL?`no open positions · based on your ~$${avgCred.toLocaleString()} avg credit (~${nStops} stop-outs = daily cap)`:"trade more /NQ to calibrate", R);
   }
+  const mn=_latestMorningNote();
+  const mnPretty=mn?new Date(mn.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}):"";
+  const mnCard=mn?`<div style="border:1px solid var(--accent);border-radius:12px;padding:13px 15px;margin-bottom:12px;background:var(--accent-faint,rgba(88,166,255,0.08))"><div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.5px">📝 Note from your ${mnPretty} close</div><div style="font-size:14px;color:${TP};margin-top:6px;line-height:1.5;white-space:pre-wrap">${escapeHtml(mn.note)}</div></div>`:"";
   return `
     <div style="font-size:13px;color:${MU};margin:2px 0 14px">☀ ${hi} — pre-market check</div>
+    ${mnCard}
     ${card("Account balance", bal?"$"+bal.toLocaleString():"— set in Settings", "", TP)}
     ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", bal?`$${bal.toLocaleString()} → <b style="color:${TP}">$${(bal-dailyStop).toLocaleString()}</b> floor. Hit it and you're done.`:"set balance in Settings", R)}
     ${perTradeBlock}
@@ -13005,6 +13016,9 @@ function renderMEOD(){
     <div style="display:flex;gap:8px">${rulesBtn("yes","✓ Yes",G)}${rulesBtn("mostly","~ Mostly",WN)}${rulesBtn("no","✗ No",R)}</div>
     <div class="m-lbl">What would I change tomorrow?</div>
     <textarea id="eod-note" placeholder="One thing…" onblur="mSaveEodNote(this.value)" style="width:100%;box-sizing:border-box;min-height:64px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:${TP};font-size:13px;padding:10px;font-family:inherit;resize:vertical">${escapeHtml(noteVal)}</textarea>
+    <div class="m-lbl">📝 Note to tomorrow-morning me</div>
+    <textarea id="eod-morning" placeholder="30 seconds — whatever's actually on your mind closing out the session." onblur="mSaveEodMorning(this.value)" style="width:100%;box-sizing:border-box;min-height:80px;background:var(--bg-surface);border:1px solid var(--accent);border-radius:9px;color:${TP};font-size:14px;padding:11px;font-family:inherit;resize:vertical">${escapeHtml(rev.morningNote||"")}</textarea>
+    <div style="font-size:10px;color:${MU};margin-top:5px">Shows up top on tomorrow's AM check.</div>
     ${rev.ts?`<div style="font-size:10px;color:${MU};margin-top:6px">Saved ${new Date(rev.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"})}</div>`:""}`;
   return `
     <div style="font-size:13px;color:${MU};margin:2px 0 14px">🌙 ${hi} — end-of-day review</div>
@@ -13026,6 +13040,21 @@ function mSaveEodNote(v){
   if((r.note||"")===(v||"")) return;
   r.note=v||""; r.ts=new Date().toISOString();
   STATE.eodReviews[d]=r; save();
+}
+function mSaveEodMorning(v){
+  const d=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  if(!STATE.eodReviews) STATE.eodReviews={};
+  const r=STATE.eodReviews[d]||{};
+  if((r.morningNote||"")===(v||"")) return;
+  r.morningNote=v||""; r.ts=new Date().toISOString();
+  STATE.eodReviews[d]=r; save();
+}
+// Most recent "note to tomorrow-morning me" from a PRIOR day, to surface on the AM check.
+function _latestMorningNote(){
+  const r=STATE.eodReviews||{};
+  const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  const keys=Object.keys(r).filter(d=>d<today && r[d] && (r[d].morningNote||"").trim()).sort((a,b)=>b.localeCompare(a));
+  return keys.length?{date:keys[0], note:r[keys[0]].morningNote}:null;
 }
 function mSetPeak(){
   const cur=STATE.highWaterMark||STATE.accountBalance||0;
@@ -13215,7 +13244,7 @@ let _mSig = "";
 setInterval(() => {
   if (!_isMobile()) return;
   const tr = STATE.trades || [];
-  const sig = tr.length + "|" + tr.filter(t => t.realizedPnl != null).length + "|" + (STATE._mView || "tag") + "|" + ((STATE.entryTags || []).length);
+  const sig = tr.length + "|" + tr.filter(t => t.realizedPnl != null).length + "|" + (STATE._mView || "tag") + "|" + ((STATE.entryTags || []).length) + "|" + _dataLoaded;
   const c = document.getElementById("m-content");
   if (sig !== _mSig || (c && c.innerHTML.trim() === "")) { _mSig = sig; renderMobile(); }
 }, 800);
