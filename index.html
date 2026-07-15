@@ -13113,7 +13113,7 @@ function renderMTag() {
     <div class="m-lbl">Source <span style="text-transform:none;color:var(--text-muted)">· tap all that apply</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:9px">${chips}<div class="m-chip" style="border-style:dashed" onclick="mAddSrc()">+ add</div></div>
     <div class="m-lbl">Setup note <span style="text-transform:none;color:var(--text-muted)">· optional</span></div>
-    <input id="m-tag-note" value="${escapeHtml(_mDraft.note||"")}" oninput="_mDraft.note=this.value" placeholder="e.g. 1-min 20EMA reclaim" style="width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:14px;padding:11px">
+    <textarea id="m-tag-note" oninput="_mDraft.note=this.value" placeholder="e.g. 1-min 20EMA reclaim · failed breakdown · held VWAP" rows="3" style="width:100%;box-sizing:border-box;min-height:76px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px;font-family:inherit;line-height:1.45;resize:vertical">${escapeHtml(_mDraft.note||"")}</textarea>
     <div style="margin-top:22px"><button class="m-log" ${ready?"":"disabled"} onclick="mLogTag()">${_mEditId?"💾 SAVE EDIT":(ready?"⚡ LOG TAG":"pick conviction + a source")}</button>
     ${_mEditId?`<div style="text-align:center;margin-top:11px"><span onclick="mCancelTagEdit()" style="color:var(--text-muted);font-size:12px;cursor:pointer">cancel edit</span></div>`:""}</div>
     <div class="m-lbl">Recent tags <span style="text-transform:none;color:var(--text-muted)">· tap to edit</span>${pending?`<span style="color:var(--warning);text-transform:none"> · ${pending} pending</span>`:""}</div>
