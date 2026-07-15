@@ -1505,6 +1505,7 @@ let STATE = {
   accountBalance: 38788, ytdDeposits: 10118, // ytdDeposits is legacy; deposits[] is authoritative (auto-migrated on load)
   highWaterMark: 0, // ratcheted peak equity for EOD drawdown-from-peak
   eodReviews: {}, // { "YYYY-MM-DD": { rules: "yes"|"mostly"|"no", note, ts } } — nightly close-out
+  livePositions: [], // [{ id, ticker, credit, contracts, ts }] — manually-logged open trades for the AM per-trade stop list
 
   deposits: [], // [{ date: "YYYY-MM-DD", amount: number, note?: string }] — date-stamped so per-period rates can attribute capital correctly
   ibkrToken: "", ibkrQueryId: "",
@@ -12945,23 +12946,31 @@ function renderMAM(){
   else if(crit.length) macro=`<div style="border:1px solid ${R};background:var(--negative-faint,rgba(239,68,68,0.12));border-radius:12px;padding:14px 15px;margin-top:4px"><div style="color:${R};font-weight:700;font-size:13px">⚠ MAJOR MACRO TODAY</div>${crit.map(ev=>`<div style="font-size:15px;color:${TP};margin-top:7px">${evLine(ev)}</div>`).join("")}<div style="font-size:11px;color:${MU};margin-top:9px">Size down or sit out the release — a vol spike tests your short strikes.</div></div>`;
   else if(evToday.length) macro=`<div class="m-lbl">Macro today (high impact)</div>${evToday.map(ev=>`<div style="font-size:14px;color:${TP};padding:6px 0;border-bottom:1px solid var(--border-subtle)">${evLine(ev)}</div>`).join("")}`;
   else macro=`<div class="m-lbl">Macro today</div><div style="color:${G};font-size:13px">✓ No major US releases today — clean tape for premium.</div>`;
-  // Per-trade 200% stop — list real open positions with sector; flag correlated names (stacking rule)
-  const secCount={}; openPos.forEach(p=>{const s=getSector(p.ticker); if(s)secCount[s]=(secCount[s]||0)+1;});
+  // Per-trade 200% stop — an explicit list of open positions, each with ITS OWN stop.
+  // Two sources: Flex-synced open positions (multi-day holds) + positions you log by hand
+  // (today's 0DTE that Flex hasn't captured yet). No averages, ever.
+  const syncedOpen=(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0)
+    .map(t=>({key:"s"+t.id, ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/"), manual:false}));
+  const manualOpen=(STATE.livePositions||[])
+    .map(p=>({key:p.id, id:p.id, ticker:p.ticker, credit:+p.credit||0, contracts:p.contracts||1, strikes:"", manual:true}));
+  const allOpen=manualOpen.concat(syncedOpen);
+  const secCount={}; allOpen.forEach(p=>{const s=getSector(p.ticker); if(s)secCount[s]=(secCount[s]||0)+1;});
   const dupSec=Object.entries(secCount).filter(([s,n])=>n>=2);
-  let perTradeBlock;
-  if(openPos.length){
-    perTradeBlock=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · open positions</div>`
-      + openPos.map(p=>{
-          const sl=Math.round((p.premiumCollected||0)*2);
-          const strikes=[p.shortStrike,p.longStrike].filter(Boolean).join("/");
-          const sec=getSector(p.ticker);
-          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.premiumCollected).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;
-        }).join("")
+  const totalRisk=Math.round(allOpen.reduce((s,p)=>s+p.credit*2,0));
+  const posRow=p=>{
+    const sl=Math.round(p.credit*2), sec=getSector(p.ticker);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${p.strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${p.strikes}</span>`:""}${p.manual?` <span style="color:var(--accent);font-size:9px;font-weight:700">LIVE</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.credit).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:(p.ticker?` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`:"")}</div></div><div style="display:flex;align-items:center;gap:12px"><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div>${p.manual?`<span onclick="mRemoveLivePos('${p.id}')" style="color:${MU};font-size:18px;line-height:1;padding:2px 4px;cursor:pointer">×</span>`:`<span style="width:14px"></span>`}</div></div>`;
+  };
+  const perHdr=`<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · open positions</div><span onclick="mAddLivePos()" style="color:var(--accent);font-size:12px;font-weight:700;cursor:pointer">＋ add</span></div>`;
+  let perTradeBlock=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px">${perHdr}`;
+  if(allOpen.length){
+    perTradeBlock+=allOpen.map(posRow).join("")
       + (dupSec.length?`<div style="font-size:11px;color:var(--warning,#e0a800);margin-top:9px">⚠ ${dupSec.map(([s,n])=>`${n} in ${escapeHtml(s)}`).join(" · ")} — correlated, size as one bet.</div>`:``)
-      + `<div style="font-size:11px;color:${MU};margin-top:6px">Set the bracket at 200% of each credit — before the tape can wick you.</div></div>`;
+      + `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px"><span style="font-size:11px;color:${MU}">total at risk if all stop out</span><span style="font-size:13px;font-weight:700;color:${R};font-variant-numeric:tabular-nums">−$${totalRisk.toLocaleString()}${dailyStop?`<span style="color:${totalRisk>dailyStop?R:MU};font-weight:400"> / −$${dailyStop.toLocaleString()} daily</span>`:""}</span></div>`;
   } else {
-    perTradeBlock=card("Per-trade stop (200%)", perSL?"−$"+perSL.toLocaleString():"—", perSL?`no open positions · based on your ~$${avgCred.toLocaleString()} avg credit (~${nStops} stop-outs = daily cap)`:"trade more /NQ to calibrate", R);
+    perTradeBlock+=`<div style="font-size:13px;color:${MU};padding:12px 0 2px;line-height:1.5">No open positions from your last sync. Tap <b style="color:var(--accent)">＋ add</b> to log a trade you're holding now — you'll get its exact 200% stop.</div>`;
   }
+  perTradeBlock+=`</div>`;
   const mn=_latestMorningNote();
   const mnPretty=mn?new Date(mn.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}):"";
   const mnCard=mn?`<div style="border:1px solid var(--accent);border-radius:12px;padding:13px 15px;margin-bottom:12px;background:var(--accent-faint,rgba(88,166,255,0.08))"><div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.5px">📝 Note from your ${mnPretty} close</div><div style="font-size:14px;color:${TP};margin-top:6px;line-height:1.5;white-space:pre-wrap">${escapeHtml(mn.note)}</div></div>`:"";
@@ -13241,6 +13250,17 @@ function mJToggleSrc(id,s){ const t=(STATE.trades||[]).find(t=>String(t.id)===St
 function mJAddSrc(id){ const n=(prompt("New source (person / newsletter / tool):")||"").trim(); if(!n)return; const l=_ideaSources(); if(!l.includes(n))l.push(n); mJToggleSrc(id,n); }
 function mSaveJ(id){ _mjOpen.delete(String(id)); _mjApply(id,{}); }
 function mSetPosSector(tk){ if(!tk)return; const v=(prompt("Sector for "+tk+" (e.g. Technology, Energy, Financials):", getSector(tk)||"")||"").trim(); if(v){ if(!STATE.sectors)STATE.sectors={}; STATE.sectors[tk]=v; save(); renderMobile(); } }
+// Manually log a live position (today's 0DTE that Flex hasn't captured yet) so it shows
+// on the AM tab with its own 200% stop. Cleared with × when you close it.
+function mAddLivePos(){
+  const tk=(prompt("Ticker (e.g. /NQ, SPY, DELL):")||"").trim().toUpperCase(); if(!tk) return;
+  const credit=parseFloat((prompt("Credit collected — total $ for the position:")||"").replace(/[^0-9.]/g,"")); if(!credit||credit<=0) return;
+  const contracts=parseInt((prompt("Contracts:","1")||"1").replace(/[^0-9]/g,""))||1;
+  if(!Array.isArray(STATE.livePositions)) STATE.livePositions=[];
+  STATE.livePositions.push({id:"lp_"+Date.now(), ticker:tk, credit, contracts, ts:new Date().toISOString()});
+  save(); renderMobile();
+}
+function mRemoveLivePos(id){ STATE.livePositions=(STATE.livePositions||[]).filter(p=>p.id!==id); save(); renderMobile(); }
 // Bootstrap: keep the mobile view alive independently of the desktop render path
 // (which can bail mid-way on the sign-in gate). Safety-net interval only fires when
 // the content is empty, so it never interrupts interaction.
