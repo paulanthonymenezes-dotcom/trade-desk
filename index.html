@@ -605,6 +605,7 @@ table{width:100%;border-collapse:collapse}
   <div id="m-header"><div id="m-title">THE DESK</div><div id="m-sub"></div></div>
   <div id="m-content"></div>
   <nav id="m-nav">
+    <button class="m-navbtn" data-mv="am" onclick="mNav('am')"><span>☀</span>AM</button>
     <button class="m-navbtn active" data-mv="tag" onclick="mNav('tag')"><span>⚡</span>Tag</button>
     <button class="m-navbtn" data-mv="stats" onclick="mNav('stats')"><span>📊</span>Stats</button>
     <button class="m-navbtn" data-mv="journal" onclick="mNav('journal')"><span>📓</span>Journal</button>
@@ -12849,17 +12850,59 @@ function renderMobile() {
   const el = document.getElementById("m-content"); if (!el || !_isMobile()) return;
   const ae = document.activeElement;
   if (ae && el.contains(ae) && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
-  const v = STATE._mView || "tag";
+  const v = STATE._mView || (_isMorningET() ? "am" : "tag");
   document.querySelectorAll(".m-navbtn").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
   const sub = document.getElementById("m-sub");
   const closed = (STATE.trades || []).filter(t => t.status !== "Open" && t.realizedPnl != null);
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const todayPnl = closed.filter(t => String(t.exitDate || "").slice(0,10) === today).reduce((s,t)=>s+(+t.realizedPnl||0),0);
   if (sub) sub.textContent = `today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}`;
-  if (v === "tag") el.innerHTML = renderMTag();
+  if (v === "am") { el.innerHTML = renderMAM(); if (!_macroCalEvents.length) _mLoadMacro(); }
+  else if (v === "tag") el.innerHTML = renderMTag();
   else if (v === "stats") el.innerHTML = renderMStats(closed);
   else if (v === "journal") el.innerHTML = renderMJournal();
   else el.innerHTML = renderMTrades();
+}
+function _isMorningET(){
+  try { const h = new Date().toLocaleString("en-US",{timeZone:"America/New_York",hour:"numeric",hour12:false}); return parseInt(h,10) < 11; } catch(e){ return false; }
+}
+async function _mLoadMacro(){
+  if (_macroCalEvents.length) return;
+  try {
+    const _d = new Date().toISOString().slice(0,10).replace(/-/g,"");
+    const r = await fetch(`/api/macro-calendar?days=7&d=${_d}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    _macroCalEvents = Array.isArray(d.events) ? d.events : [];
+    if (STATE._mView === "am") renderMobile();
+  } catch(e){}
+}
+function renderMAM(){
+  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)",TP="var(--text-primary)";
+  const bal=STATE.accountBalance||0, dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3;
+  const dailyStop=Math.round(bal*dpct/100);
+  const nq=(STATE.trades||[]).filter(t=>String(t.ticker||"").startsWith("/NQ")&&(t.premiumCollected||0)>0).sort((a,b)=>String(b.entryDate||"").localeCompare(String(a.entryDate||""))).slice(0,20);
+  const avgCred=nq.length?Math.round(nq.reduce((s,t)=>s+t.premiumCollected/Math.max(1,t.contracts||1),0)/nq.length):0;
+  const perSL=avgCred?avgCred*2:0, nStops=perSL?(dailyStop/perSL).toFixed(1):"—";
+  const hi=new Date().toLocaleString("en-US",{timeZone:"America/New_York",weekday:"long",month:"short",day:"numeric"});
+  const card=(l,v,sub,c)=>`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:24px;font-weight:800;color:${c||TP};font-variant-numeric:tabular-nums;margin-top:2px">${v}</div>${sub?`<div style="font-size:11px;color:${MU};margin-top:3px">${sub}</div>`:""}</div>`;
+  const todayET=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  const evToday=(_macroCalEvents||[]).filter(ev=>{try{return new Date(ev.date).toLocaleDateString("en-CA",{timeZone:"America/New_York"})===todayET&&(_macroTier(ev)==="CRITICAL"||(ev.importance||"").toUpperCase()==="HIGH");}catch(e){return false;}}).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const crit=evToday.filter(ev=>_macroTier(ev)==="CRITICAL");
+  const evLine=ev=>{const t=new Date(ev.date);const tm=isNaN(t)?"":t.toLocaleTimeString([],{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"});return `${(_MACRO_FLAG&&_MACRO_FLAG[ev.country])||ev.country||""} ${escapeHtml(ev.type||"—")}<span style="color:${MU}"> · ${tm} ET</span>`;};
+  let macro;
+  if(!_macroCalEvents.length) macro=`<div class="m-lbl">Macro today</div><div style="color:${MU};font-size:13px">Checking the calendar…</div>`;
+  else if(crit.length) macro=`<div style="border:1px solid ${R};background:var(--negative-faint,rgba(239,68,68,0.12));border-radius:12px;padding:14px 15px;margin-top:4px"><div style="color:${R};font-weight:700;font-size:13px">⚠ MAJOR MACRO TODAY</div>${crit.map(ev=>`<div style="font-size:15px;color:${TP};margin-top:7px">${evLine(ev)}</div>`).join("")}<div style="font-size:11px;color:${MU};margin-top:9px">Size down or sit out the release — a vol spike tests your short strikes.</div></div>`;
+  else if(evToday.length) macro=`<div class="m-lbl">Macro today (high impact)</div>${evToday.map(ev=>`<div style="font-size:14px;color:${TP};padding:6px 0;border-bottom:1px solid var(--border-subtle)">${evLine(ev)}</div>`).join("")}`;
+  else macro=`<div class="m-lbl">Macro today</div><div style="color:${G};font-size:13px">✓ No major US releases today — clean tape for premium.</div>`;
+  return `
+    <div style="font-size:13px;color:${MU};margin:2px 0 14px">☀ ${hi} — pre-market check</div>
+    ${card("Account balance", bal?"$"+bal.toLocaleString():"— set in Settings", "", TP)}
+    ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", "Down this on the day and you're done.", R)}
+    ${card("Per-trade stop (200%)", perSL?"−$"+perSL.toLocaleString():"—", perSL?`on your ~$${avgCred.toLocaleString()} avg credit · ~${nStops} stop-outs = your daily cap`:"trade more /NQ to calibrate", R)}
+    ${macro}
+    <div class="m-lbl">Today's playbook</div>
+    <div style="font-size:12px;color:${MU};line-height:1.7">Δ 0.15–0.20 · IV 20%+ · ~300 wide · <b style="color:${TP}">12–2pm</b> · TP 90 · <b style="color:${R}">out at 200%, never roll</b></div>`;
 }
 function renderMTag() {
   const pending = (STATE.entryTags || []).filter(t => !t.matched).length;
