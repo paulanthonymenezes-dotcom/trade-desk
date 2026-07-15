@@ -2901,6 +2901,8 @@ function _userIsTypingIn(container) {
 }
 
 function renderAll() {
+  reconcileEntryTags();
+  renderMobile();   // render mobile FIRST so a later desktop-render error can't starve it
   renderKPIs();
   renderWatchlist();
   // Skip destructive re-renders if user is mid-typing inside them — the next
@@ -2912,8 +2914,6 @@ function renderAll() {
   const diaryEl = document.getElementById('tab-diary') || document.getElementById('diary-detail-panel');
   if (currentDiaryId && !_userIsTypingIn(diaryEl)) renderDiary();
   renderIncompleteBanner();
-  reconcileEntryTags();
-  renderMobile();
 }
 
 function renderKPIs() {
@@ -12836,7 +12836,9 @@ function updateTradeField(id, field, value) {
 // A phone-first face of the desk. Quick-tag logs conviction + source(s) in 3 taps
 // at trade time; IBKR sync fills the trade later, and reconcileEntryTags() matches
 // the tag to it by entry timestamp. Same Supabase state as desktop.
-let _mDraft = { conviction: null, sources: [] };
+let _mDraft = { conviction: null, sources: [], ticker: "/NQ" };
+const _mTickerPresets = ["/NQ", "/ES", "SPY", "QQQ"];
+function _mTickerRoot(tk){ return String(tk||"").replace(/^\//,"").replace(/[FGHJKMNQUVXZ]\d$/,"").toUpperCase(); }
 function _isMobile() { return window.matchMedia("(max-width:680px)").matches; }
 function mNav(view) {
   STATE._mView = view;
@@ -12866,11 +12868,15 @@ function renderMTag() {
   const recent = (STATE.entryTags || []).slice(-6).reverse().map(t => {
     const tm = new Date(t.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"});
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
-      <span style="color:var(--text-secondary)">${tm} · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}</span>
+      <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}</span>
       <span style="color:${t.matched?"var(--positive)":"var(--text-muted)"};font-size:10px">${t.matched?"✓ merged":"pending"}</span></div>`;
   }).join("") || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No tags yet — log your next entry.</div>`;
   const ready = _mDraft.conviction != null && _mDraft.sources.length > 0;
+  const isCustomTk = _mDraft.ticker && !_mTickerPresets.includes(_mDraft.ticker);
+  const tkChips = _mTickerPresets.map(tk => `<div class="m-chip ${_mDraft.ticker===tk?"on":""}" onclick="mSetTicker('${tk}')">${tk}</div>`).join("");
   return `
+    <div class="m-lbl" style="margin-top:2px">Ticker</div>
+    <div style="display:flex;flex-wrap:wrap;gap:9px">${tkChips}<div class="m-chip ${isCustomTk?"on":""}" style="border-style:dashed" onclick="mSetTickerOther()">${isCustomTk?escapeHtml(_mDraft.ticker):"+ other"}</div></div>
     <div class="m-lbl">Conviction</div>
     <div style="display:flex;gap:10px">${[1,2,3].map(n=>`<button class="m-conv ${_mDraft.conviction===n?"on":""}" onclick="mSetConv(${n})">${n}</button>`).join("")}</div>
     <div class="m-lbl">Source <span style="text-transform:none;color:var(--text-muted)">· tap all that apply</span></div>
@@ -12880,13 +12886,15 @@ function renderMTag() {
     ${recent}`;
 }
 function mSetConv(n){ _mDraft.conviction = (_mDraft.conviction===n?null:n); renderMobile(); }
+function mSetTicker(tk){ _mDraft.ticker = tk; renderMobile(); }
+function mSetTickerOther(){ const t=(prompt("Ticker (e.g. DELL, MU, /ES):")||"").trim().toUpperCase(); if(t) _mDraft.ticker = t; renderMobile(); }
 function mToggleSrc(s){ const i=_mDraft.sources.indexOf(s); if(i>=0)_mDraft.sources.splice(i,1); else _mDraft.sources.push(s); renderMobile(); }
 function mAddSrc(){ const n=(prompt("New source (person / newsletter / tool):")||"").trim(); if(!n) return; const l=_ideaSources(); if(!l.includes(n))l.push(n); if(!_mDraft.sources.includes(n))_mDraft.sources.push(n); save(); renderMobile(); }
 function mLogTag(){
   if(_mDraft.conviction==null||!_mDraft.sources.length) return;
   if(!Array.isArray(STATE.entryTags)) STATE.entryTags=[];
-  STATE.entryTags.push({ id:"tag_"+Date.now(), ts:new Date().toISOString(), conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), matched:null });
-  _mDraft={conviction:null,sources:[]};
+  STATE.entryTags.push({ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ", conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), matched:null });
+  _mDraft={conviction:null,sources:[],ticker:"/NQ"};
   reconcileEntryTags(); save(); renderMobile();
 }
 function _etToMs(dateStr, hm){
@@ -12901,9 +12909,10 @@ function reconcileEntryTags(){
   const trades=STATE.trades||[]; let changed=false;
   for(const tag of STATE.entryTags){
     if(tag.matched) continue;
-    const tt=Date.parse(tag.ts); let best=null,bd=10*60000;
+    const tt=Date.parse(tag.ts); const tagRoot=tag.ticker?_mTickerRoot(tag.ticker):null; let best=null,bd=10*60000;
     for(const tr of trades){
       if(tr._taggedBy) continue;
+      if(tagRoot && _mTickerRoot(tr.ticker)!==tagRoot) continue;   // ticker must match if the tag has one
       const te=_etToMs(tr.entryDate,tr.entryTime); if(te==null) continue;
       const d=Math.abs(te-tt); if(d<bd){bd=d;best=tr;}
     }
@@ -12922,9 +12931,16 @@ function renderMTrades(){
       <div style="font-size:15px;font-weight:700;color:${p>=0?"var(--positive)":"var(--negative)"};font-variant-numeric:tabular-nums">${p>=0?"+":""}$${Math.round(p).toLocaleString()}</div></div>`;
   }).join("");
 }
-function renderMStats(closed){
-  if(!closed.length) return `<div style="color:var(--text-muted)">No closed trades yet.</div>`;
+function mSetPeriod(v){ STATE._mStatsPeriod=v; renderMobile(); }
+function renderMStats(allClosed){
   const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)";
+  if(!allClosed.length) return `<div style="color:${MU}">No closed trades yet.</div>`;
+  const per=STATE._mStatsPeriod||"30", days=per==="7"?7:per==="30"?30:per==="90"?90:null;
+  const cutoff=days?new Date(Date.now()-days*86400000).toISOString().slice(0,10):null;
+  const closed=cutoff?allClosed.filter(t=>String(t.exitDate||"").slice(0,10)>=cutoff):allClosed;
+  const perChip=(v,l)=>`<div class="m-chip ${per===v?"on":""}" style="padding:7px 14px;font-size:12px" onclick="mSetPeriod('${v}')">${l}</div>`;
+  const periodRow=`<div style="display:flex;gap:7px;margin-bottom:14px">${perChip("7","7D")}${perChip("30","30D")}${perChip("90","90D")}${perChip("all","All")}</div>`;
+  if(!closed.length) return periodRow+`<div style="color:${MU};font-size:13px">No trades in this period.</div>`;
   const net=closed.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=closed.filter(t=>+t.realizedPnl>0).length;
   const nq=closed.filter(t=>String(t.ticker||"").startsWith("/NQ"));
   const bal=STATE.accountBalance||0, dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, lim=Math.round(bal*dpct/100);
@@ -12938,6 +12954,7 @@ function renderMStats(closed){
   const byConv=agg(closed.filter(t=>t.conviction!=null&&t.conviction!==""),t=>"Conviction "+t.conviction);
   const bySrc=agg(closed,t=>(t.ideaSources&&t.ideaSources.length)?t.ideaSources:(t.ideaSource?[t.ideaSource]:[]));
   return `
+    ${periodRow}
     <div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?G:R)}${stat("Win rate",Math.round(wins/closed.length*100)+"%")}</div>
     <div style="display:flex;gap:9px">${stat("Trades",closed.length)}${stat("/NQ",nq.length)}</div>
     ${bal?`<div class="m-lbl">Today vs daily stop</div>
@@ -12973,7 +12990,18 @@ function mSaveJ(id){ const ta=document.getElementById("mjt-"+id); if(!ta) return
 // the content is empty, so it never interrupts interaction.
 window.addEventListener("resize", () => { if (_isMobile()) renderMobile(); });
 document.addEventListener("DOMContentLoaded", () => { if (_isMobile()) setTimeout(renderMobile, 300); });
-setInterval(() => { if (_isMobile()) { const c = document.getElementById("m-content"); if (c && c.innerHTML.trim() === "") renderMobile(); } }, 1200);
+// Re-render when the underlying data changes (e.g. real Supabase data finishes
+// loading after an initial render), or if content is empty. Signature keys on
+// trade count + view so a background data load refreshes the view. The typing-
+// guard inside renderMobile() prevents wiping an in-progress journal.
+let _mSig = "";
+setInterval(() => {
+  if (!_isMobile()) return;
+  const tr = STATE.trades || [];
+  const sig = tr.length + "|" + tr.filter(t => t.realizedPnl != null).length + "|" + (STATE._mView || "tag") + "|" + ((STATE.entryTags || []).length);
+  const c = document.getElementById("m-content");
+  if (sig !== _mSig || (c && c.innerHTML.trim() === "")) { _mSig = sig; renderMobile(); }
+}, 800);
 
 // Set or clear a tradeType override. When set, applyFlexReconstruction will
 // replace the auto-classified tradeType with this value on every sync so the
