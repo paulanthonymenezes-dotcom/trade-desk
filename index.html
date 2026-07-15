@@ -610,6 +610,7 @@ table{width:100%;border-collapse:collapse}
     <button class="m-navbtn" data-mv="stats" onclick="mNav('stats')"><span>📊</span>Stats</button>
     <button class="m-navbtn" data-mv="journal" onclick="mNav('journal')"><span>📓</span>Journal</button>
     <button class="m-navbtn" data-mv="trades" onclick="mNav('trades')"><span>📋</span>Trades</button>
+    <button class="m-navbtn" data-mv="eod" onclick="mNav('eod')"><span>🌙</span>EOD</button>
   </nav>
 </div>
 
@@ -1502,6 +1503,9 @@ let STATE = {
   watchlistTargets: {}, // { TICKER: { price: number, direction: 'below'|'above' } }
   tgBot: "", tgChat: "", alertIVRank: 60, alertStrikeProx: 5,
   accountBalance: 38788, ytdDeposits: 10118, // ytdDeposits is legacy; deposits[] is authoritative (auto-migrated on load)
+  highWaterMark: 0, // ratcheted peak equity for EOD drawdown-from-peak
+  eodReviews: {}, // { "YYYY-MM-DD": { rules: "yes"|"mostly"|"no", note, ts } } — nightly close-out
+
   deposits: [], // [{ date: "YYYY-MM-DD", amount: number, note?: string }] — date-stamped so per-period rates can attribute capital correctly
   ibkrToken: "", ibkrQueryId: "",
   // Auto-exit settings
@@ -12851,7 +12855,7 @@ function renderMobile() {
   const el = document.getElementById("m-content"); if (!el || !_isMobile()) return;
   const ae = document.activeElement;
   if (ae && el.contains(ae) && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
-  const v = STATE._mView || (_isMorningET() ? "am" : "tag");
+  const v = STATE._mView || (_isMorningET() ? "am" : (_isEveningET() ? "eod" : "tag"));
   document.querySelectorAll(".m-navbtn").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
   const sub = document.getElementById("m-sub");
   const closed = (STATE.trades || []).filter(t => t.status !== "Open" && t.realizedPnl != null);
@@ -12864,10 +12868,35 @@ function renderMobile() {
   else if (v === "tag") el.innerHTML = renderMTag();
   else if (v === "stats") el.innerHTML = renderMStats(closed);
   else if (v === "journal") el.innerHTML = renderMJournal();
+  else if (v === "eod") el.innerHTML = renderMEOD();
   else el.innerHTML = renderMTrades();
 }
 function _isMorningET(){
   try { const h = new Date().toLocaleString("en-US",{timeZone:"America/New_York",hour:"numeric",hour12:false}); return parseInt(h,10) < 11; } catch(e){ return false; }
+}
+function _isEveningET(){
+  try { const h = new Date().toLocaleString("en-US",{timeZone:"America/New_York",hour:"numeric",hour12:false}); return parseInt(h,10) >= 16; } catch(e){ return false; }
+}
+// Reconstruct the equity curve ending at the current balance and find the high-water mark.
+// current = accountBalance (his maintained net-liq); we walk realized P&L + deposits by date
+// so the peak reflects real history (the $130k→$55k swing shows up if the trades span it).
+function _equityStats(){
+  const cur = STATE.accountBalance || 0;
+  if (!cur) return { cur:0, peak:0, offDollar:0, offPct:0, atHigh:false, ok:false };
+  const events = [];
+  (STATE.trades||[]).filter(t=>t.status!=="Open"&&t.realizedPnl!=null&&t.exitDate)
+    .forEach(t=>events.push({ d:String(t.exitDate).slice(0,10), v:(+t.realizedPnl||0) }));
+  (STATE.deposits||[]).forEach(d=>events.push({ d:String(d.date).slice(0,10), v:(parseFloat(d.amount)||0) }));
+  events.sort((a,b)=>a.d.localeCompare(b.d));
+  const totalFlow = events.reduce((s,e)=>s+e.v,0);
+  let eq = cur - totalFlow;      // starting capital before the first recorded event
+  let peak = eq;
+  events.forEach(e=>{ eq += e.v; if (eq > peak) peak = eq; });
+  peak = Math.max(peak, cur, STATE.highWaterMark || 0);
+  if (peak > (STATE.highWaterMark||0)) { STATE.highWaterMark = peak; }   // ratchet; persisted on next save
+  const offDollar = Math.max(0, peak - cur);
+  const offPct = peak > 0 ? offDollar / peak * 100 : 0;
+  return { cur, peak, offDollar, offPct, atHigh: offDollar < 1, ok:true };
 }
 async function _mLoadMacro(){
   if (_macroCalEvents.length) return;
@@ -12907,6 +12936,86 @@ function renderMAM(){
     ${macro}
     <div class="m-lbl">Today's playbook</div>
     <div style="font-size:12px;color:${MU};line-height:1.7">Δ 0.15–0.20 · IV 20%+ · ~300 wide · <b style="color:${TP}">12–2pm</b> · TP 90 · <b style="color:${R}">out at 200%, never roll</b></div>`;
+}
+function _eodRuleStreak(){
+  // consecutive most-recent days (working backwards) answered "yes" to following the rules
+  const r = STATE.eodReviews || {};
+  const days = Object.keys(r).filter(d=>r[d]&&r[d].rules).sort((a,b)=>b.localeCompare(a));
+  let streak = 0;
+  for (const d of days){ if (r[d].rules === "yes") streak++; else break; }
+  return streak;
+}
+function renderMEOD(){
+  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)",TP="var(--text-primary)",WN="var(--warning,#e0a800)";
+  const hi=new Date().toLocaleString("en-US",{timeZone:"America/New_York",weekday:"long",month:"short",day:"numeric"});
+  const todayET=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  const closed=(STATE.trades||[]).filter(t=>t.status!=="Open"&&t.realizedPnl!=null);
+  const todays=closed.filter(t=>String(t.exitDate||"").slice(0,10)===todayET);
+  const todayPnl=todays.reduce((s,t)=>s+(+t.realizedPnl||0),0);
+  const dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, dailyStop=Math.round((STATE.accountBalance||0)*dpct/100);
+  const breached=dailyStop>0 && todayPnl<=-dailyStop;
+  const eq=_equityStats();
+  const rev=(STATE.eodReviews||{})[todayET]||{};
+  const streak=_eodRuleStreak();
+  // today's P&L card
+  const pnlColor=todayPnl>0?G:(todayPnl<0?R:MU);
+  const pnlCard=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px">
+    <div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Today's realized P&L</div>
+    <div style="font-size:26px;font-weight:800;color:${pnlColor};font-variant-numeric:tabular-nums;margin-top:2px">${todayPnl>=0?"+":"−"}$${Math.abs(Math.round(todayPnl)).toLocaleString()}</div>
+    <div style="font-size:11px;color:${MU};margin-top:3px">${todays.length} trade${todays.length===1?"":"s"} closed${breached?` · <b style="color:${R}">daily stop breached</b>`:(dailyStop?` · stop was −$${dailyStop.toLocaleString()}`:"")}</div></div>`;
+  // equity vs high-water
+  let hwCard;
+  if(!eq.ok){ hwCard=`<div class="m-lbl">Equity vs peak</div><div style="color:${MU};font-size:13px">Set your account balance in Settings to track drawdown from peak.</div>`; }
+  else {
+    const barPct=Math.min(100, eq.offPct);
+    const offColor=eq.atHigh?G:(eq.offPct>=15?R:WN);
+    hwCard=`<div style="border:1px solid ${eq.atHigh?G:(eq.offPct>=15?R:"var(--border-visible)")};border-radius:12px;padding:14px 15px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Equity vs peak</div>
+        <div style="font-size:11px;color:${MU}" onclick="mSetPeak()">peak $${Math.round(eq.peak).toLocaleString()} ✎</div></div>
+      ${eq.atHigh
+        ? `<div style="font-size:22px;font-weight:800;color:${G};margin-top:4px">🏆 New high-water mark</div><div style="font-size:11px;color:${MU};margin-top:3px">$${Math.round(eq.cur).toLocaleString()} — you're at your peak. Protect it.</div>`
+        : `<div style="font-size:26px;font-weight:800;color:${offColor};font-variant-numeric:tabular-nums;margin-top:2px">−${eq.offPct.toFixed(1)}%</div>
+           <div style="font-size:11px;color:${MU};margin-top:1px">$${Math.round(eq.cur).toLocaleString()} · <b style="color:${offColor}">−$${Math.round(eq.offDollar).toLocaleString()}</b> off peak</div>
+           <div style="height:6px;background:var(--bg-surface);border-radius:3px;margin-top:9px;overflow:hidden"><div style="height:100%;width:${barPct.toFixed(0)}%;background:${offColor}"></div></div>`}
+    </div>`;
+  }
+  // nightly close-out
+  const rulesBtn=(val,label,col)=>`<button onclick="mSetEodRules('${val}')" style="flex:1;padding:11px 0;border-radius:9px;border:1px solid ${rev.rules===val?col:"var(--border-visible)"};background:${rev.rules===val?col:"transparent"};color:${rev.rules===val?"#0a0c10":TP};font-size:13px;font-weight:600;cursor:pointer">${label}</button>`;
+  const noteVal=rev.note||"";
+  const closeout=`
+    <div class="m-lbl">Did I follow my rules today?${streak>1?` <span style="color:${G};text-transform:none">· ${streak}-day streak 🔥</span>`:""}</div>
+    <div style="display:flex;gap:8px">${rulesBtn("yes","✓ Yes",G)}${rulesBtn("mostly","~ Mostly",WN)}${rulesBtn("no","✗ No",R)}</div>
+    <div class="m-lbl">What would I change tomorrow?</div>
+    <textarea id="eod-note" placeholder="One thing…" onblur="mSaveEodNote(this.value)" style="width:100%;box-sizing:border-box;min-height:64px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:${TP};font-size:13px;padding:10px;font-family:inherit;resize:vertical">${escapeHtml(noteVal)}</textarea>
+    ${rev.ts?`<div style="font-size:10px;color:${MU};margin-top:6px">Saved ${new Date(rev.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"})}</div>`:""}`;
+  return `
+    <div style="font-size:13px;color:${MU};margin:2px 0 14px">🌙 ${hi} — end-of-day review</div>
+    ${pnlCard}
+    ${hwCard}
+    ${closeout}`;
+}
+function mSetEodRules(val){
+  const d=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  if(!STATE.eodReviews) STATE.eodReviews={};
+  const r=STATE.eodReviews[d]||{};
+  r.rules=(r.rules===val?null:val); r.ts=new Date().toISOString();
+  STATE.eodReviews[d]=r; save(); renderMobile();
+}
+function mSaveEodNote(v){
+  const d=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  if(!STATE.eodReviews) STATE.eodReviews={};
+  const r=STATE.eodReviews[d]||{};
+  if((r.note||"")===(v||"")) return;
+  r.note=v||""; r.ts=new Date().toISOString();
+  STATE.eodReviews[d]=r; save();
+}
+function mSetPeak(){
+  const cur=STATE.highWaterMark||STATE.accountBalance||0;
+  const v=prompt("Set your all-time high-water mark ($):", Math.round(cur));
+  if(v==null) return;
+  const n=parseFloat(String(v).replace(/[^0-9.]/g,""));
+  if(!isNaN(n)&&n>0){ STATE.highWaterMark=n; save(); renderMobile(); }
 }
 function renderMTag() {
   const pending = (STATE.entryTags || []).filter(t => !t.matched).length;
