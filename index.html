@@ -13875,8 +13875,14 @@ function reconstructFlexTrades(csvText) {
   // Expirations" section is REDUNDANT — every expiration is already booked as a
   // synthetic close fill in Trades (with the correct FifoPnlRealized). Parsing both
   // double-counts and creates phantom open positions. Trades is authoritative.
-  const firstEnd = sectionStarts.length > 1 ? sectionStarts[1] : allLines.length;
-  parseSection(allLines.slice(sectionStarts[0], firstEnd), "trades");
+  // Find the TRADES section specifically — its header has an Open/Close or Buy/Sell
+  // column. An enhanced query may also carry Open Positions / NAV sections; those
+  // must NOT be parsed as trades (Open Positions has no Open/CloseIndicator).
+  let tHdr = sectionStarts.find(s => /[",](Open\/?CloseIndicator|Buy\/?Sell)[",]/i.test(allLines[s]));
+  if (tHdr == null) tHdr = sectionStarts[0];
+  const tIdx = sectionStarts.indexOf(tHdr);
+  const tEnd = (tIdx + 1 < sectionStarts.length) ? sectionStarts[tIdx + 1] : allLines.length;
+  parseSection(allLines.slice(tHdr, tEnd), "trades");
   rows.sort((a,b)=>(a.dt||a.tdate).localeCompare(b.dt||b.tdate));
 
   const ikey = r => isOpt(r.cat) ? [r.und||r.sym,r.strike,r.expiry,r.pc,r.cat,r.sym].join("|") : [r.sym,r.cat].join("|");
@@ -14290,7 +14296,19 @@ async function syncIBKR(quiet = false) {
 
     // Step 3: Reconstruct trades from the Flex response (v2 — group-by-position, FIFO P&L, STK+OPT+FOP)
     const recon = reconstructFlexTrades(data);
+    // Also parse Open Positions + NAV from the SAME statement — if your query
+    // includes those sections, no separate query is needed.
+    let _ex = null; try { _ex = parseFlexExtras(data); } catch (e) {}
+    if (_ex && (_ex.openPositions.length || _ex.nav != null)) {
+      STATE.ibkrOpenPositions = _ex.openPositions || [];
+      if (_ex.nav != null) { STATE.ibkrNAV = _ex.nav; STATE.ibkrNAVDate = _ex.navDate || ""; }
+    }
     if (!recon.length) {
+      if (_ex && (_ex.openPositions.length || _ex.nav != null)) {
+        save(); renderAll();
+        showSyncStatus(`Updated ${STATE.ibkrOpenPositions.length} open positions · NAV $${_ex.nav ? Math.round(_ex.nav).toLocaleString() : "—"} (no closed trades this pull).`, "success");
+        return true;
+      }
       showSyncStatus("No trades reconstructed from IBKR response.", "warn");
       if (!quiet) alert("No trades reconstructed.\n\nResponse starts:\n" + data.substring(0, 200));
       return false; // didn't actually sync anything
@@ -14298,7 +14316,7 @@ async function syncIBKR(quiet = false) {
     const res = applyFlexReconstruction(recon);
     save();
     renderAll();
-    _syncFlexExtras(token).then(ok => { if (ok) renderAll(); });   // pull open positions + real NAV (if that query is set), then refresh
+    if (STATE.ibkrExtrasQueryId) _syncFlexExtras(token).then(ok => { if (ok) renderAll(); });   // optional separate Positions&NAV query
     const _cl = recon.filter(t => t.status === "Closed");
     const _pnl = _cl.reduce((s, t) => s + (t.realizedPnl || 0), 0);
     showSyncStatus(`Synced ${recon.length} trades · ${res.replaced} refreshed · ${res.manualKept} manual kept.`, "success");

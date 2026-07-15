@@ -93,8 +93,14 @@ function reconstructFlexTrades(csvText) {
     }
   }
 
-  const firstEnd = sectionStarts.length > 1 ? sectionStarts[1] : allLines.length;
-  parseSection(allLines.slice(sectionStarts[0], firstEnd), "trades");
+  // Find the TRADES section specifically — its header has an Open/Close or Buy/Sell
+  // column. An enhanced query may also carry Open Positions / NAV sections; those
+  // must NOT be parsed as trades (Open Positions has no Open/CloseIndicator).
+  let tHdr = sectionStarts.find(s => /[",](Open\/?CloseIndicator|Buy\/?Sell)[",]/i.test(allLines[s]));
+  if (tHdr == null) tHdr = sectionStarts[0];
+  const tIdx = sectionStarts.indexOf(tHdr);
+  const tEnd = (tIdx + 1 < sectionStarts.length) ? sectionStarts[tIdx + 1] : allLines.length;
+  parseSection(allLines.slice(tHdr, tEnd), "trades");
   rows.sort((a, b) => (a.dt || a.tdate).localeCompare(b.dt || b.tdate));
 
   const ikey = r => isOpt(r.cat) ? [r.und || r.sym, r.strike, r.expiry, r.pc, r.cat, r.sym].join("|") : [r.sym, r.cat].join("|");
@@ -256,6 +262,63 @@ function reconstructFlexTrades(csvText) {
 // date for overnight trades, so a date-based match would (a) orphan MAE and
 // (b) re-add the long wings of cross-expiry spreads as duplicate single legs.
 // entryTime + the exact contract symbol are stable in both representations.
+// Parse Open Positions + NAV sections (see index.html parseFlexExtras). Returns
+// current open spreads (each with its own credit) and the latest real net-liq.
+function parseFlexExtras(csvText) {
+  const lines = (csvText || "").split(/\r?\n/).filter(l => l.trim());
+  const norm = s => (s || "").toLowerCase().replace(/[\s_\/]/g, "");
+  const F = x => { const v = parseFloat(x); return isNaN(v) ? 0 : v; };
+  const today = parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).replace(/-/g, ''));
+  const headerIdx = [];
+  lines.forEach((l, i) => { if (/[",](AssetClass|ReportDate)[",]/i.test(l) && l.split(",").length > 4) headerIdx.push(i); });
+  const secs = headerIdx.map((h, idx) => ({ start: h, end: idx + 1 < headerIdx.length ? headerIdx[idx + 1] : lines.length }));
+  let openPositions = [], nav = null, navDate = "";
+  for (const sec of secs) {
+    const hdr = parseCSVLine(lines[sec.start]);
+    const col = names => { for (const n of names) { const i = hdr.findIndex(h => norm(h) === norm(n)); if (i >= 0) return i; } return -1; };
+    const hasOC = col(["Open/CloseIndicator"]) >= 0, hasMark = col(["MarkPrice"]) >= 0, hasUn = col(["FifoPnlUnrealized"]) >= 0,
+      hasTot = col(["Total"]) >= 0, hasRd = col(["ReportDate"]) >= 0, hasCat = col(["AssetClass"]) >= 0;
+    if (hasRd && hasTot && !hasCat) {
+      const iT = col(["Total"]), iR = col(["ReportDate"]);
+      for (let i = sec.start + 1; i < sec.end; i++) { const f = parseCSVLine(lines[i]); if (f.length <= iT) continue; const t = F(f[iT]); if (t) { nav = t; navDate = f[iR]; } }
+      continue;
+    }
+    if (hasCat && (hasMark || hasUn) && !hasOC) {
+      const iCat = col(["AssetClass"]), iSym = col(["Symbol"]), iUnd = col(["UnderlyingSymbol"]), iStr = col(["Strike"]),
+        iExp = col(["Expiry"]), iPC = col(["Put/Call", "PutCall", "Right"]), iQty = col(["Quantity", "Position"]),
+        iCB = col(["CostBasisMoney"]), iUnr = col(["FifoPnlUnrealized"]);
+      const legs = [];
+      for (let i = sec.start + 1; i < sec.end; i++) {
+        const f = parseCSVLine(lines[i]); if (f.length < 5) continue;
+        const cat = (iCat >= 0 ? f[iCat] : "").toUpperCase(); if (cat === "CASH" || !cat) continue;
+        const qty = F(iQty >= 0 ? f[iQty] : 0); if (Math.abs(qty) < 1e-9) continue;
+        const exp = iExp >= 0 ? f[iExp] : ""; if (exp && parseInt(exp) < today) continue;
+        legs.push({ cat, sym: iSym >= 0 ? f[iSym] : "", und: (iUnd >= 0 ? f[iUnd] : "") || (iSym >= 0 ? f[iSym] : ""),
+          strike: F(iStr >= 0 ? f[iStr] : 0), expiry: exp, pc: iPC >= 0 ? f[iPC] : "", qty,
+          cb: F(iCB >= 0 ? f[iCB] : 0), unr: F(iUnr >= 0 ? f[iUnr] : 0), short: qty < 0 });
+      }
+      const grp = {};
+      for (const l of legs) { const k = [l.und, l.expiry, l.cat].join("|"); (grp[k] = grp[k] || []).push(l); }
+      for (const k in grp) {
+        const g = grp[k], shorts = g.filter(l => l.short), longs = g.filter(l => !l.short);
+        const puts = g.filter(l => l.pc === "P"), calls = g.filter(l => l.pc === "C");
+        let tradeType = "Multi-leg";
+        if (g.length === 1) tradeType = (g[0].short ? "Short " : "Long ") + (g[0].pc === "P" ? "Put" : "Call");
+        else if (g.length === 2 && puts.length === 2) { const sh = puts.filter(l => l.short)[0], lo = puts.filter(l => !l.short)[0]; if (sh && lo) tradeType = sh.strike > lo.strike ? "Bull Put Spread" : "Bear Put Spread"; }
+        else if (g.length === 2 && calls.length === 2) { const sh = calls.filter(l => l.short)[0], lo = calls.filter(l => !l.short)[0]; if (sh && lo) tradeType = sh.strike < lo.strike ? "Bear Call Spread" : "Bull Call Spread"; }
+        const netCB = g.reduce((s, l) => s + l.cb, 0);
+        openPositions.push({ ticker: g[0].und, tradeType, status: "Open",
+          shortStrike: shorts.length ? shorts[0].strike : g[0].strike, longStrike: longs.length ? longs[0].strike : 0,
+          contracts: Math.max(...g.map(l => Math.abs(l.qty))), expiry: g[0].expiry,
+          premiumCollected: netCB < 0 ? Math.round(-netCB) : 0,
+          unrealizedPnl: Math.round(g.reduce((s, l) => s + l.unr, 0) * 100) / 100, src: "ibkr-pos" });
+      }
+      continue;
+    }
+  }
+  return { openPositions, nav, navDate };
+}
+
 function applyFlexAppendOnly(recon, STATE) {
   const existing = STATE.trades || [];
   const legs = t => [t.shortSymbol, t.longSymbol].filter(Boolean);
@@ -392,6 +455,18 @@ export default async function handler(req, res) {
         errmsg: `refused: would append ${summary.added} trades (> ${MAX_APPEND_PER_RUN}). Likely a dedup mismatch that would duplicate history — NOT writing. Run ?dryRun=1 to inspect; add ?force=1 only if the batch is genuinely all-new.`,
         ...summary });
     }
+
+    // Open Positions + NAV (if the query includes those sections) — current holdings
+    // and real net-liq. Separate from trades; never affects the append-only trade logic.
+    try {
+      const ex = parseFlexExtras(csv);
+      if (ex.openPositions.length || ex.nav != null) {
+        state.ibkrOpenPositions = ex.openPositions;
+        if (ex.nav != null) { state.ibkrNAV = ex.nav; state.ibkrNAVDate = ex.navDate || ""; }
+        summary.openPositions = ex.openPositions.length;
+        summary.nav = ex.nav;
+      }
+    } catch (e) {}
 
     // Stamp the true last-sync time. The browser also sets lastAutoSync, but the
     // server cron is what actually pulls — without this the UI shows a stale time
