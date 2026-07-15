@@ -2023,6 +2023,16 @@ function getTotalDeposits() {
   return (STATE.deposits || []).reduce((s, d) => s + (parseFloat(d.amount) || 0), 0);
 }
 
+// Live account equity = starting capital + net deposits + all realized P&L.
+// accountBalance is the STARTING / cost-basis figure (Settings → "Starting Account
+// Balance"); IBKR Flex only carries trade executions (never account NAV), so we
+// derive current equity here — it updates automatically every time a trade closes,
+// no manual edits needed. Same definition the desktop uses (capitalDeployed + realizedPnl).
+function _liveEquity() {
+  const realized = (STATE.trades || []).reduce((s, t) => s + (t.status !== "Open" && t.realizedPnl != null ? (+t.realizedPnl || 0) : 0), 0);
+  return (STATE.accountBalance || 0) + getTotalDeposits() + realized;
+}
+
 // Net cash flow on/after cutoffDate. Used by periodRate() to subtract
 // in-period cash flow from start-of-period equity so movements aren't
 // mistaken for trading gains. Withdrawals (negative) flip the sign so
@@ -12888,7 +12898,7 @@ function _isEveningET(){
 // current = accountBalance (his maintained net-liq); we walk realized P&L + deposits by date
 // so the peak reflects real history (the $130k→$55k swing shows up if the trades span it).
 function _equityStats(){
-  const cur = STATE.accountBalance || 0;
+  const cur = _liveEquity();
   if (!cur) return { cur:0, peak:0, offDollar:0, offPct:0, atHigh:false, ok:false };
   const events = [];
   (STATE.trades||[]).filter(t=>t.status!=="Open"&&t.realizedPnl!=null&&t.exitDate)
@@ -12918,7 +12928,7 @@ async function _mLoadMacro(){
 }
 function renderMAM(){
   const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)",TP="var(--text-primary)";
-  const bal=STATE.accountBalance||0, dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3;
+  const bal=_liveEquity(), startBal=STATE.accountBalance||0, realizedAll=bal-startBal-getTotalDeposits(), dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3;
   const dailyStop=Math.round(bal*dpct/100);
   const nq=(STATE.trades||[]).filter(t=>String(t.ticker||"").startsWith("/NQ")&&(t.premiumCollected||0)>0).sort((a,b)=>String(b.entryDate||"").localeCompare(String(a.entryDate||""))).slice(0,20);
   const avgCred=nq.length?Math.round(nq.reduce((s,t)=>s+t.premiumCollected/Math.max(1,t.contracts||1),0)/nq.length):0;
@@ -12958,7 +12968,7 @@ function renderMAM(){
   return `
     <div style="font-size:13px;color:${MU};margin:2px 0 14px">☀ ${hi} — pre-market check</div>
     ${mnCard}
-    ${card("Account balance", bal?"$"+bal.toLocaleString():"— set in Settings", "", TP)}
+    ${card("Account balance · live", bal?"$"+Math.round(bal).toLocaleString():"— set in Settings", bal?`$${Math.round(startBal).toLocaleString()} start ${realizedAll>=0?"+":"−"} $${Math.abs(Math.round(realizedAll)).toLocaleString()} realized`:"", TP)}
     ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", bal?`$${bal.toLocaleString()} → <b style="color:${TP}">$${(bal-dailyStop).toLocaleString()}</b> floor. Hit it and you're done.`:"set balance in Settings", R)}
     ${perTradeBlock}
     ${macro}
@@ -12980,7 +12990,7 @@ function renderMEOD(){
   const closed=(STATE.trades||[]).filter(t=>t.status!=="Open"&&t.realizedPnl!=null);
   const todays=closed.filter(t=>String(t.exitDate||"").slice(0,10)===todayET);
   const todayPnl=todays.reduce((s,t)=>s+(+t.realizedPnl||0),0);
-  const dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, dailyStop=Math.round((STATE.accountBalance||0)*dpct/100);
+  const dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, dailyStop=Math.round(_liveEquity()*dpct/100);
   const breached=dailyStop>0 && todayPnl<=-dailyStop;
   const eq=_equityStats();
   const rev=(STATE.eodReviews||{})[todayET]||{};
@@ -13164,7 +13174,7 @@ function renderMStats(allClosed){
   if(!fc.length) return periodRow+filterRow+`<div style="color:${MU};font-size:13px">No trades match these filters. <span style="color:${AC}" onclick="mClearStatFilters()">Clear</span></div>`;
   const net=fc.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=fc.filter(t=>+t.realizedPnl>0).length;
   const nq=fc.filter(t=>String(t.ticker||"").startsWith("/NQ"));
-  const bal=STATE.accountBalance||0, dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, lim=Math.round(bal*dpct/100);
+  const bal=_liveEquity(), dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, lim=Math.round(bal*dpct/100);
   const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
   const todayPnl=Math.round(fc.filter(t=>String(t.exitDate||"").slice(0,10)===today).reduce((s,t)=>s+(+t.realizedPnl||0),0));
   const stat=(l,v,c)=>`<div style="flex:1;text-align:center;padding:13px 6px;border:1px solid var(--border-visible);border-radius:10px"><div style="font-size:9px;color:${MU};text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:19px;font-weight:700;color:${c||"var(--text-primary)"};font-variant-numeric:tabular-nums;margin-top:3px">${v}</div></div>`;
@@ -14252,7 +14262,7 @@ function startAutoSync() {
   if (_autoSyncTimer) { clearInterval(_autoSyncTimer); _autoSyncTimer = null; }
   if (STATE.autoSyncEnabled === false) { _renderAutoSyncStatus("auto-sync off"); return; }
   if (!STATE.ibkrToken || !STATE.ibkrQueryId) { _renderAutoSyncStatus(""); return; }
-  const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4h
+  const COOLDOWN_MS = 30 * 60 * 1000; // 30m — refresh on app open / tab focus if the last sync is stale (VPS cron still does the hourly heavy lifting)
   const maybeSync = () => {
     if (document.hidden) return;
     const last = STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0;
