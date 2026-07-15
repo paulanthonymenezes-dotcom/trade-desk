@@ -13262,6 +13262,11 @@ let _mSyncing=false, _mSyncMsg="";
 async function mSyncNow(){
   if(_mSyncing) return;
   if(!STATE.ibkrToken || !STATE.ibkrQueryId){ _mSyncMsg="✕ no IBKR creds — set on desktop"; renderMobile(); return; }
+  // IBKR hard-throttles the Flex token; rapid taps just deepen the lockout. Block
+  // a re-sync within 3 min of the last one.
+  const _lastMs = STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0;
+  const _mins = (Date.now() - _lastMs) / 60000;
+  if (_lastMs && _mins < 3) { _mSyncMsg = `synced ${_mins < 1 ? "<1" : Math.round(_mins)}m ago — IBKR throttles rapid syncs`; renderMobile(); setTimeout(()=>{ _mSyncMsg=""; if(_isMobile())renderMobile(); }, 5000); return; }
   _mSyncing=true; _mSyncMsg=""; renderMobile();
   let ok=false, emsg="";
   try { ok = await syncIBKR(true); } catch(e){ emsg=String((e&&e.message)||e); }
