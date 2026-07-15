@@ -440,6 +440,19 @@ export default async function handler(req, res) {
     state.reconcileFlags = rec;
     summary.reconcile = { since, flaggedCount: rec.flaggedCount, flags: rec.flags.slice(0, 20) };
 
+    // Open Positions + NAV (if the query includes those sections). Parsed for both
+    // dry-run (reporting) and write. Separate from the append-only trade logic.
+    try {
+      const ex = parseFlexExtras(csv);
+      summary.openPositions = ex.openPositions.length;
+      summary.openTickers = ex.openPositions.map(p => p.ticker);
+      summary.nav = ex.nav;
+      if (ex.openPositions.length || ex.nav != null) {
+        state.ibkrOpenPositions = ex.openPositions;
+        if (ex.nav != null) { state.ibkrNAV = ex.nav; state.ibkrNAVDate = ex.navDate || ""; }
+      }
+    } catch (e) { summary.extrasError = String((e && e.message) || e); }
+
     if (dryRun) {
       return res.status(200).json({ s: "ok", mode: (req.method === "POST") ? "verify-csv (no write)" : "dry-run (no write)", ...summary });
     }
@@ -455,18 +468,6 @@ export default async function handler(req, res) {
         errmsg: `refused: would append ${summary.added} trades (> ${MAX_APPEND_PER_RUN}). Likely a dedup mismatch that would duplicate history — NOT writing. Run ?dryRun=1 to inspect; add ?force=1 only if the batch is genuinely all-new.`,
         ...summary });
     }
-
-    // Open Positions + NAV (if the query includes those sections) — current holdings
-    // and real net-liq. Separate from trades; never affects the append-only trade logic.
-    try {
-      const ex = parseFlexExtras(csv);
-      if (ex.openPositions.length || ex.nav != null) {
-        state.ibkrOpenPositions = ex.openPositions;
-        if (ex.nav != null) { state.ibkrNAV = ex.nav; state.ibkrNAVDate = ex.navDate || ""; }
-        summary.openPositions = ex.openPositions.length;
-        summary.nav = ex.nav;
-      }
-    } catch (e) {}
 
     // Stamp the true last-sync time. The browser also sets lastAutoSync, but the
     // server cron is what actually pulls — without this the UI shows a stale time
