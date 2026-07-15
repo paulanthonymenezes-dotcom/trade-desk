@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/sync-ibkr", "schedule": "0 12 * * 1-5" },
+    { "path": "/api/sync-ibkr", "schedule": "0 18 * * 1-5" },
     { "path": "/api/sync-ibkr", "schedule": "0 23 * * 1-5" }
   ],
   "rewrites": [
