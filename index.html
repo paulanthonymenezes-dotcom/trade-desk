@@ -1315,7 +1315,8 @@ table{width:100%;border-collapse:collapse}
     <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Auto-sync trades from IBKR via Flex Query, or upload a CSV manually.</div>
     <div class="g2" style="margin-bottom:10px">
       <div class="frow"><label>Flex Query Token</label><input id="s-ibkr-token" placeholder="Paste token..."></div>
-      <div class="frow"><label>Flex Query ID</label><input id="s-ibkr-query" placeholder="Query ID..."></div>
+      <div class="frow"><label>Flex Query ID (Trades)</label><input id="s-ibkr-query" placeholder="Query ID..."></div>
+      <div class="frow"><label>Positions &amp; NAV Query ID <span style="color:var(--text-muted);font-size:9px">(optional — a 2nd Flex query with Open Positions + NAV sections)</span></label><input id="s-ibkr-extras-query" placeholder="Query ID..."></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <button class="btn btn-p" style="flex:1" onclick="syncIBKR()">⚡ SYNC IBKR</button>
@@ -1509,6 +1510,9 @@ let STATE = {
 
   deposits: [], // [{ date: "YYYY-MM-DD", amount: number, note?: string }] — date-stamped so per-period rates can attribute capital correctly
   ibkrToken: "", ibkrQueryId: "",
+  ibkrExtrasQueryId: "", // separate Flex query with Open Positions + NAV sections (keeps trades query + VPS cron untouched)
+  ibkrOpenPositions: [], // parsed from the Open Positions section — current holdings, each with its own 200% stop
+  ibkrNAV: null, ibkrNAVDate: "", // real net-liq from the NAV section
   // Auto-exit settings
   autoExitEnabled: false,
   autoExitGateway: "", // VPS URL e.g. https://your-vps:443/v1/api
@@ -2030,6 +2034,7 @@ function getTotalDeposits() {
 // derive current equity here — it updates automatically every time a trade closes,
 // no manual edits needed. Same definition the desktop uses (capitalDeployed + realizedPnl).
 function _liveEquity() {
+  if (STATE.ibkrNAV != null && STATE.ibkrNAV > 0) return STATE.ibkrNAV;   // real IBKR net-liq when the Positions & NAV query is configured
   const realized = (STATE.trades || []).reduce((s, t) => s + (t.status !== "Open" && t.realizedPnl != null ? (+t.realizedPnl || 0) : 0), 0);
   return (STATE.accountBalance || 0) + getTotalDeposits() + realized;
 }
@@ -12929,7 +12934,10 @@ async function _mLoadMacro(){
 }
 function renderMAM(){
   const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)",TP="var(--text-primary)";
+  const usingNAV = STATE.ibkrNAV != null && STATE.ibkrNAV > 0;
   const bal=_liveEquity(), startBal=STATE.accountBalance||0, realizedAll=bal-startBal-getTotalDeposits(), dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3;
+  const navPretty = STATE.ibkrNAVDate ? new Date(String(STATE.ibkrNAVDate).slice(0,4)+"-"+String(STATE.ibkrNAVDate).slice(4,6)+"-"+String(STATE.ibkrNAVDate).slice(6,8)+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "";
+  const balSub = usingNAV ? `IBKR net-liq${navPretty?` · ${navPretty}`:""}` : (bal?`$${Math.round(startBal).toLocaleString()} start ${realizedAll>=0?"+":"−"} $${Math.abs(Math.round(realizedAll)).toLocaleString()} realized`:"");
   const dailyStop=Math.round(bal*dpct/100);
   const nq=(STATE.trades||[]).filter(t=>String(t.ticker||"").startsWith("/NQ")&&(t.premiumCollected||0)>0).sort((a,b)=>String(b.entryDate||"").localeCompare(String(a.entryDate||""))).slice(0,20);
   const avgCred=nq.length?Math.round(nq.reduce((s,t)=>s+t.premiumCollected/Math.max(1,t.contracts||1),0)/nq.length):0;
@@ -12949,8 +12957,9 @@ function renderMAM(){
   // Per-trade 200% stop — an explicit list of the open positions IBKR has synced,
   // each with ITS OWN stop. No averages, no manual logging (positions come from the sync).
   const syncSt=STATE.lastAutoSync?new Date(STATE.lastAutoSync).toLocaleString("en-US",{timeZone:"America/New_York",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
-  const allOpen=(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0)
-    .map(t=>({ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/")}));
+  const ibkrPos=(STATE.ibkrOpenPositions||[]).filter(p=>(p.premiumCollected||0)>0);
+  const allOpen=(ibkrPos.length?ibkrPos:(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0))
+    .map(t=>({ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/"), unreal:t.unrealizedPnl}));
   const secCount={}; allOpen.forEach(p=>{const s=getSector(p.ticker); if(s)secCount[s]=(secCount[s]||0)+1;});
   const dupSec=Object.entries(secCount).filter(([s,n])=>n>=2);
   const totalRisk=Math.round(allOpen.reduce((s,p)=>s+p.credit*2,0));
@@ -12973,7 +12982,7 @@ function renderMAM(){
   return `
     <div style="font-size:13px;color:${MU};margin:2px 0 14px">☀ ${hi} — pre-market check</div>
     ${mnCard}
-    ${card("Account balance · live", bal?"$"+Math.round(bal).toLocaleString():"— set in Settings", bal?`$${Math.round(startBal).toLocaleString()} start ${realizedAll>=0?"+":"−"} $${Math.abs(Math.round(realizedAll)).toLocaleString()} realized`:"", TP)}
+    ${card(usingNAV?"Account balance · IBKR":"Account balance · est.", bal?"$"+Math.round(bal).toLocaleString():"— set in Settings", balSub, TP)}
     ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", bal?`$${bal.toLocaleString()} → <b style="color:${TP}">$${(bal-dailyStop).toLocaleString()}</b> floor. Hit it and you're done.`:"set balance in Settings", R)}
     ${perTradeBlock}
     ${macro}
@@ -13353,6 +13362,7 @@ function openSettings() {
   document.getElementById("s-strikeprox").value = STATE.alertStrikeProx||5;
   document.getElementById("s-ibkr-token").value = STATE.ibkrToken||"";
   document.getElementById("s-ibkr-query").value = STATE.ibkrQueryId||"";
+  { const _e=document.getElementById("s-ibkr-extras-query"); if(_e)_e.value = STATE.ibkrExtrasQueryId||""; }
   document.getElementById("s-autosync-enabled").checked = STATE.autoSyncEnabled !== false && !!(STATE.ibkrToken && STATE.ibkrQueryId);
   document.getElementById("s-autosync-interval").value = STATE.autoSyncIntervalMin || 15;
   _renderAutoSyncStatus();
@@ -13395,6 +13405,7 @@ function saveSettings() {
   STATE.alertStrikeProx = parseFloat(document.getElementById("s-strikeprox").value)||5;
   STATE.ibkrToken = document.getElementById("s-ibkr-token").value.trim();
   STATE.ibkrQueryId = document.getElementById("s-ibkr-query").value.trim();
+  { const _e=document.getElementById("s-ibkr-extras-query"); if(_e)STATE.ibkrExtrasQueryId = _e.value.trim(); }
   STATE.autoSyncEnabled = document.getElementById("s-autosync-enabled").checked;
   STATE.autoSyncIntervalMin = Math.max(5, parseInt(document.getElementById("s-autosync-interval").value) || 15);
   STATE.autoExitEnabled = document.getElementById("s-autoexit-enabled").checked;
@@ -13955,6 +13966,69 @@ function reconstructFlexTrades(csvText) {
   return trades;
 }
 
+// Parse the OPEN POSITIONS and NET ASSET VALUE sections out of a Flex CSV
+// (a dedicated "Positions & NAV" query — kept separate from the Trades query so
+// the trade reconstruction and the VPS cron are never touched). Returns current
+// open spreads (each with its own credit → 200% stop) and the latest real NAV.
+function parseFlexExtras(csvText) {
+  const lines = (csvText || "").split(/\r?\n/).filter(l => l.trim());
+  const norm = s => (s || "").toLowerCase().replace(/[\s_\/]/g, "");
+  const F = x => { const v = parseFloat(x); return isNaN(v) ? 0 : v; };
+  const today = parseInt(new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).replace(/-/g, ''));
+  const headerIdx = [];
+  lines.forEach((l, i) => { if (/[",](AssetClass|ReportDate)[",]/i.test(l) && l.split(",").length > 4) headerIdx.push(i); });
+  const secs = headerIdx.map((h, idx) => ({ start: h, end: idx + 1 < headerIdx.length ? headerIdx[idx + 1] : lines.length }));
+  let openPositions = [], nav = null, navDate = "";
+  for (const sec of secs) {
+    const hdr = parseCSVLine(lines[sec.start]);
+    const col = names => { for (const n of names) { const i = hdr.findIndex(h => norm(h) === norm(n)); if (i >= 0) return i; } return -1; };
+    const hasOC = col(["Open/CloseIndicator"]) >= 0, hasMark = col(["MarkPrice"]) >= 0, hasUn = col(["FifoPnlUnrealized"]) >= 0,
+      hasTot = col(["Total"]) >= 0, hasRd = col(["ReportDate"]) >= 0, hasCat = col(["AssetClass"]) >= 0;
+    // NAV section: ReportDate + Total, no AssetClass — last row = latest net-liq
+    if (hasRd && hasTot && !hasCat) {
+      const iT = col(["Total"]), iR = col(["ReportDate"]);
+      for (let i = sec.start + 1; i < sec.end; i++) { const f = parseCSVLine(lines[i]); if (f.length <= iT) continue; const t = F(f[iT]); if (t) { nav = t; navDate = f[iR]; } }
+      continue;
+    }
+    // Open Positions section: AssetClass + MarkPrice/Unrealized, NOT Open/CloseIndicator
+    if (hasCat && (hasMark || hasUn) && !hasOC) {
+      const iCat = col(["AssetClass"]), iSym = col(["Symbol"]), iUnd = col(["UnderlyingSymbol"]), iStr = col(["Strike"]),
+        iExp = col(["Expiry"]), iPC = col(["Put/Call", "PutCall", "Right"]), iQty = col(["Quantity", "Position"]),
+        iCB = col(["CostBasisMoney"]), iUnr = col(["FifoPnlUnrealized"]);
+      const legs = [];
+      for (let i = sec.start + 1; i < sec.end; i++) {
+        const f = parseCSVLine(lines[i]); if (f.length < 5) continue;
+        const cat = (iCat >= 0 ? f[iCat] : "").toUpperCase(); if (cat === "CASH" || !cat) continue;
+        const qty = F(iQty >= 0 ? f[iQty] : 0); if (Math.abs(qty) < 1e-9) continue;
+        const exp = iExp >= 0 ? f[iExp] : ""; if (exp && parseInt(exp) < today) continue;   // expired
+        legs.push({ cat, sym: iSym >= 0 ? f[iSym] : "", und: (iUnd >= 0 ? f[iUnd] : "") || (iSym >= 0 ? f[iSym] : ""),
+          strike: F(iStr >= 0 ? f[iStr] : 0), expiry: exp, pc: iPC >= 0 ? f[iPC] : "", qty,
+          cb: F(iCB >= 0 ? f[iCB] : 0), unr: F(iUnr >= 0 ? f[iUnr] : 0), short: qty < 0 });
+      }
+      const grp = {};
+      for (const l of legs) { const k = [l.und, l.expiry, l.cat].join("|"); (grp[k] = grp[k] || []).push(l); }
+      for (const k in grp) {
+        const g = grp[k], shorts = g.filter(l => l.short), longs = g.filter(l => !l.short);
+        const puts = g.filter(l => l.pc === "P"), calls = g.filter(l => l.pc === "C");
+        let tradeType = "Multi-leg";
+        if (g.length === 1) tradeType = (g[0].short ? "Short " : "Long ") + (g[0].pc === "P" ? "Put" : "Call");
+        else if (g.length === 2 && puts.length === 2) { const sh = puts.filter(l => l.short)[0], lo = puts.filter(l => !l.short)[0]; if (sh && lo) tradeType = sh.strike > lo.strike ? "Bull Put Spread" : "Bear Put Spread"; }
+        else if (g.length === 2 && calls.length === 2) { const sh = calls.filter(l => l.short)[0], lo = calls.filter(l => !l.short)[0]; if (sh && lo) tradeType = sh.strike < lo.strike ? "Bear Call Spread" : "Bull Call Spread"; }
+        const netCB = g.reduce((s, l) => s + l.cb, 0);
+        openPositions.push({
+          ticker: g[0].und, tradeType, status: "Open",
+          shortStrike: shorts.length ? shorts[0].strike : g[0].strike, longStrike: longs.length ? longs[0].strike : 0,
+          contracts: Math.max(...g.map(l => Math.abs(l.qty))), expiry: g[0].expiry,
+          premiumCollected: netCB < 0 ? Math.round(-netCB) : 0,
+          unrealizedPnl: Math.round(g.reduce((s, l) => s + l.unr, 0) * 100) / 100, src: "ibkr-pos"
+        });
+      }
+      continue;
+    }
+  }
+  return { openPositions, nav, navDate };
+}
+
 // Replace all src:"ibkr" trades with a fresh reconstruction. Preserves manually-logged
 // trades, and carries over any annotations the user added to an imported trade.
 function applyFlexReconstruction(recon) {
@@ -14125,6 +14199,36 @@ function parseFlexCSVTrades(csvText) {
   return optionTrades;
 }
 
+// Fetch the dedicated "Positions & NAV" Flex query (if configured) and store the
+// parsed open positions + real net-liq. Separate query id so the Trades sync and
+// the VPS cron are never touched. Best-effort — never throws into the caller.
+async function _syncFlexExtras(token) {
+  const q = STATE.ibkrExtrasQueryId;
+  if (!token || !q) return false;
+  try {
+    const reqUrl = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" + token + "&q=" + q + "&v=3";
+    const reqResp = await ibkrProxy(reqUrl);
+    const refMatch = reqResp.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/);
+    if (!refMatch) return false;
+    const refCode = refMatch[1];
+    let data = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
+      const fetchResp = await ibkrProxy("https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=" + refCode + "&t=" + token + "&v=3");
+      if (fetchResp.includes("Statement generation in progress")) continue;
+      if (fetchResp.includes("<Status>Warn</Status>") && fetchResp.includes("Please try again")) continue;
+      data = fetchResp; break;
+    }
+    if (!data) return false;
+    const ex = parseFlexExtras(data);
+    STATE.ibkrOpenPositions = ex.openPositions || [];
+    if (ex.nav != null) { STATE.ibkrNAV = ex.nav; STATE.ibkrNAVDate = ex.navDate || ""; }
+    save();
+    if (typeof dbg === "function") dbg(`Positions & NAV: ${STATE.ibkrOpenPositions.length} open · NAV $${ex.nav ? Math.round(ex.nav).toLocaleString() : "—"}`, "success");
+    return true;
+  } catch (e) { if (typeof dbg === "function") dbg("Positions & NAV sync failed: " + (e?.message || e), "warn"); return false; }
+}
+
 async function syncIBKR(quiet = false) {
   // Always prefer current input value — user may have updated token without saving
   const tokenField = document.getElementById("s-ibkr-token");
@@ -14194,6 +14298,7 @@ async function syncIBKR(quiet = false) {
     const res = applyFlexReconstruction(recon);
     save();
     renderAll();
+    _syncFlexExtras(token).then(ok => { if (ok) renderAll(); });   // pull open positions + real NAV (if that query is set), then refresh
     const _cl = recon.filter(t => t.status === "Closed");
     const _pnl = _cl.reduce((s, t) => s + (t.realizedPnl || 0), 0);
     showSyncStatus(`Synced ${recon.length} trades · ${res.replaced} refreshed · ${res.manualKept} manual kept.`, "success");
