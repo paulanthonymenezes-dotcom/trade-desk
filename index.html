@@ -12928,11 +12928,28 @@ function renderMAM(){
   else if(crit.length) macro=`<div style="border:1px solid ${R};background:var(--negative-faint,rgba(239,68,68,0.12));border-radius:12px;padding:14px 15px;margin-top:4px"><div style="color:${R};font-weight:700;font-size:13px">⚠ MAJOR MACRO TODAY</div>${crit.map(ev=>`<div style="font-size:15px;color:${TP};margin-top:7px">${evLine(ev)}</div>`).join("")}<div style="font-size:11px;color:${MU};margin-top:9px">Size down or sit out the release — a vol spike tests your short strikes.</div></div>`;
   else if(evToday.length) macro=`<div class="m-lbl">Macro today (high impact)</div>${evToday.map(ev=>`<div style="font-size:14px;color:${TP};padding:6px 0;border-bottom:1px solid var(--border-subtle)">${evLine(ev)}</div>`).join("")}`;
   else macro=`<div class="m-lbl">Macro today</div><div style="color:${G};font-size:13px">✓ No major US releases today — clean tape for premium.</div>`;
+  // Per-trade 200% stop — list real open positions with sector; flag correlated names (stacking rule)
+  const secCount={}; openPos.forEach(p=>{const s=getSector(p.ticker); if(s)secCount[s]=(secCount[s]||0)+1;});
+  const dupSec=Object.entries(secCount).filter(([s,n])=>n>=2);
+  let perTradeBlock;
+  if(openPos.length){
+    perTradeBlock=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · open positions</div>`
+      + openPos.map(p=>{
+          const sl=Math.round((p.premiumCollected||0)*2);
+          const strikes=[p.shortStrike,p.longStrike].filter(Boolean).join("/");
+          const sec=getSector(p.ticker);
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.premiumCollected).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;
+        }).join("")
+      + (dupSec.length?`<div style="font-size:11px;color:var(--warning,#e0a800);margin-top:9px">⚠ ${dupSec.map(([s,n])=>`${n} in ${escapeHtml(s)}`).join(" · ")} — correlated, size as one bet.</div>`:``)
+      + `<div style="font-size:11px;color:${MU};margin-top:6px">Set the bracket at 200% of each credit — before the tape can wick you.</div></div>`;
+  } else {
+    perTradeBlock=card("Per-trade stop (200%)", perSL?"−$"+perSL.toLocaleString():"—", perSL?`no open positions · based on your ~$${avgCred.toLocaleString()} avg credit (~${nStops} stop-outs = daily cap)`:"trade more /NQ to calibrate", R);
+  }
   return `
     <div style="font-size:13px;color:${MU};margin:2px 0 14px">☀ ${hi} — pre-market check</div>
     ${card("Account balance", bal?"$"+bal.toLocaleString():"— set in Settings", "", TP)}
     ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", bal?`$${bal.toLocaleString()} → <b style="color:${TP}">$${(bal-dailyStop).toLocaleString()}</b> floor. Hit it and you're done.`:"set balance in Settings", R)}
-    ${openPos.length?`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · your open positions</div>${openPos.map(p=>{const sl=Math.round((p.premiumCollected||0)*2);const strikes=[p.shortStrike,p.longStrike].filter(Boolean).join("/");return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:1px">$${Math.round(p.premiumCollected).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;}).join("")}<div style="font-size:11px;color:${MU};margin-top:8px">Set the bracket at 200% of each credit — before the tape can wick you.</div></div>`:card("Per-trade stop (200%)", perSL?"−$"+perSL.toLocaleString():"—", perSL?`no open positions · based on your ~$${avgCred.toLocaleString()} avg credit (~${nStops} stop-outs = daily cap)`:"trade more /NQ to calibrate", R)}
+    ${perTradeBlock}
     ${macro}
     <div class="m-lbl">Today's playbook</div>
     <div style="font-size:12px;color:${MU};line-height:1.7">Δ 0.15–0.20 · IV 20%+ · ~300 wide · <b style="color:${TP}">12–2pm</b> · TP 90 · <b style="color:${R}">out at 200%, never roll</b></div>`;
@@ -13088,59 +13105,103 @@ function renderMTrades(){
   }).join("");
 }
 function mSetPeriod(v){ STATE._mStatsPeriod=v; renderMobile(); }
+function mSetStatConv(v){ STATE._mStatConv = String(STATE._mStatConv)===String(v)?null:v; renderMobile(); }
+function mToggleStatSrc(s){ if(!Array.isArray(STATE._mStatSrcs))STATE._mStatSrcs=[]; const i=STATE._mStatSrcs.indexOf(s); if(i>=0)STATE._mStatSrcs.splice(i,1); else STATE._mStatSrcs.push(s); renderMobile(); }
+function mClearStatFilters(){ STATE._mStatConv=null; STATE._mStatSrcs=[]; renderMobile(); }
+function _mTradeSrcs(t){ return (t.ideaSources&&t.ideaSources.length)?t.ideaSources:(t.ideaSource?[t.ideaSource]:[]); }
 function renderMStats(allClosed){
-  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)";
+  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)",AC="var(--accent)";
   if(!allClosed.length) return `<div style="color:${MU}">No closed trades yet.</div>`;
   const per=STATE._mStatsPeriod||"30", days=per==="7"?7:per==="30"?30:per==="90"?90:null;
   const cutoff=days?new Date(Date.now()-days*86400000).toISOString().slice(0,10):null;
   const closed=cutoff?allClosed.filter(t=>String(t.exitDate||"").slice(0,10)>=cutoff):allClosed;
   const perChip=(v,l)=>`<div class="m-chip ${per===v?"on":""}" style="padding:7px 14px;font-size:12px" onclick="mSetPeriod('${v}')">${l}</div>`;
-  const periodRow=`<div style="display:flex;gap:7px;margin-bottom:14px">${perChip("7","7D")}${perChip("30","30D")}${perChip("90","90D")}${perChip("all","All")}</div>`;
+  const periodRow=`<div style="display:flex;gap:7px;margin-bottom:12px">${perChip("7","7D")}${perChip("30","30D")}${perChip("90","90D")}${perChip("all","All")}</div>`;
   if(!closed.length) return periodRow+`<div style="color:${MU};font-size:13px">No trades in this period.</div>`;
-  const net=closed.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=closed.filter(t=>+t.realizedPnl>0).length;
-  const nq=closed.filter(t=>String(t.ticker||"").startsWith("/NQ"));
+  // Filters: conviction (single) + source (OR, multi). Sources drawn from what's in the period.
+  const fConv=STATE._mStatConv||null, fSrcs=Array.isArray(STATE._mStatSrcs)?STATE._mStatSrcs:[];
+  const srcSet=new Set(); closed.forEach(t=>_mTradeSrcs(t).forEach(x=>{if(x)srcSet.add(x);}));
+  const srcList=[...srcSet].sort();
+  let fc=closed;
+  if(fConv) fc=fc.filter(t=>String(t.conviction)===String(fConv));
+  if(fSrcs.length) fc=fc.filter(t=>_mTradeSrcs(t).some(x=>fSrcs.includes(x)));
+  const anyF=fConv||fSrcs.length;
+  const convChip=(v)=>`<div class="m-chip ${String(fConv)===String(v)?"on":""}" style="padding:6px 12px;font-size:12px" onclick="mSetStatConv('${v}')">${v}</div>`;
+  const srcChip=(s)=>`<div class="m-chip ${fSrcs.includes(s)?"on":""}" style="padding:6px 11px;font-size:11px" onclick="mToggleStatSrc('${escAttr(s)}')">${escapeHtml(s)}</div>`;
+  const filterRow=`
+    <div class="m-lbl" style="margin-top:0">Filter${anyF?` <span style="text-transform:none;color:${AC};font-weight:600" onclick="mClearStatFilters()">· clear</span>`:""}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px"><span style="font-size:11px;color:${MU};align-self:center">conv</span>${convChip("1")}${convChip("2")}${convChip("3")}</div>
+    ${srcList.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"><span style="font-size:11px;color:${MU};align-self:center">src</span>${srcList.map(srcChip).join("")}</div>`:`<div style="margin-bottom:12px"></div>`}`;
+  if(!fc.length) return periodRow+filterRow+`<div style="color:${MU};font-size:13px">No trades match these filters. <span style="color:${AC}" onclick="mClearStatFilters()">Clear</span></div>`;
+  const net=fc.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=fc.filter(t=>+t.realizedPnl>0).length;
+  const nq=fc.filter(t=>String(t.ticker||"").startsWith("/NQ"));
   const bal=STATE.accountBalance||0, dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, lim=Math.round(bal*dpct/100);
   const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
-  const todayPnl=Math.round(closed.filter(t=>String(t.exitDate||"").slice(0,10)===today).reduce((s,t)=>s+(+t.realizedPnl||0),0));
+  const todayPnl=Math.round(fc.filter(t=>String(t.exitDate||"").slice(0,10)===today).reduce((s,t)=>s+(+t.realizedPnl||0),0));
   const stat=(l,v,c)=>`<div style="flex:1;text-align:center;padding:13px 6px;border:1px solid var(--border-visible);border-radius:10px"><div style="font-size:9px;color:${MU};text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:19px;font-weight:700;color:${c||"var(--text-primary)"};font-variant-numeric:tabular-nums;margin-top:3px">${v}</div></div>`;
   const agg=(trades,keyfn)=>{const m={};trades.forEach(t=>{let ks=keyfn(t);if(!Array.isArray(ks))ks=[ks];ks.forEach(k=>{if(k==null||k==="")return;if(!m[k])m[k]={n:0,w:0,pnl:0};m[k].n++;m[k].pnl+=(+t.realizedPnl||0);if((+t.realizedPnl||0)>0)m[k].w++;});});return Object.entries(m).sort((a,b)=>b[1].pnl-a[1].pnl);};
   const brk=(items,title,hint)=> items.length
     ? `<div class="m-lbl">${title}</div>`+items.map(([k,v])=>{const wr=Math.round(v.w/v.n*100),c=wr>=70?G:wr>=50?"var(--warning)":R;return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border-subtle);font-size:13px"><span style="color:var(--text-primary)">${escapeHtml(k)}</span><span style="display:flex;gap:12px;align-items:baseline;font-variant-numeric:tabular-nums"><span style="color:${MU};font-size:11px">${v.n}t</span><span style="color:${c};font-size:11px">${wr}%</span><span style="color:${v.pnl>=0?G:R};min-width:66px;text-align:right">${v.pnl>=0?"+":""}$${Math.round(v.pnl).toLocaleString()}</span></span></div>`;}).join("")
     : `<div class="m-lbl">${title}</div><div style="font-size:12px;color:${MU};padding:2px 0 8px">${hint}</div>`;
-  const byConv=agg(closed.filter(t=>t.conviction!=null&&t.conviction!==""),t=>"Conviction "+t.conviction);
-  const bySrc=agg(closed,t=>(t.ideaSources&&t.ideaSources.length)?t.ideaSources:(t.ideaSource?[t.ideaSource]:[]));
+  const byConv=agg(fc.filter(t=>t.conviction!=null&&t.conviction!==""),t=>"Conviction "+t.conviction);
+  const bySrc=agg(fc,t=>_mTradeSrcs(t));
+  const bySec=agg(fc,t=>getSector(t.ticker)||"");
   return `
     ${periodRow}
-    <div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?G:R)}${stat("Win rate",Math.round(wins/closed.length*100)+"%")}</div>
-    <div style="display:flex;gap:9px">${stat("Trades",closed.length)}${stat("/NQ",nq.length)}</div>
-    ${bal?`<div class="m-lbl">Today vs daily stop</div>
+    ${filterRow}
+    ${anyF?`<div style="font-size:11px;color:${AC};margin-bottom:9px">${fc.length} of ${closed.length} trades${fConv?` · conv ${fConv}`:""}${fSrcs.length?` · ${fSrcs.map(escapeHtml).join(" or ")}`:""}</div>`:""}
+    <div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?G:R)}${stat("Win rate",Math.round(wins/fc.length*100)+"%")}</div>
+    <div style="display:flex;gap:9px">${stat("Trades",fc.length)}${stat("/NQ",nq.length)}</div>
+    ${bal&&!anyF?`<div class="m-lbl">Today vs daily stop</div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid ${todayPnl<=-lim?R:"var(--border-visible)"};border-radius:10px">
         <span style="font-size:18px;font-weight:700;color:${todayPnl>=0?G:R};font-variant-numeric:tabular-nums">${todayPnl>=0?"+":""}$${todayPnl.toLocaleString()}</span>
         <span style="font-size:11px;color:${MU}">stop −$${lim.toLocaleString()} (${dpct}%)</span></div>`:""}
     ${brk(byConv,"🎯 By conviction","Tag trades at entry to see if your gut predicts winners.")}
     ${brk(bySrc,"📍 By source","Tag a source to see which ideas actually pay.")}
+    ${brk(bySec,"🏭 By sector","Set sectors on the desk to see them here.")}
     <div class="m-lbl">Full stats, guardrails & charts → the desk on your Mac.</div>`;
 }
+const _mjOpen = new Set();
 function renderMJournal(){
-  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)";
+  const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)",TP="var(--text-primary)";
   const recent=(STATE.trades||[]).filter(x=>x.realizedPnl!=null).slice().sort((a,b)=>String(b.exitDate||b.entryDate||"").localeCompare(String(a.exitDate||a.entryDate||""))).slice(0,30);
   const noted=recent.filter(x=>(x.journalNote||"").trim()).length;
-  return `<div class="m-lbl" style="margin-top:2px">Journal · ${noted}/${recent.length} recent trades noted · tap to write</div>` + recent.map(x=>{
+  const untagged=recent.filter(x=>x.conviction==null&&!_mTradeSrcs(x).length).length;
+  return `<div class="m-lbl" style="margin-top:2px">Journal · ${noted}/${recent.length} noted${untagged?` · ${untagged} untagged` :""} · tap to edit</div>` + recent.map(x=>{
     const p=+x.realizedPnl||0, has=(x.journalNote||"").trim();
-    const tags=[x.conviction?"conv "+x.conviction:"",(x.ideaSources&&x.ideaSources.length)?x.ideaSources.join(", "):(x.ideaSource||"")].filter(Boolean).join(" · ");
+    const srcs=_mTradeSrcs(x);
+    const tags=[x.conviction?"conv "+x.conviction:"",srcs.join(", ")].filter(Boolean).join(" · ");
+    const open=_mjOpen.has(String(x.id));
+    const convBtn=(n)=>`<button onclick="mJSetConv('${x.id}',${n})" style="flex:1;padding:8px 0;border-radius:8px;border:1px solid ${String(x.conviction)===String(n)?G:"var(--border-visible)"};background:${String(x.conviction)===String(n)?G:"transparent"};color:${String(x.conviction)===String(n)?"#0a0c10":TP};font-size:13px;font-weight:600;cursor:pointer">${n}</button>`;
+    const srcChip=(s)=>`<div class="m-chip ${srcs.includes(s)?"on":""}" style="padding:6px 11px;font-size:11px" onclick="mJToggleSrc('${x.id}','${escAttr(s)}')">${escapeHtml(s)}</div>`;
     return `<div style="padding:11px 0;border-bottom:1px solid var(--border-subtle)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start" onclick="mToggleJ('${x.id}')">
-        <div><div style="font-size:14px;color:var(--text-primary)">${escapeHtml(x.ticker||"")} <span style="color:${MU};font-size:11px">${x.exitDate||x.entryDate||""}</span> ${has?'<span style="color:'+G+'">✎</span>':'<span style="color:'+MU+';font-size:11px">+ note</span>'}</div>
-        ${tags?`<div style="font-size:10px;color:${MU};margin-top:2px">${escapeHtml(tags)}</div>`:""}</div>
+        <div><div style="font-size:14px;color:${TP}">${escapeHtml(x.ticker||"")} <span style="color:${MU};font-size:11px">${x.exitDate||x.entryDate||""}</span> ${has?'<span style="color:'+G+'">✎</span>':'<span style="color:'+MU+';font-size:11px">+ note</span>'}</div>
+        <div style="font-size:10px;color:${tags?MU:"var(--warning,#e0a800)"};margin-top:2px">${tags?escapeHtml(tags):"untagged — tap to add conviction / source"}</div></div>
         <div style="font-size:14px;font-weight:700;color:${p>=0?G:R};font-variant-numeric:tabular-nums">${p>=0?"+":""}$${Math.round(p)}</div></div>
-      <div id="mj-${x.id}" style="display:none;margin-top:9px">
-        <textarea id="mjt-${x.id}" style="width:100%;box-sizing:border-box;min-height:90px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:8px;padding:11px;font-size:15px" placeholder="What happened? What did you learn?">${escapeHtml(x.journalNote||"")}</textarea>
-        <button class="m-log" style="margin-top:9px;padding:13px;font-size:14px" onclick="mSaveJ('${x.id}')">SAVE JOURNAL</button>
+      <div id="mj-${x.id}" style="display:${open?"block":"none"};margin-top:11px">
+        <div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Conviction</div>
+        <div style="display:flex;gap:8px;margin-bottom:11px">${[1,2,3].map(convBtn).join("")}</div>
+        <div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Source · tap all that apply</div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:11px">${_ideaSources().map(srcChip).join("")}<div class="m-chip" style="border-style:dashed" onclick="mJAddSrc('${x.id}')">+ add</div></div>
+        <textarea id="mjt-${x.id}" style="width:100%;box-sizing:border-box;min-height:90px;background:var(--bg-surface);color:${TP};border:1px solid var(--border-visible);border-radius:8px;padding:11px;font-size:15px" placeholder="What happened? What did you learn?">${escapeHtml(x.journalNote||"")}</textarea>
+        <button class="m-log" style="margin-top:9px;padding:13px;font-size:14px" onclick="mSaveJ('${x.id}')">SAVE</button>
       </div></div>`;
   }).join("");
 }
-function mToggleJ(id){ const e=document.getElementById("mj-"+id); if(e) e.style.display=e.style.display==="none"?"block":"none"; }
-function mSaveJ(id){ const ta=document.getElementById("mjt-"+id); if(!ta) return; const idn=isNaN(+id)?id:+id; STATE.trades=STATE.trades.map(t=>String(t.id)===String(idn)?{...t,journalNote:ta.value}:t); save(); mToggleJ(id); }
+function mToggleJ(id){ if(_mjOpen.has(String(id)))_mjOpen.delete(String(id)); else _mjOpen.add(String(id)); renderMobile(); }
+// Apply a patch to a trade, preserving any in-progress journal textarea text so a re-render never loses it.
+function _mjApply(id, patch){
+  const ta=document.getElementById("mjt-"+id);
+  const note = ta ? ta.value : undefined;
+  STATE.trades=(STATE.trades||[]).map(t=>{ if(String(t.id)!==String(id)) return t; const o={...t,...patch}; if(note!==undefined)o.journalNote=note; return o; });
+  save(); renderMobile();
+}
+function mJSetConv(id,n){ const t=(STATE.trades||[]).find(t=>String(t.id)===String(id))||{}; _mjApply(id,{conviction:String(t.conviction)===String(n)?null:n}); }
+function mJToggleSrc(id,s){ const t=(STATE.trades||[]).find(t=>String(t.id)===String(id))||{}; const arr=_mTradeSrcs(t).slice(); const i=arr.indexOf(s); if(i>=0)arr.splice(i,1); else arr.push(s); _mjApply(id,{ideaSources:arr, ideaSource:arr[0]||""}); }
+function mJAddSrc(id){ const n=(prompt("New source (person / newsletter / tool):")||"").trim(); if(!n)return; const l=_ideaSources(); if(!l.includes(n))l.push(n); mJToggleSrc(id,n); }
+function mSaveJ(id){ _mjOpen.delete(String(id)); _mjApply(id,{}); }
+function mSetPosSector(tk){ if(!tk)return; const v=(prompt("Sector for "+tk+" (e.g. Technology, Energy, Financials):", getSector(tk)||"")||"").trim(); if(v){ if(!STATE.sectors)STATE.sectors={}; STATE.sectors[tk]=v; save(); renderMobile(); } }
 // Bootstrap: keep the mobile view alive independently of the desktop render path
 // (which can bail mid-way on the sign-in gate). Safety-net interval only fires when
 // the content is empty, so it never interrupts interaction.
