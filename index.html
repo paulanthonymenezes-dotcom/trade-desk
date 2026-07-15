@@ -12856,7 +12856,9 @@ function renderMobile() {
   const closed = (STATE.trades || []).filter(t => t.status !== "Open" && t.realizedPnl != null);
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const todayPnl = closed.filter(t => String(t.exitDate || "").slice(0,10) === today).reduce((s,t)=>s+(+t.realizedPnl||0),0);
-  if (sub) sub.textContent = `today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}`;
+  let syncStr = "—";
+  if (STATE.lastAutoSync) { try { syncStr = new Date(STATE.lastAutoSync).toLocaleString("en-US",{timeZone:"America/New_York",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}); } catch(e){} }
+  if (sub) sub.innerHTML = `<div style="text-align:right;opacity:.65;font-size:9px">⟳ IBKR ${syncStr}</div><div style="text-align:right">today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}</div>`;
   if (v === "am") { el.innerHTML = renderMAM(); if (!_macroCalEvents.length) _mLoadMacro(); }
   else if (v === "tag") el.innerHTML = renderMTag();
   else if (v === "stats") el.innerHTML = renderMStats(closed);
@@ -12884,6 +12886,7 @@ function renderMAM(){
   const nq=(STATE.trades||[]).filter(t=>String(t.ticker||"").startsWith("/NQ")&&(t.premiumCollected||0)>0).sort((a,b)=>String(b.entryDate||"").localeCompare(String(a.entryDate||""))).slice(0,20);
   const avgCred=nq.length?Math.round(nq.reduce((s,t)=>s+t.premiumCollected/Math.max(1,t.contracts||1),0)/nq.length):0;
   const perSL=avgCred?avgCred*2:0, nStops=perSL?(dailyStop/perSL).toFixed(1):"—";
+  const openPos=(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0);
   const hi=new Date().toLocaleString("en-US",{timeZone:"America/New_York",weekday:"long",month:"short",day:"numeric"});
   const card=(l,v,sub,c)=>`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:24px;font-weight:800;color:${c||TP};font-variant-numeric:tabular-nums;margin-top:2px">${v}</div>${sub?`<div style="font-size:11px;color:${MU};margin-top:3px">${sub}</div>`:""}</div>`;
   const todayET=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
@@ -12898,8 +12901,8 @@ function renderMAM(){
   return `
     <div style="font-size:13px;color:${MU};margin:2px 0 14px">☀ ${hi} — pre-market check</div>
     ${card("Account balance", bal?"$"+bal.toLocaleString():"— set in Settings", "", TP)}
-    ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", "Down this on the day and you're done.", R)}
-    ${card("Per-trade stop (200%)", perSL?"−$"+perSL.toLocaleString():"—", perSL?`on your ~$${avgCred.toLocaleString()} avg credit · ~${nStops} stop-outs = your daily cap`:"trade more /NQ to calibrate", R)}
+    ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", bal?`$${bal.toLocaleString()} → <b style="color:${TP}">$${(bal-dailyStop).toLocaleString()}</b> floor. Hit it and you're done.`:"set balance in Settings", R)}
+    ${openPos.length?`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · your open positions</div>${openPos.map(p=>{const sl=Math.round((p.premiumCollected||0)*2);const strikes=[p.shortStrike,p.longStrike].filter(Boolean).join("/");return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:1px">$${Math.round(p.premiumCollected).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;}).join("")}<div style="font-size:11px;color:${MU};margin-top:8px">Set the bracket at 200% of each credit — before the tape can wick you.</div></div>`:card("Per-trade stop (200%)", perSL?"−$"+perSL.toLocaleString():"—", perSL?`no open positions · based on your ~$${avgCred.toLocaleString()} avg credit (~${nStops} stop-outs = daily cap)`:"trade more /NQ to calibrate", R)}
     ${macro}
     <div class="m-lbl">Today's playbook</div>
     <div style="font-size:12px;color:${MU};line-height:1.7">Δ 0.15–0.20 · IV 20%+ · ~300 wide · <b style="color:${TP}">12–2pm</b> · TP 90 · <b style="color:${R}">out at 200%, never roll</b></div>`;
