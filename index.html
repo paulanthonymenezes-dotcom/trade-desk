@@ -1513,6 +1513,7 @@ let STATE = {
   ibkrExtrasQueryId: "", // separate Flex query with Open Positions + NAV sections (keeps trades query + VPS cron untouched)
   ibkrOpenPositions: [], // parsed from the Open Positions section — current holdings, each with its own 200% stop
   ibkrNAV: null, ibkrNAVDate: "", // real net-liq from the NAV section
+  macroCache: null, // { date: "YYYY-MM-DD", events } — cached macro calendar so the AM tab doesn't re-hit the API each open
   // Auto-exit settings
   autoExitEnabled: false,
   autoExitGateway: "", // VPS URL e.g. https://your-vps:443/v1/api
@@ -12925,12 +12926,21 @@ function _equityStats(){
 }
 async function _mLoadMacro(){
   if (_macroCalEvents.length) return;
+  const todayET = new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
+  // Read today's macro straight from cached state — no network call at all on most opens.
+  const c = STATE.macroCache;
+  if (c && c.date === todayET && Array.isArray(c.events)) {
+    _macroCalEvents = c.events;
+    if (STATE._mView === "am") renderMobile();
+    return;
+  }
   try {
-    const _d = new Date().toISOString().slice(0,10).replace(/-/g,"");
-    const r = await fetch(`/api/macro-calendar?days=7&d=${_d}`);
+    const r = await fetch(`/api/macro-calendar?days=7&d=${todayET.replace(/-/g,"")}`);
     if (!r.ok) return;
     const d = await r.json();
     _macroCalEvents = Array.isArray(d.events) ? d.events : [];
+    STATE.macroCache = { date: todayET, events: _macroCalEvents };   // persist so later opens skip the fetch
+    save();
     if (STATE._mView === "am") renderMobile();
   } catch(e){}
 }
