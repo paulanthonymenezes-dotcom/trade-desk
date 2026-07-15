@@ -12864,7 +12864,8 @@ function updateTradeField(id, field, value) {
 // A phone-first face of the desk. Quick-tag logs conviction + source(s) in 3 taps
 // at trade time; IBKR sync fills the trade later, and reconcileEntryTags() matches
 // the tag to it by entry timestamp. Same Supabase state as desktop.
-let _mDraft = { conviction: null, sources: [], ticker: "/NQ" };
+let _mDraft = { conviction: null, sources: [], ticker: "/NQ", note: "" };
+let _mEditId = null;   // when set, the tag form is editing an existing tag instead of creating one
 const _mTickerPresets = ["/NQ", "/ES", "SPY", "QQQ"];
 function _mTickerRoot(tk){ return String(tk||"").replace(/^\//,"").replace(/[FGHJKMNQUVXZ]\d$/,"").toUpperCase(); }
 function _isMobile() { return window.matchMedia("(max-width:680px)").matches; }
@@ -13092,24 +13093,30 @@ function renderMTag() {
   const pending = (STATE.entryTags || []).filter(t => !t.matched).length;
   const chips = _ideaSources().map(s =>
     `<div class="m-chip ${_mDraft.sources.includes(s)?"on":""}" onclick="mToggleSrc('${escAttr(s)}')">${escapeHtml(s)}</div>`).join("");
-  const recent = (STATE.entryTags || []).slice(-6).reverse().map(t => {
+  const recent = (STATE.entryTags || []).slice(-8).reverse().map(t => {
     const tm = new Date(t.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"});
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
-      <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}</span>
-      <span style="color:${t.matched?"var(--positive)":"var(--text-muted)"};font-size:10px">${t.matched?"✓ merged":"pending"}</span></div>`;
+    const noteStr = (t.note||"").trim() ? ` · <span style="color:var(--accent)">${escapeHtml(t.note)}</span>` : "";
+    const editing = _mEditId===t.id;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 8px;margin:0 -8px;border-bottom:1px solid var(--border-subtle);font-size:12px${editing?";background:var(--accent-faint,rgba(88,166,255,0.10));border-radius:8px":""}" onclick="mEditTag('${t.id}')">
+      <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}${noteStr}</span>
+      <span style="display:flex;gap:10px;align-items:center;white-space:nowrap"><span style="color:${t.matched?"var(--positive)":"var(--text-muted)"};font-size:10px">${t.matched?"✓":"pending"}</span><span onclick="event.stopPropagation();mDeleteTag('${t.id}')" style="color:var(--text-muted);font-size:16px;line-height:1">✕</span></span></div>`;
   }).join("") || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No tags yet — log your next entry.</div>`;
   const ready = _mDraft.conviction != null && _mDraft.sources.length > 0;
   const isCustomTk = _mDraft.ticker && !_mTickerPresets.includes(_mDraft.ticker);
   const tkChips = _mTickerPresets.map(tk => `<div class="m-chip ${_mDraft.ticker===tk?"on":""}" onclick="mSetTicker('${tk}')">${tk}</div>`).join("");
   return `
+    ${_mEditId?`<div style="background:var(--accent-faint,rgba(88,166,255,0.10));border:1px solid var(--accent);border-radius:8px;padding:8px 12px;margin:2px 0 4px;font-size:12px;color:var(--accent)">✎ Editing a past tag — change fields & save</div>`:""}
     <div class="m-lbl" style="margin-top:2px">Ticker</div>
     <div style="display:flex;flex-wrap:wrap;gap:9px">${tkChips}<div class="m-chip ${isCustomTk?"on":""}" style="border-style:dashed" onclick="mSetTickerOther()">${isCustomTk?escapeHtml(_mDraft.ticker):"+ other"}</div></div>
     <div class="m-lbl">Conviction</div>
     <div style="display:flex;gap:10px">${[1,2,3].map(n=>`<button class="m-conv ${_mDraft.conviction===n?"on":""}" onclick="mSetConv(${n})">${n}</button>`).join("")}</div>
     <div class="m-lbl">Source <span style="text-transform:none;color:var(--text-muted)">· tap all that apply</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:9px">${chips}<div class="m-chip" style="border-style:dashed" onclick="mAddSrc()">+ add</div></div>
-    <div style="margin-top:26px"><button class="m-log" ${ready?"":"disabled"} onclick="mLogTag()">${ready?"⚡ LOG TAG":"pick conviction + a source"}</button></div>
-    <div class="m-lbl">Recent tags ${pending?`<span style="color:var(--warning);text-transform:none">· ${pending} pending merge</span>`:""}</div>
+    <div class="m-lbl">Setup note <span style="text-transform:none;color:var(--text-muted)">· optional</span></div>
+    <input id="m-tag-note" value="${escapeHtml(_mDraft.note||"")}" oninput="_mDraft.note=this.value" placeholder="e.g. 1-min 20EMA reclaim" style="width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:14px;padding:11px">
+    <div style="margin-top:22px"><button class="m-log" ${ready?"":"disabled"} onclick="mLogTag()">${_mEditId?"💾 SAVE EDIT":(ready?"⚡ LOG TAG":"pick conviction + a source")}</button>
+    ${_mEditId?`<div style="text-align:center;margin-top:11px"><span onclick="mCancelTagEdit()" style="color:var(--text-muted);font-size:12px;cursor:pointer">cancel edit</span></div>`:""}</div>
+    <div class="m-lbl">Recent tags <span style="text-transform:none;color:var(--text-muted)">· tap to edit</span>${pending?`<span style="color:var(--warning);text-transform:none"> · ${pending} pending</span>`:""}</div>
     ${recent}`;
 }
 function mSetConv(n){ _mDraft.conviction = (_mDraft.conviction===n?null:n); renderMobile(); }
@@ -13120,9 +13127,34 @@ function mAddSrc(){ const n=(prompt("New source (person / newsletter / tool):")|
 function mLogTag(){
   if(_mDraft.conviction==null||!_mDraft.sources.length) return;
   if(!Array.isArray(STATE.entryTags)) STATE.entryTags=[];
-  STATE.entryTags.push({ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ", conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), matched:null });
-  _mDraft={conviction:null,sources:[],ticker:"/NQ"};
+  const note=(_mDraft.note||"").trim();
+  if(_mEditId){
+    const t=STATE.entryTags.find(x=>x.id===_mEditId);
+    if(t){
+      t.conviction=_mDraft.conviction; t.sources=_mDraft.sources.slice(); t.ticker=_mDraft.ticker||"/NQ"; t.note=note;
+      // if it already merged onto a trade, push the edits through to that trade too
+      if(t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr){ tr.conviction=t.conviction; tr.ideaSources=t.sources.slice(); tr.ideaSource=t.sources[0]||tr.ideaSource; if(note)tr.entryNote=note; } }
+    }
+    _mEditId=null;
+  } else {
+    STATE.entryTags.push({ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ", conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), note, matched:null });
+  }
+  _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""};
   reconcileEntryTags(); save(); renderMobile();
+}
+function mEditTag(id){
+  const t=(STATE.entryTags||[]).find(x=>x.id===id); if(!t) return;
+  _mEditId=id; _mDraft={conviction:t.conviction, sources:(t.sources||[]).slice(), ticker:t.ticker||"/NQ", note:t.note||""};
+  renderMobile(); const c=document.getElementById("m-content"); if(c)c.scrollTop=0;
+}
+function mCancelTagEdit(){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""}; renderMobile(); }
+function mDeleteTag(id){
+  if(!confirm("Delete this tag?")) return;
+  const t=(STATE.entryTags||[]).find(x=>x.id===id);
+  if(t&&t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr&&String(tr._taggedBy)===String(id)) delete tr._taggedBy; }  // unlock the trade for future re-match; leaves its conviction as-is
+  STATE.entryTags=(STATE.entryTags||[]).filter(x=>x.id!==id);
+  if(_mEditId===id){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""}; }
+  save(); renderMobile();
 }
 function _etToMs(dateStr, hm){
   if(!dateStr) return null;
@@ -13143,7 +13175,7 @@ function reconcileEntryTags(){
       const te=_etToMs(tr.entryDate,tr.entryTime); if(te==null) continue;
       const d=Math.abs(te-tt); if(d<bd){bd=d;best=tr;}
     }
-    if(best){ best.conviction=tag.conviction; best.ideaSources=tag.sources.slice(); best.ideaSource=best.ideaSource||tag.sources[0]; best._taggedBy=tag.id; tag.matched=best.id; changed=true; }
+    if(best){ best.conviction=tag.conviction; best.ideaSources=tag.sources.slice(); best.ideaSource=best.ideaSource||tag.sources[0]; if((tag.note||"").trim())best.entryNote=tag.note; best._taggedBy=tag.id; tag.matched=best.id; changed=true; }
   }
   if(changed) save();
 }
