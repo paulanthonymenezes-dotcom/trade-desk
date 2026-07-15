@@ -12885,7 +12885,7 @@ function renderMobile() {
   const todayPnl = closed.filter(t => String(t.exitDate || "").slice(0,10) === today).reduce((s,t)=>s+(+t.realizedPnl||0),0);
   let syncStr = "—";
   if (STATE.lastAutoSync) { try { syncStr = new Date(STATE.lastAutoSync).toLocaleString("en-US",{timeZone:"America/New_York",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}); } catch(e){} }
-  if (sub) sub.innerHTML = `<div style="text-align:right;opacity:.65;font-size:9px">⟳ IBKR ${syncStr}</div><div style="text-align:right">today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}</div>`;
+  if (sub) sub.innerHTML = `<div onclick="mSyncNow()" style="text-align:right;font-size:9px;color:var(--accent);cursor:pointer">${_mSyncing?"↻ syncing IBKR…":`⟳ IBKR ${syncStr} · tap`}</div><div style="text-align:right">today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}</div>`;
   if (!_dataLoaded) { el.innerHTML = `<div style="padding:48px 0;text-align:center;color:var(--text-muted);font-size:13px">Loading your desk…</div>`; return; }
   if (v === "am") { el.innerHTML = renderMAM(); if (!_macroCalEvents.length) _mLoadMacro(); }
   else if (v === "tag") el.innerHTML = renderMTag();
@@ -13255,6 +13255,16 @@ function mJToggleSrc(id,s){ const t=(STATE.trades||[]).find(t=>String(t.id)===St
 function mJAddSrc(id){ const n=(prompt("New source (person / newsletter / tool):")||"").trim(); if(!n)return; const l=_ideaSources(); if(!l.includes(n))l.push(n); mJToggleSrc(id,n); }
 function mSaveJ(id){ _mjOpen.delete(String(id)); _mjApply(id,{}); }
 function mSetPosSector(tk){ if(!tk)return; const v=(prompt("Sector for "+tk+" (e.g. Technology, Energy, Financials):", getSector(tk)||"")||"").trim(); if(v){ if(!STATE.sectors)STATE.sectors={}; STATE.sectors[tk]=v; save(); renderMobile(); } }
+let _mSyncing=false;
+// Pull fresh IBKR data (trades + positions + NAV) from the phone. The SYNC button
+// is desktop-only chrome, so tapping the header IBKR line triggers it here.
+async function mSyncNow(){
+  if(_mSyncing) return;
+  if(!STATE.ibkrToken || !STATE.ibkrQueryId){ alert("Set your IBKR Flex token & query ID on the desktop first."); return; }
+  _mSyncing=true; renderMobile();
+  try { await syncIBKR(true); } catch(e){}
+  _mSyncing=false; renderMobile();
+}
 // Manually log a live position (today's 0DTE that Flex hasn't captured yet) so it shows
 // on the AM tab with its own 200% stop. Cleared with × when you close it.
 function mAddLivePos(){
