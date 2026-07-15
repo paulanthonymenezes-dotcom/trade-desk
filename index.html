@@ -12946,29 +12946,25 @@ function renderMAM(){
   else if(crit.length) macro=`<div style="border:1px solid ${R};background:var(--negative-faint,rgba(239,68,68,0.12));border-radius:12px;padding:14px 15px;margin-top:4px"><div style="color:${R};font-weight:700;font-size:13px">⚠ MAJOR MACRO TODAY</div>${crit.map(ev=>`<div style="font-size:15px;color:${TP};margin-top:7px">${evLine(ev)}</div>`).join("")}<div style="font-size:11px;color:${MU};margin-top:9px">Size down or sit out the release — a vol spike tests your short strikes.</div></div>`;
   else if(evToday.length) macro=`<div class="m-lbl">Macro today (high impact)</div>${evToday.map(ev=>`<div style="font-size:14px;color:${TP};padding:6px 0;border-bottom:1px solid var(--border-subtle)">${evLine(ev)}</div>`).join("")}`;
   else macro=`<div class="m-lbl">Macro today</div><div style="color:${G};font-size:13px">✓ No major US releases today — clean tape for premium.</div>`;
-  // Per-trade 200% stop — an explicit list of open positions, each with ITS OWN stop.
-  // Two sources: Flex-synced open positions (multi-day holds) + positions you log by hand
-  // (today's 0DTE that Flex hasn't captured yet). No averages, ever.
-  const syncedOpen=(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0)
-    .map(t=>({key:"s"+t.id, ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/"), manual:false}));
-  const manualOpen=(STATE.livePositions||[])
-    .map(p=>({key:p.id, id:p.id, ticker:p.ticker, credit:+p.credit||0, contracts:p.contracts||1, strikes:"", manual:true}));
-  const allOpen=manualOpen.concat(syncedOpen);
+  // Per-trade 200% stop — an explicit list of the open positions IBKR has synced,
+  // each with ITS OWN stop. No averages, no manual logging (positions come from the sync).
+  const syncSt=STATE.lastAutoSync?new Date(STATE.lastAutoSync).toLocaleString("en-US",{timeZone:"America/New_York",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
+  const allOpen=(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0)
+    .map(t=>({ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/")}));
   const secCount={}; allOpen.forEach(p=>{const s=getSector(p.ticker); if(s)secCount[s]=(secCount[s]||0)+1;});
   const dupSec=Object.entries(secCount).filter(([s,n])=>n>=2);
   const totalRisk=Math.round(allOpen.reduce((s,p)=>s+p.credit*2,0));
   const posRow=p=>{
     const sl=Math.round(p.credit*2), sec=getSector(p.ticker);
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${p.strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${p.strikes}</span>`:""}${p.manual?` <span style="color:var(--accent);font-size:9px;font-weight:700">LIVE</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.credit).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:(p.ticker?` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`:"")}</div></div><div style="display:flex;align-items:center;gap:12px"><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div>${p.manual?`<span onclick="mRemoveLivePos('${p.id}')" style="color:${MU};font-size:18px;line-height:1;padding:2px 4px;cursor:pointer">×</span>`:`<span style="width:14px"></span>`}</div></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${p.strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${p.strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.credit).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:(p.ticker?` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`:"")}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;
   };
-  const perHdr=`<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · open positions</div><span onclick="mAddLivePos()" style="color:var(--accent);font-size:12px;font-weight:700;cursor:pointer">＋ add</span></div>`;
-  let perTradeBlock=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px">${perHdr}`;
+  let perTradeBlock=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · open positions</div>`;
   if(allOpen.length){
     perTradeBlock+=allOpen.map(posRow).join("")
       + (dupSec.length?`<div style="font-size:11px;color:var(--warning,#e0a800);margin-top:9px">⚠ ${dupSec.map(([s,n])=>`${n} in ${escapeHtml(s)}`).join(" · ")} — correlated, size as one bet.</div>`:``)
       + `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px"><span style="font-size:11px;color:${MU}">total at risk if all stop out</span><span style="font-size:13px;font-weight:700;color:${R};font-variant-numeric:tabular-nums">−$${totalRisk.toLocaleString()}${dailyStop?`<span style="color:${totalRisk>dailyStop?R:MU};font-weight:400"> / −$${dailyStop.toLocaleString()} daily</span>`:""}</span></div>`;
   } else {
-    perTradeBlock+=`<div style="font-size:13px;color:${MU};padding:12px 0 2px;line-height:1.5">No open positions from your last sync. Tap <b style="color:var(--accent)">＋ add</b> to log a trade you're holding now — you'll get its exact 200% stop.</div>`;
+    perTradeBlock+=`<div style="font-size:13px;color:${MU};padding:12px 0 2px;line-height:1.5">No open positions in IBKR's last sync${syncSt?` (${syncSt})`:""}. Same-day 0DTE only appears once it's in a Flex statement — intraday won't show here.</div>`;
   }
   perTradeBlock+=`</div>`;
   const mn=_latestMorningNote();
