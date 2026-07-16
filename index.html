@@ -9593,7 +9593,10 @@ function _toggleMacroCountry(cc) {
 function _renderMacroCal() {
   const body = document.getElementById("macro-cal-body");
   if (!body) return;
-  const all = _macroCalEvents;
+  // Never show events already in the past — guards against a stale cached payload
+  // (e.g. when the API quota is exhausted and we're serving the last good pull).
+  const _todayISO = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const all = (_macroCalEvents || []).filter(e => (e.date || "").slice(0, 10) >= _todayISO);
   const allCC = Object.keys(_MACRO_FLAG);
   const activeC = _macroCalCountries.size ? _macroCalCountries : new Set(allCC);
   const allOn = _macroCalCountries.size === allCC.length;
