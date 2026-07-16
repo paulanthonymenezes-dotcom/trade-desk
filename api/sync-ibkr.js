@@ -287,13 +287,15 @@ function parseFlexExtras(csvText) {
       const iCat = col(["AssetClass"]), iSym = col(["Symbol"]), iUnd = col(["UnderlyingSymbol"]), iStr = col(["Strike"]),
         iExp = col(["Expiry"]), iPC = col(["Put/Call", "PutCall", "Right"]), iQty = col(["Quantity", "Position"]),
         iCB = col(["CostBasisMoney"]), iUnr = col(["FifoPnlUnrealized"]);
+      const _futRoot = u => { const b = (u || "").toUpperCase(); const m = b.match(/^(MNQ|MES|NQ|ES|M2K|MYM|RTY|YM)/); return m ? "/" + m[1] : b; };
       const legs = [];
       for (let i = sec.start + 1; i < sec.end; i++) {
         const f = parseCSVLine(lines[i]); if (f.length < 5) continue;
         const cat = (iCat >= 0 ? f[iCat] : "").toUpperCase(); if (cat === "CASH" || !cat) continue;
         const qty = F(iQty >= 0 ? f[iQty] : 0); if (Math.abs(qty) < 1e-9) continue;
         const exp = iExp >= 0 ? f[iExp] : ""; if (exp && parseInt(exp) < today) continue;
-        legs.push({ cat, sym: iSym >= 0 ? f[iSym] : "", und: (iUnd >= 0 ? f[iUnd] : "") || (iSym >= 0 ? f[iSym] : ""),
+        const rawUnd = (iUnd >= 0 ? f[iUnd] : "") || (iSym >= 0 ? f[iSym] : "");
+        legs.push({ cat, sym: iSym >= 0 ? f[iSym] : "", und: cat === "FOP" ? _futRoot(rawUnd) : rawUnd,
           strike: F(iStr >= 0 ? f[iStr] : 0), expiry: exp, pc: iPC >= 0 ? f[iPC] : "", qty,
           cb: F(iCB >= 0 ? f[iCB] : 0), unr: F(iUnr >= 0 ? f[iUnr] : 0), short: qty < 0 });
       }
