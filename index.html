@@ -12995,7 +12995,7 @@ function renderMAM(){
     <div style="font-size:13px;color:${MU};margin:2px 0 14px">☀ ${hi} — pre-market check</div>
     ${mnCard}
     ${card(usingNAV?"Account balance · IBKR":"Account balance · est.", bal?"$"+Math.round(bal).toLocaleString():"— set in Settings", balSub, TP)}
-    ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", bal?`$${bal.toLocaleString()} → <b style="color:${TP}">$${(bal-dailyStop).toLocaleString()}</b> floor. Hit it and you're done.`:"set balance in Settings", R)}
+    ${card("Daily stop ("+dpct+"%)", bal?"−$"+dailyStop.toLocaleString():"—", bal?`$${Math.round(bal).toLocaleString()} → <b style="color:${TP}">$${Math.round(bal-dailyStop).toLocaleString()}</b> floor. Hit it and you're done.`:"set balance in Settings", R)}
     ${perTradeBlock}
     ${macro}
     <div class="m-lbl">Today's playbook</div>
