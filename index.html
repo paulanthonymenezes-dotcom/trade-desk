@@ -17192,7 +17192,24 @@ function renderBacktester() {
         (daily/4h EMAs, weekend gaps, bracket sims) — every number ships with its sample size.
       </div>
     </div>
-    <div id="bt-snap" style="margin:8px auto 0"><div style="text-align:center;color:var(--text-secondary);font-size:12px;padding:16px">Loading snapshot…</div></div>
+    <div style="max-width:760px;margin:4px auto 0;border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:8px">
+        Live entry — type what your chart shows</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <select id="bt-tf" style="width:88px;flex:0 0 auto;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px">
+          <option value="5m" selected>5m</option><option value="15m">15m</option>
+          <option value="30m">30m</option><option value="1h">1h</option>
+          <option value="4h">4h</option><option value="daily">Daily</option>
+        </select>
+        <input id="bt-price" placeholder="Price" inputmode="decimal" style="width:100px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px" onkeydown="if(event.key==='Enter')_btProbs()">
+        <input id="bt-e20" placeholder="EMA 20" inputmode="decimal" style="width:100px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px" onkeydown="if(event.key==='Enter')_btProbs()">
+        <input id="bt-e50" placeholder="EMA 50" inputmode="decimal" style="width:100px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px" onkeydown="if(event.key==='Enter')_btProbs()">
+        <input id="bt-ct" value="1" title="contracts" inputmode="numeric" style="width:52px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px" onkeydown="if(event.key==='Enter')_btProbs()">
+        <button id="bt-probgo" onclick="_btProbs()" style="padding:8px 16px;border-radius:8px;border:none;background:var(--positive,#2ea043);color:#fff;font-size:13px;cursor:pointer">Odds</button>
+      </div>
+      <div id="bt-calc-out" style="margin-top:10px"></div>
+    </div>
+    <div id="bt-snap" style="margin:14px auto 0"><div style="text-align:center;color:var(--text-secondary);font-size:12px;padding:16px">Loading snapshot…</div></div>
     <div style="display:flex;gap:8px;max-width:760px;margin:22px auto 0">
       <input id="bt-q" placeholder="Ask a follow-up backtest question…" autocomplete="off"
         style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid var(--border);
@@ -17229,6 +17246,74 @@ function _btTable(title, headers, rows) {
 function _btCard(title, html) {
   return `<div style="max-width:760px;margin:0 auto;border:1px solid var(--border);border-radius:10px;padding:12px 14px">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:6px">${_btEsc(title)}</div>${html}</div>`;
+}
+
+async function _btProbs() {
+  const out = document.getElementById('bt-calc-out');
+  const go = document.getElementById('bt-probgo');
+  const num = id => { const v = parseFloat((document.getElementById(id) || {}).value); return isFinite(v) ? v : null; };
+  const price = num('bt-price'), e20 = num('bt-e20'), e50 = num('bt-e50');
+  const tf = (document.getElementById('bt-tf') || {}).value || '5m';
+  const ct = Math.max(1, parseInt((document.getElementById('bt-ct') || {}).value, 10) || 1);
+  if (!out) return;
+  if (!price) { out.innerHTML = `<div style="font-size:12px;color:var(--negative)">Enter a price.</div>`; return; }
+  if (!e20 && !e50) { out.innerHTML = `<div style="font-size:12px;color:var(--negative)">Enter EMA 20 and/or EMA 50.</div>`; return; }
+  const acct = (typeof _liveEquity === 'function' ? (_liveEquity() || 0) : 0) || null;
+  go.disabled = true; go.textContent = '…';
+  out.innerHTML = `<div style="font-size:12px;color:var(--text-secondary)">Computing…</div>`;
+  try {
+    const r = await fetch('/bt/probabilities', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ price, ema20: e20, ema50: e50, timeframe: tf, account: acct, contracts: ct }),
+    });
+    const s = await r.json();
+    if (!r.ok || s.error) throw new Error(s.error || ('HTTP ' + r.status));
+    const money = n => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString();
+    const sign = v => (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+    const td = (h, st) => `<td style="padding:3px 6px;border-bottom:1px solid var(--border);${st || ''}">${h}</td>`;
+    let html = '';
+    for (const p of [20, 50]) {
+      const e = s.emas[p]; if (!e) continue;
+      const below = e.depth_pct < 0;
+      const hz = Object.entries(e.reclaim.within)
+        .map(([h, v]) => `<b>${h}</b> ${(v * 100).toFixed(0)}%`).join(' · ');
+      html += `<div style="margin-top:10px">
+        <div style="font-size:12px;margin-bottom:4px">
+          <b>${p}-EMA ${e.ema.toLocaleString()}</b> ·
+          <span style="color:${below ? 'var(--negative)' : 'var(--positive)'}">${sign(e.depth_pct)}</span> ·
+          <span style="color:var(--text-secondary)">only ${e.percentile_more_extended}% of history more stretched</span>
+        </div>
+        <div style="font-size:12px;line-height:1.6">
+          Reclaim within (${s.bar_label}): ${hz} · median <b>${e.reclaim.median_bars ?? '—'}</b>
+          <span style="color:var(--text-secondary)">· n=${e.reclaim.n.toLocaleString()}</span>
+        </div>`;
+      const fd = e.further_drawdown;
+      if (fd) {
+        const rows = ['median', 'p25', 'p10', 'worst'].map(k => {
+          const acctAfter = fd.account_after ? fd.account_after[k] : null;
+          return `<tr>` + td(k) +
+            td(sign(fd.pct[k]), 'text-align:right;color:var(--negative)') +
+            td(fd.points[k] + ' pt', 'text-align:right') +
+            td(money(fd.dollars[k]), 'text-align:right;color:var(--negative)') +
+            (acctAfter != null ? td(money(acctAfter) + (acctAfter < 55000 ? ' ⚠' : ''),
+              `text-align:right;color:${acctAfter < 55000 ? 'var(--negative)' : 'var(--text-primary)'}`) : '') +
+            `</tr>`;
+        }).join('');
+        html += `<div style="margin-top:6px">
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">
+            Further drawdown before reclaim · n=${fd.n.toLocaleString()} · median ${fd.median_bars_to_recover} ${s.bar_label} to recover</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>${rows}</tbody></table></div>`;
+      }
+      html += `</div>`;
+    }
+    html += `<div style="font-size:10px;color:var(--text-secondary);margin-top:8px">
+      ${s.timeframe} · ${s.n_bars_history.toLocaleString()} bars of history · data through ${String(s.data_through).slice(0, 16)}</div>`;
+    out.innerHTML = html;
+  } catch (e) {
+    out.innerHTML = `<div style="font-size:12px;color:var(--negative)">Error: ${_btEsc(e.message)}</div>`;
+  } finally {
+    go.disabled = false; go.textContent = 'Odds';
+  }
 }
 
 async function _btSnapshot() {
