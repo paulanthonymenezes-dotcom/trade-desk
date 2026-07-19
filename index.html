@@ -626,6 +626,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('eecharts',this)"><span class="nav-icon">📈</span><span class="side-label">Entry/Exit Charts</span></button>
   <button class="side-btn" onclick="switchTab('nqscreener',this)"><span class="nav-icon">🔭</span><span class="side-label">NQ Screener</span></button>
   <button class="side-btn" onclick="switchTab('nqsessions',this)"><span class="nav-icon">📊</span><span class="side-label">NQ Sessions</span></button>
+  <button class="side-btn" onclick="switchTab('backtester',this)"><span class="nav-icon">🧪</span><span class="side-label">NQ Backtester</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
   <button class="side-btn" onclick="switchTab('calendar',this)"><span class="nav-icon">📅</span><span class="side-label">Calendar</span></button>
   <button class="side-btn" onclick="switchTab('resources',this)"><span class="nav-icon">🔗</span><span class="side-label">Resources</span></button>
@@ -755,6 +756,11 @@ table{width:100%;border-collapse:collapse}
   <!-- NQ SESSIONS TAB -->
   <div id="tab-nqsessions" class="section" style="display:none">
     <div id="nqsessions-content" style="max-width:1100px;margin:0 auto"></div>
+  </div>
+
+  <!-- NQ BACKTESTER TAB -->
+  <div id="tab-backtester" class="section" style="display:none">
+    <div id="backtester-content" style="max-width:900px;margin:0 auto"></div>
   </div>
 
   <!-- CALENDAR TAB -->
@@ -17162,10 +17168,105 @@ mktLoadAll();
 // ══════════════════════════════════════════════════════════════════════════════
 // CHART_TABS and _macroChartLock already declared above
 
+// ══════════════════════════════════════════════════════════════════════════════
+// NQ BACKTESTER — natural-language query over the emastudy engine (VPS :8080)
+// ══════════════════════════════════════════════════════════════════════════════
+const BT_EXAMPLES = [
+  "How oversold are we vs the daily 20 and 50 EMA right now?",
+  "At this depth below the 20-EMA, how often do we reclaim it within 3 days?",
+  "From here, how much further does NQ typically drop before recovering? Put it in dollars on a 62k account.",
+  "In similar setups (Fri 2%+ below the 20-EMA), what's the weekend gap and overnight-low distribution?",
+  "Simulate a sell-limit +1.1% / stop -1.2% / stop-limit -2.0% bracket on similar weekends. What's the worst case on 1 contract?",
+];
+
+function renderBacktester() {
+  const el = document.getElementById('backtester-content');
+  if (!el) return;
+  if (el.dataset.built === '1') return; // preserve state across tab switches
+  el.dataset.built = '1';
+  el.innerHTML = `
+    <div style="padding:32px 8px 12px;text-align:center">
+      <div style="font-size:20px;letter-spacing:0.02em;color:var(--text-primary)">🧪 NQ Backtester</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+        Ask in plain English. Answers are computed live from your validated 2008–present data
+        (daily/4h EMAs, weekend gaps, bracket sims) — every number ships with its sample size.
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;max-width:760px;margin:14px auto 0">
+      <input id="bt-q" placeholder="Ask a backtest question…" autocomplete="off"
+        style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid var(--border);
+               background:var(--bg-elev,#111);color:var(--text-primary);font-size:14px"
+        onkeydown="if(event.key==='Enter')_btRun()">
+      <button onclick="_btRun()" id="bt-go"
+        style="padding:0 18px;border-radius:10px;border:none;background:var(--positive,#2ea043);
+               color:#fff;font-size:14px;cursor:pointer">Run</button>
+    </div>
+    <div id="bt-chips" style="display:flex;flex-wrap:wrap;gap:6px;max-width:760px;margin:12px auto 0;justify-content:center"></div>
+    <div id="bt-out" style="max-width:820px;margin:22px auto 0"></div>
+  `;
+  const chips = el.querySelector('#bt-chips');
+  BT_EXAMPLES.forEach(q => {
+    const c = document.createElement('button');
+    c.textContent = q.length > 62 ? q.slice(0, 60) + '…' : q;
+    c.title = q;
+    c.style.cssText = "font-size:11px;padding:6px 10px;border-radius:14px;border:1px solid var(--border);" +
+      "background:transparent;color:var(--text-secondary);cursor:pointer;max-width:100%";
+    c.onclick = () => { document.getElementById('bt-q').value = q; _btRun(); };
+    chips.appendChild(c);
+  });
+}
+
+function _btEsc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
+
+function _btRenderSteps(steps) {
+  if (!steps || !steps.length) return '';
+  const rows = steps.map(s => {
+    const inp = _btEsc(JSON.stringify(s.input));
+    const res = _btEsc(JSON.stringify(s.result, null, 0));
+    return `<details style="margin:6px 0;border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--text-primary)">
+        <span style="color:var(--positive)">${_btEsc(s.tool)}</span>
+        <span style="color:var(--text-secondary)">${inp}</span></summary>
+      <pre style="white-space:pre-wrap;word-break:break-word;font-size:11px;color:var(--text-secondary);margin:8px 0 0">${res}</pre>
+    </details>`;
+  }).join('');
+  return `<div style="margin-top:14px"><div style="font-size:11px;color:var(--text-secondary);
+    text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Supporting data</div>${rows}</div>`;
+}
+
+async function _btRun() {
+  const q = (document.getElementById('bt-q') || {}).value;
+  const out = document.getElementById('bt-out');
+  const go = document.getElementById('bt-go');
+  if (!q || !q.trim() || !out) return;
+  go.disabled = true; go.textContent = '…';
+  out.innerHTML = `<div style="text-align:center;color:var(--text-secondary);font-size:13px;padding:20px">
+    Running backtest…</div>`;
+  try {
+    const r = await fetch('/api/backtest-query', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q.trim() }),
+    });
+    const data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
+    const answer = _btEsc(data.answer || '(no answer)').replace(/\n/g, '<br>');
+    out.innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:12px;padding:16px 18px;background:var(--bg-elev,#0e0e0e)">
+        <div style="font-size:14px;line-height:1.55;color:var(--text-primary)">${answer}</div>
+      </div>
+      ${_btRenderSteps(data.steps)}`;
+  } catch (e) {
+    out.innerHTML = `<div style="border:1px solid var(--negative,#d33);border-radius:10px;padding:14px;
+      color:var(--negative,#d33);font-size:13px">Error: ${_btEsc(e.message)}</div>`;
+  } finally {
+    go.disabled = false; go.textContent = 'Run';
+  }
+}
+
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'resources', 'calendar'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'backtester', 'resources', 'calendar'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -17236,6 +17337,8 @@ function switchTab(tab, btn) {
     if (typeof renderNqScreener === 'function') renderNqScreener();
   } else if (tab === 'nqsessions') {
     if (typeof renderNqSessions === 'function') renderNqSessions();
+  } else if (tab === 'backtester') {
+    if (typeof renderBacktester === 'function') renderBacktester();
   } else if (tab === 'guardrails') {
     if (typeof renderGuardrails === 'function') renderGuardrails();
   } else if (tab === 'resources') {

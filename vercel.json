@@ -5,6 +5,7 @@
   ],
   "rewrites": [
     { "source": "/scanner/:path*", "destination": "http://64.225.57.14:8787/:path*" },
-    { "source": "/mkt/:path*", "destination": "http://64.225.57.14:8787/:path*" }
+    { "source": "/mkt/:path*", "destination": "http://64.225.57.14:8787/:path*" },
+    { "source": "/bt/:path*", "destination": "http://64.225.57.14:8080/:path*" }
   ]
 }
