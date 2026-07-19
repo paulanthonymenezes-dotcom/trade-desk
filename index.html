@@ -17196,10 +17196,14 @@ function renderBacktester() {
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:8px">
         Live entry — type what your chart shows</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-        <select id="bt-tf" style="width:88px;flex:0 0 auto;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px">
-          <option value="5m" selected>5m</option><option value="15m">15m</option>
-          <option value="30m">30m</option><option value="1h">1h</option>
-          <option value="4h">4h</option><option value="daily">Daily</option>
+        <select id="bt-sym" onchange="_btSnapshot()" style="width:74px;flex:0 0 auto;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px">
+          <option value="nq" selected>NQ</option><option value="es">ES</option>
+        </select>
+        <select id="bt-tf" style="width:80px;flex:0 0 auto;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px">
+          <option value="1m">1m</option><option value="5m" selected>5m</option>
+          <option value="15m">15m</option><option value="30m">30m</option>
+          <option value="1h">1h</option><option value="4h">4h</option>
+          <option value="daily">Daily</option>
         </select>
         <input id="bt-price" placeholder="Price" inputmode="decimal" style="width:100px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px" onkeydown="if(event.key==='Enter')_btProbs()">
         <input id="bt-e20" placeholder="EMA 20" inputmode="decimal" style="width:100px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:13px" onkeydown="if(event.key==='Enter')_btProbs()">
@@ -17254,6 +17258,7 @@ async function _btProbs() {
   const num = id => { const v = parseFloat((document.getElementById(id) || {}).value); return isFinite(v) ? v : null; };
   const price = num('bt-price'), e20 = num('bt-e20'), e50 = num('bt-e50');
   const tf = (document.getElementById('bt-tf') || {}).value || '5m';
+  const sym = (document.getElementById('bt-sym') || {}).value || 'nq';
   const ct = Math.max(1, parseInt((document.getElementById('bt-ct') || {}).value, 10) || 1);
   if (!out) return;
   if (!price) { out.innerHTML = `<div style="font-size:12px;color:var(--negative)">Enter a price.</div>`; return; }
@@ -17264,7 +17269,7 @@ async function _btProbs() {
   try {
     const r = await fetch('/bt/probabilities', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ price, ema20: e20, ema50: e50, timeframe: tf, account: acct, contracts: ct }),
+      body: JSON.stringify({ symbol: sym, price, ema20: e20, ema50: e50, timeframe: tf, account: acct, contracts: ct }),
     });
     const s = await r.json();
     if (!r.ok || s.error) throw new Error(s.error || ('HTTP ' + r.status));
@@ -17307,7 +17312,7 @@ async function _btProbs() {
       html += `</div>`;
     }
     html += `<div style="font-size:10px;color:var(--text-secondary);margin-top:8px">
-      ${s.timeframe} · ${s.n_bars_history.toLocaleString()} bars of history · data through ${String(s.data_through).slice(0, 16)}</div>`;
+      ${s.symbol || 'NQ'} ${s.timeframe} · $${s.point_value}/pt · ${s.n_bars_history.toLocaleString()} bars of history · data through ${String(s.data_through).slice(0, 16)}</div>`;
     out.innerHTML = html;
   } catch (e) {
     out.innerHTML = `<div style="font-size:12px;color:var(--negative)">Error: ${_btEsc(e.message)}</div>`;
@@ -17320,14 +17325,16 @@ async function _btSnapshot() {
   const box = document.getElementById('bt-snap');
   if (!box) return;
   try {
-    const r = await fetch('/bt/snapshot');
+    const sym = (document.getElementById('bt-sym') || {}).value || 'nq';
+    const r = await fetch('/bt/snapshot?symbol=' + encodeURIComponent(sym));
     const s = await r.json();
     if (!r.ok || s.error) throw new Error(s.error || ('HTTP ' + r.status));
     const acct = (typeof _liveEquity === 'function' ? (_liveEquity() || 0) : 0) || 62000;
     const close = s.close;
     const px = pct => Math.round(close * (1 + pct / 100));
-    const dol = pct => Math.round((px(pct) - close) * 20);
-    const acctAfter = pct => Math.round(acct + (px(pct) - close) * 20);
+    const PV = s.point_value || 20;
+    const dol = pct => Math.round((px(pct) - close) * PV);
+    const acctAfter = pct => Math.round(acct + (px(pct) - close) * PV);
     const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString();
     const sign = v => (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
     const td = (html, style) => `<td style="padding:4px 6px;border-bottom:1px solid var(--border);${style || ''}">${html}</td>`;
@@ -17349,7 +17356,7 @@ async function _btSnapshot() {
 
     const wk = s.weekend;
     box.innerHTML = `
-      ${_btTable('Where we stand — ' + s.as_of + ' · close ' + close.toLocaleString(),
+      ${_btTable('Where we stand — ' + (s.symbol || 'NQ') + ' · ' + s.as_of + ' · close ' + close.toLocaleString(),
         ['Timeframe', 'EMA', 'Distance', 'Percentile'], emaRows)}
       <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px">
         ${_btCard('Reclaim the daily 20-EMA · n=' + s.reclaim.n,
