@@ -17243,7 +17243,7 @@ async function _btRun() {
   out.innerHTML = `<div style="text-align:center;color:var(--text-secondary);font-size:13px;padding:20px">
     Running backtest…</div>`;
   try {
-    const r = await fetch('/api/backtest-query', {
+    const r = await fetch('/bt/query', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: q.trim() }),
     });
