@@ -17192,8 +17192,9 @@ function renderBacktester() {
         (daily/4h EMAs, weekend gaps, bracket sims) — every number ships with its sample size.
       </div>
     </div>
-    <div style="display:flex;gap:8px;max-width:760px;margin:14px auto 0">
-      <input id="bt-q" placeholder="Ask a backtest question…" autocomplete="off"
+    <div id="bt-snap" style="margin:8px auto 0"><div style="text-align:center;color:var(--text-secondary);font-size:12px;padding:16px">Loading snapshot…</div></div>
+    <div style="display:flex;gap:8px;max-width:760px;margin:22px auto 0">
+      <input id="bt-q" placeholder="Ask a follow-up backtest question…" autocomplete="off"
         style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid var(--border);
                background:var(--bg-elev,#111);color:var(--text-primary);font-size:14px"
         onkeydown="if(event.key==='Enter')_btRun()">
@@ -17214,6 +17215,76 @@ function renderBacktester() {
     c.onclick = () => { document.getElementById('bt-q').value = q; _btRun(); };
     chips.appendChild(c);
   });
+  _btSnapshot();
+}
+
+function _btTable(title, headers, rows) {
+  return `<div style="max-width:760px;margin:0 auto 0">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin:0 0 6px">${_btEsc(title)}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>${headers.map((h, i) => `<th style="text-align:${i === 0 ? 'left' : 'right'};padding:4px 6px;color:var(--text-secondary);border-bottom:1px solid var(--border);font-weight:500">${_btEsc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+function _btCard(title, html) {
+  return `<div style="max-width:760px;margin:0 auto;border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:6px">${_btEsc(title)}</div>${html}</div>`;
+}
+
+async function _btSnapshot() {
+  const box = document.getElementById('bt-snap');
+  if (!box) return;
+  try {
+    const r = await fetch('/bt/snapshot');
+    const s = await r.json();
+    if (!r.ok || s.error) throw new Error(s.error || ('HTTP ' + r.status));
+    const acct = (typeof _liveEquity === 'function' ? (_liveEquity() || 0) : 0) || 62000;
+    const close = s.close;
+    const px = pct => Math.round(close * (1 + pct / 100));
+    const dol = pct => Math.round((px(pct) - close) * 20);
+    const acctAfter = pct => Math.round(acct + (px(pct) - close) * 20);
+    const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString();
+    const sign = v => (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+    const td = (html, style) => `<td style="padding:4px 6px;border-bottom:1px solid var(--border);${style || ''}">${html}</td>`;
+
+    const emaRows = s.ema.map(e => `<tr>` +
+      td(e.tf) + td(e.p + '-EMA') +
+      td(sign(e.dist), `text-align:right;color:${e.dist < 0 ? 'var(--negative)' : 'var(--positive)'}`) +
+      td(`only ${e.pctile}% of history more stretched`, 'text-align:right;color:var(--text-secondary)') +
+      `</tr>`).join('');
+
+    const ddRows = [['median', s.drawdown.median], ['p25 (bad)', s.drawdown.p25], ['p10 (tail)', s.drawdown.p10], ['worst ever', s.drawdown.worst]]
+      .map(([lbl, v]) => `<tr>` +
+        td(lbl) +
+        td(sign(v), 'text-align:right;color:var(--negative)') +
+        td('~' + px(v).toLocaleString(), 'text-align:right') +
+        td(money(acctAfter(v)) + (acctAfter(v) < 55000 ? ' ⚠' : ''),
+           `text-align:right;color:${acctAfter(v) < 55000 ? 'var(--negative)' : 'var(--text-primary)'}`) +
+        `</tr>`).join('');
+
+    const wk = s.weekend;
+    box.innerHTML = `
+      ${_btTable('Where we stand — ' + s.as_of + ' · close ' + close.toLocaleString(),
+        ['Timeframe', 'EMA', 'Distance', 'Percentile'], emaRows)}
+      <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px">
+        ${_btCard('Reclaim the daily 20-EMA · n=' + s.reclaim.n,
+          `<div style="font-size:13px;line-height:1.7">
+             Within <b>3d</b> ${(s.reclaim.d3 * 100).toFixed(0)}% &nbsp;·&nbsp;
+             <b>5d</b> ${(s.reclaim.d5 * 100).toFixed(0)}% &nbsp;·&nbsp;
+             <b>10d</b> ${(s.reclaim.d10 * 100).toFixed(0)}% &nbsp;·&nbsp;
+             median <b>${s.reclaim.median_days}d</b> to reclaim</div>`)}
+        <div>${_btTable('If long 1 contract from here — further drawdown before recovery · n=' + s.drawdown.n + ' · median ' + s.drawdown.median_days + 'd to recover · account @ ' + money(acct),
+          ['Scenario', "Add'l move", '~Price', 'Account'], ddRows)}</div>
+        ${_btCard('Weekend risk — Fri ≥2% below 20-EMA · n=' + wk.n,
+          `<div style="font-size:13px;line-height:1.6">
+             Overnight low: median ${sign(wk.onlow_median)} &nbsp;·&nbsp;
+             p10 <b style="color:var(--negative)">${sign(wk.onlow_p10)}</b> (${money(dol(wk.onlow_p10))}) &nbsp;·&nbsp;
+             worst <b style="color:var(--negative)">${sign(wk.onlow_worst)}</b> (${money(dol(wk.onlow_worst))})<br>
+             <span style="color:var(--text-secondary)">${wk.pct_beyond1}% of these weekends breached −1% overnight · worst Sunday open gap ${sign(wk.gap_worst)}</span></div>`)}
+      </div>`;
+  } catch (e) {
+    box.innerHTML = `<div style="text-align:center;color:var(--text-secondary);font-size:12px;padding:12px">Snapshot unavailable: ${_btEsc(e.message)}</div>`;
+  }
 }
 
 function _btEsc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
