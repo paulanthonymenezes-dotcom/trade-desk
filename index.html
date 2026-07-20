@@ -17215,6 +17215,32 @@ function renderBacktester() {
       </div>
       <div id="bt-calc-out" style="margin-top:10px"></div>
     </div>
+    <div style="max-width:760px;margin:14px auto 0;border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:8px">
+        EMA cross — how long it stays (run length)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <select id="bx-tf" style="flex:0 0 auto;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:12px">
+          <option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option>
+          <option value="30m">30m</option><option value="45m">45m</option><option value="1h" selected>1h</option>
+          <option value="90m">90m</option><option value="2h">2h</option><option value="3h">3h</option>
+          <option value="4h">4h</option><option value="daily">Daily</option>
+        </select>
+        <span style="color:var(--text-secondary);font-size:12px">EMA</span>
+        <input id="bx-fast" value="9" inputmode="numeric" title="fast EMA" style="width:40px;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:12px">
+        <span style="color:var(--text-secondary)">/</span>
+        <input id="bx-slow" value="20" inputmode="numeric" title="slow EMA" style="width:40px;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:12px">
+        <select id="bx-dir" style="flex:0 0 auto;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:12px">
+          <option value="both" selected>Both</option><option value="up">Up only</option><option value="down">Down only</option>
+        </select>
+        <select id="bx-sess" title="session filter" style="flex:0 0 auto;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:12px">
+          <option value="all" selected>All hrs</option><option value="rth">RTH</option><option value="overnight">O/N</option>
+        </select>
+        <input id="bx-since" type="date" title="from date" style="flex:0 0 auto;padding:6px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:12px">
+        <input id="bx-until" type="date" title="to date" style="flex:0 0 auto;padding:6px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev,#111);color:var(--text-primary);font-size:12px">
+        <button id="bx-go" onclick="_btCross()" style="padding:7px 16px;border-radius:8px;border:none;background:var(--positive,#2ea043);color:#fff;font-size:12px;cursor:pointer">Run</button>
+      </div>
+      <div id="bx-out" style="margin-top:10px"></div>
+    </div>
     <div id="bt-snap" style="margin:14px auto 0"><div style="text-align:center;color:var(--text-secondary);font-size:12px;padding:16px">Loading snapshot…</div></div>
     <div style="display:flex;gap:8px;max-width:760px;margin:22px auto 0">
       <input id="bt-q" placeholder="Ask a follow-up backtest question…" autocomplete="off"
@@ -17252,6 +17278,75 @@ function _btTable(title, headers, rows) {
 function _btCard(title, html) {
   return `<div style="max-width:760px;margin:0 auto;border:1px solid var(--border);border-radius:10px;padding:12px 14px">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:6px">${_btEsc(title)}</div>${html}</div>`;
+}
+
+function _btDur(mins, bars, tf) {
+  if (tf === 'daily') return bars + ' days';
+  if (mins == null) return bars + ' bars';
+  if (mins < 60) return mins + 'm';
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (mins < 1440) return h + 'h' + (m ? ' ' + m + 'm' : '');
+  return (mins / 1440).toFixed(1) + 'd';
+}
+
+async function _btCross() {
+  const out = document.getElementById('bx-out'), go = document.getElementById('bx-go');
+  const v = id => (document.getElementById(id) || {}).value;
+  const body = {
+    symbol: 'nq', timeframe: v('bx-tf') || '1h', direction: v('bx-dir') || 'both',
+    fast: parseInt(v('bx-fast'), 10) || 9, slow: parseInt(v('bx-slow'), 10) || 20,
+    session: v('bx-sess') || 'all',
+    since: v('bx-since') || null, until: v('bx-until') || null,
+  };
+  if (body.fast >= body.slow) { out.innerHTML = `<div style="font-size:12px;color:var(--negative)">Fast EMA must be less than slow EMA.</div>`; return; }
+  go.disabled = true; go.textContent = '…';
+  out.innerHTML = `<div style="font-size:12px;color:var(--text-secondary)">Computing…</div>`;
+  try {
+    const r = await fetch('/bt/cross_runlength', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+    const dirs = Object.keys(d.results);
+    const th = s => `<th style="text-align:right;padding:3px 8px;color:var(--text-secondary);border-bottom:1px solid var(--border);font-weight:500">${s}</th>`;
+    const rowsMeta = [
+      ['crosses (n)', s => s.n.toLocaleString()],
+      ['avg bars', s => s.avg_bars],
+      ['median bars', s => `<b>${s.median_bars}</b>`],
+      ['median time', s => _btDur(s.median_minutes, s.median_bars, d.timeframe)],
+      ['25th pct', s => s.p25], ['75th pct', s => s.p75], ['90th pct', s => s.p90],
+      ['longest', s => (s.max || 0).toLocaleString() + ' bars'],
+    ];
+    const body_rows = rowsMeta.map(([lbl, f]) => `<tr>
+      <td style="padding:3px 8px;color:var(--text-secondary)">${lbl}</td>
+      ${dirs.map(dir => `<td style="padding:3px 8px;text-align:right">${f(d.results[dir])}</td>`).join('')}
+    </tr>`).join('');
+    // histogram (shared scale across shown directions)
+    const allc = dirs.flatMap(dir => d.results[dir].hist.counts);
+    const mx = Math.max(1, ...allc);
+    const labels = d.results[dirs[0]].hist.labels;
+    const histRows = labels.map((lb, i) => `<tr>
+      <td style="padding:2px 8px;color:var(--text-secondary);font-size:11px">${lb}</td>
+      ${dirs.map(dir => { const c = d.results[dir].hist.counts[i];
+        const col = dir === 'up' ? 'var(--positive)' : 'var(--negative)';
+        return `<td style="padding:2px 8px"><div style="display:flex;align-items:center;gap:6px">
+          <div style="height:9px;width:${Math.round(c / mx * 90)}px;background:${col};border-radius:2px;opacity:.8"></div>
+          <span style="font-size:10px;color:var(--text-secondary)">${c.toLocaleString()}</span></div></td>`; }).join('')}
+    </tr>`).join('');
+    const filt = [d.session !== 'all' ? d.session.toUpperCase() : null, d.since ? 'from ' + d.since : null, d.until ? 'to ' + d.until : null].filter(Boolean).join(' · ');
+    out.innerHTML = `
+      <div style="font-size:12px;margin-bottom:6px">${d.fast}/${d.slow} EMA cross · ${d.timeframe}${filt ? ' · <span style="color:var(--text-secondary)">' + filt + '</span>' : ''}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr><th style="text-align:left;padding:3px 8px;color:var(--text-secondary);border-bottom:1px solid var(--border);font-weight:500"></th>
+        ${dirs.map(dir => th(dir === 'up' ? '▲ stays above' : '▼ stays below')).join('')}</tr></thead>
+        <tbody>${body_rows}</tbody></table>
+      <div style="font-size:11px;color:var(--text-secondary);margin:10px 0 3px">distribution of run lengths (bars)</div>
+      <table style="width:100%;border-collapse:collapse"><tbody>${histRows}</tbody></table>`;
+  } catch (e) {
+    out.innerHTML = `<div style="font-size:12px;color:var(--negative)">Error: ${_btEsc(e.message)}</div>`;
+  } finally {
+    go.disabled = false; go.textContent = 'Run';
+  }
 }
 
 async function _btProbs() {
