@@ -17265,6 +17265,7 @@ function renderBacktester() {
     chips.appendChild(c);
   });
   _btSnapshot();
+  _btCross();   // auto-populate the run-length panel on tab open (default 1h/both)
 }
 
 function _btTable(title, headers, rows) {
