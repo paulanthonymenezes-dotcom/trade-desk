@@ -2004,6 +2004,7 @@ async function load() {
       const d = rows[0].data;
       STATE = {...STATE, ...d, quotes:{}, candles:{}};
       _migrateDeposits();
+      await _loadTagRows();   // re-merge any durable tag rows the main blob is missing
       _dataLoaded = true;
       return;
     }
@@ -13147,19 +13148,23 @@ function mLogTag(){
   if(_mDraft.conviction==null||!_mDraft.sources.length) return;
   if(!Array.isArray(STATE.entryTags)) STATE.entryTags=[];
   const note=(_mDraft.note||"").trim();
+  let _tagRow=null;
   if(_mEditId){
     const t=STATE.entryTags.find(x=>x.id===_mEditId);
     if(t){
       t.conviction=_mDraft.conviction; t.sources=_mDraft.sources.slice(); t.ticker=_mDraft.ticker||"/NQ"; t.note=note;
       // if it already merged onto a trade, push the edits through to that trade too
       if(t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr){ tr.conviction=t.conviction; tr.ideaSources=t.sources.slice(); tr.ideaSource=t.sources[0]||tr.ideaSource; if(note)tr.entryNote=note; } }
+      _tagRow=t;
     }
     _mEditId=null;
   } else {
-    STATE.entryTags.push({ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ", conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), note, matched:null });
+    _tagRow={ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ", conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), note, matched:null };
+    STATE.entryTags.push(_tagRow);
   }
   _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""};
   reconcileEntryTags(); save(); renderMobile();
+  if(_tagRow) _saveTagRow(_tagRow);   // durable per-tag row — survives any main-blob clobber
 }
 function mEditTag(id){
   const t=(STATE.entryTags||[]).find(x=>x.id===id); if(!t) return;
@@ -13174,6 +13179,47 @@ function mDeleteTag(id){
   STATE.entryTags=(STATE.entryTags||[]).filter(x=>x.id!==id);
   if(_mEditId===id){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""}; }
   save(); renderMobile();
+  _deleteTagRow(id);   // drop the durable row so it can't re-heal on next load
+}
+
+// ── Durable entry-tags ──────────────────────────────────────────────────────
+// Tags used to live only inside the single "main" state blob, which is written
+// last-write-wins — a stale device could clobber tags a phone had just added.
+// Each tag now ALSO gets its own row in the state table (id === tag.id, which is
+// already "tag_<ts>"). Different tags = different rows, so concurrent devices
+// can't overwrite each other. On load we re-merge any tag row the blob is
+// missing, so a clobbered tag heals itself.
+async function _saveTagRow(tag){
+  try{
+    await fetch(SUPABASE_URL + "/rest/v1/state", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", ...(await _authHeaders()), "Prefer":"resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ id: tag.id, data: tag })
+    });
+  }catch(e){ dbg("tag-row save failed: "+e.message, "warn"); }
+}
+async function _deleteTagRow(id){
+  try{
+    await fetch(SUPABASE_URL + "/rest/v1/state?id=eq."+encodeURIComponent(id), {
+      method:"DELETE", headers: await _authHeaders()
+    });
+  }catch(e){ dbg("tag-row delete failed: "+e.message, "warn"); }
+}
+async function _loadTagRows(){
+  try{
+    const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=like.tag_*&select=id,data", {
+      headers: await _authHeaders(), cache:"no-store"
+    });
+    if(!r.ok) return;
+    const rows = await r.json();
+    if(!Array.isArray(rows)) return;
+    STATE.entryTags = STATE.entryTags || [];
+    const have = new Set(STATE.entryTags.map(t=>t.id));
+    for(const row of rows){
+      const tg = row.data;
+      if(tg && tg.id && !have.has(tg.id)){ STATE.entryTags.push(tg); have.add(tg.id); }  // heal a lost tag; matched=null → reconcile re-binds it
+    }
+  }catch(e){ dbg("tag-row load failed: "+e.message, "warn"); }
 }
 function _etToMs(dateStr, hm){
   if(!dateStr) return null;
@@ -13187,12 +13233,19 @@ function reconcileEntryTags(){
   const trades=STATE.trades||[]; let changed=false;
   for(const tag of STATE.entryTags){
     if(tag.matched) continue;
-    const tt=Date.parse(tag.ts); const tagRoot=tag.ticker?_mTickerRoot(tag.ticker):null; let best=null,bd=10*60000;
+    const tt=Date.parse(tag.ts); const tagRoot=tag.ticker?_mTickerRoot(tag.ticker):null;
+    // You tag WITHIN ~90 min AFTER entering, so the fill sits BEFORE the tag.
+    // Look back 120 min (buffer over 90) and allow 20 min ahead for clock skew /
+    // tagging while the order is still filling. Nearest fill inside the window wins,
+    // so multi-trade days bind each tag to its closest entry, not the first one.
+    const BACK=120*60000, FWD=20*60000; let best=null,bd=Infinity;
     for(const tr of trades){
       if(tr._taggedBy) continue;
       if(tagRoot && _mTickerRoot(tr.ticker)!==tagRoot) continue;   // ticker must match if the tag has one
       const te=_etToMs(tr.entryDate,tr.entryTime); if(te==null) continue;
-      const d=Math.abs(te-tt); if(d<bd){bd=d;best=tr;}
+      const delta=tt-te;                          // >0 => tag came after the fill (the normal case)
+      if(delta>BACK || delta< -FWD) continue;     // outside the asymmetric window
+      const d=Math.abs(delta); if(d<bd){bd=d;best=tr;}
     }
     if(best){ best.conviction=tag.conviction; best.ideaSources=tag.sources.slice(); best.ideaSource=best.ideaSource||tag.sources[0]; if((tag.note||"").trim())best.entryNote=tag.note; best._taggedBy=tag.id; tag.matched=best.id; changed=true; }
   }
