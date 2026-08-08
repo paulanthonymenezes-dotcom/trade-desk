@@ -581,7 +581,7 @@ table{width:100%;border-collapse:collapse}
 <style>
 #mobile-app{display:none}
 @media(max-width:680px){
-  body>*:not(#mobile-app):not(#login-gate){display:none!important}
+  body>*:not(#mobile-app):not(#login-gate):not(#review-overlay):not(#review-fab){display:none!important}
   #mobile-app{display:flex;flex-direction:column;position:fixed;inset:0;background:var(--bg-primary);z-index:9000;font-family:'Inter',system-ui,sans-serif}
   #m-header{padding:14px 16px 12px;border-bottom:1px solid var(--border-visible);display:flex;justify-content:space-between;align-items:baseline;flex:0 0 auto}
   #m-title{font-size:15px;font-weight:700;color:var(--text-primary);letter-spacing:2px}
@@ -2043,7 +2043,7 @@ function getTotalDeposits() {
 // no manual edits needed. Same definition the desktop uses (capitalDeployed + realizedPnl).
 function _liveEquity() {
   if (STATE.ibkrNAV != null && STATE.ibkrNAV > 0) return STATE.ibkrNAV;   // real IBKR net-liq when the Positions & NAV query is configured
-  const realized = (STATE.trades || []).reduce((s, t) => s + (t.status !== "Open" && t.realizedPnl != null ? (+t.realizedPnl || 0) : 0), 0);
+  const realized = (STATE.trades || []).reduce((s, t) => s + (t.status !== "Open" && t.realizedPnl != null && !t._pending ? (+t.realizedPnl || 0) : 0), 0);
   return (STATE.accountBalance || 0) + getTotalDeposits() + realized;
 }
 
@@ -2935,8 +2935,103 @@ function _userIsTypingIn(container) {
   return container.contains(a);
 }
 
+// ── Confirm-all queue ───────────────────────────────────────────────────────
+// Every synced trade must be OK'd before it counts. Existing trades are baselined
+// as confirmed once; anything new arrives _pending and is excluded from ALL P&L /
+// win-rate math (the 6 stat chokepoints) until confirmed in Review. Open positions
+// and the trade log still SHOW pending trades, badged — they're real, just unranked.
+function _baselineConfirmed(){
+  if(!Array.isArray(STATE.confirmedTradeIds)){
+    STATE.confirmedTradeIds = (STATE.trades||[]).map(t=>t.id);   // one-time: trust all history to date
+    dbg("Confirm-queue baselined "+STATE.confirmedTradeIds.length+" trades as confirmed","success");
+  }
+}
+function _markPending(){
+  const ok=new Set(STATE.confirmedTradeIds||[]);
+  for(const t of (STATE.trades||[])) t._pending = !ok.has(t.id);
+}
+function pendingTrades(){ return (STATE.trades||[]).filter(t=>t._pending); }
+function confirmTrade(id, newType){
+  const t=(STATE.trades||[]).find(x=>String(x.id)===String(id)); if(!t) return;
+  if(newType && newType!==t.tradeType){ t.tradeType=newType; t._retyped=true; }
+  STATE.confirmedTradeIds=STATE.confirmedTradeIds||[];
+  if(!STATE.confirmedTradeIds.includes(t.id)) STATE.confirmedTradeIds.push(t.id);
+  t._pending=false;
+  save(); renderAll();
+}
+function rejectTrade(id){
+  const t=(STATE.trades||[]).find(x=>String(x.id)===String(id)); if(!t) return;
+  if(!confirm(`Reject & delete this ${t.ticker||""} ${t.tradeType||"trade"} (${t.realizedPnl!=null?"$"+Math.round(t.realizedPnl):"open"})? Use this for duplicates / bad rows.`)) return;
+  STATE.trades=(STATE.trades||[]).filter(x=>String(x.id)!==String(id));
+  save(); renderAll();
+}
+const CONFIRM_TYPES=["Bull Put Spread","Bear Call Spread","Bull Call Spread","Bear Put Spread",
+  "Short Put","Long Put","Short Call","Long Call","Covered Call","Strangle","Stock Long","Incomplete (dropped leg)"];
+
+// ── Review UI (pops on login; FAB as backup so it's never forgotten) ─────────
+function _reviewCardHTML(t){
+  const p=t.realizedPnl;
+  const pnlStr = p==null ? `<span style="color:var(--text-muted)">open</span>`
+    : `<b style="color:${p>=0?'var(--positive)':'var(--negative)'}">${p>=0?'+':''}$${Math.round(p).toLocaleString()}</b>`;
+  const strikes=(t.shortStrike!=null||t.longStrike!=null)?`${t.shortStrike??'?'}/${t.longStrike??'?'}`:'';
+  // always include the trade's CURRENT type so the dropdown shows what the classifier
+  // actually thinks it is (even "Iron Condor"/"Multi-leg") instead of silently defaulting.
+  const types = CONFIRM_TYPES.includes(t.tradeType) ? CONFIRM_TYPES : [t.tradeType, ...CONFIRM_TYPES];
+  const opts=types.map(x=>`<option value="${escAttr(x)}"${x===t.tradeType?' selected':''}>${escapeHtml(x)}</option>`).join('');
+  return `<div style="border:1px solid var(--border-visible);border-radius:10px;padding:12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${escapeHtml(t.ticker||'?')} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${t.entryDate||''} ${String(t.entryTime||'').slice(0,5)}</span></div>
+      <div style="font-size:15px">${pnlStr}</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:9px">${t.contracts||'?'}ct · ${strikes}${t.expiry?(' · exp '+t.expiry):''}</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Type</span>
+      <select id="rv-type-${t.id}" style="flex:1;padding:7px;border-radius:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-visible);font-size:13px">${opts}</select>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="_reviewConfirm('${t.id}')" style="flex:2;padding:10px;border:none;border-radius:8px;background:var(--positive);color:#08210f;font-weight:700;font-size:13px;cursor:pointer">✓ Confirm</button>
+      <button onclick="_reviewReject('${t.id}')" style="flex:1;padding:10px;border:1px solid var(--negative);border-radius:8px;background:transparent;color:var(--negative);font-weight:600;font-size:13px;cursor:pointer">✗ Reject</button>
+    </div>
+  </div>`;
+}
+function openReviewModal(){
+  const pend=pendingTrades();
+  let ov=document.getElementById('review-overlay');
+  if(!pend.length){ if(ov) ov.remove(); return; }
+  if(!ov){ ov=document.createElement('div'); ov.id='review-overlay'; ov.className='overlay'; document.body.appendChild(ov); }
+  ov.style.display='flex';
+  ov.style.zIndex='9500';   // above #mobile-app (9000) so it shows on phone; below login-gate (9999)
+  ov.innerHTML=`<div class="modal" style="max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:var(--text-primary)">⚠️ ${pend.length} trade${pend.length!==1?'s':''} to review</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;max-width:40ch">Confirm the type (fix any wrong label) or reject a duplicate. Nothing counts in your stats until you OK it.</div>
+      </div>
+      <button onclick="closeReviewModal()" style="background:none;border:none;color:var(--text-secondary);font-size:24px;cursor:pointer;line-height:1">&times;</button>
+    </div>
+    <div style="max-height:58vh;overflow-y:auto;margin-top:14px">${pend.map(_reviewCardHTML).join('')}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle)">
+      <button onclick="closeReviewModal()" style="background:none;border:none;color:var(--text-muted);font-size:13px;cursor:pointer">Later</button>
+      <button onclick="_reviewConfirmAll()" style="padding:9px 14px;border:1px solid var(--border-visible);border-radius:8px;background:transparent;color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer">Confirm all as-is</button>
+    </div>
+  </div>`;
+}
+function closeReviewModal(){ const ov=document.getElementById('review-overlay'); if(ov) ov.style.display='none'; }
+function _reviewConfirm(id){ const s=document.getElementById('rv-type-'+id); confirmTrade(id, s?s.value:null); openReviewModal(); }
+function _reviewReject(id){ rejectTrade(id); openReviewModal(); }
+function _reviewConfirmAll(){ pendingTrades().slice().forEach(t=>{ const s=document.getElementById('rv-type-'+t.id); confirmTrade(t.id, s?s.value:null); }); openReviewModal(); }
+function maybeShowReviewModal(){ if(pendingTrades().length) openReviewModal(); }
+function _renderReviewFab(){
+  const n=pendingTrades().length; let fab=document.getElementById('review-fab');
+  if(!n){ if(fab) fab.remove(); return; }
+  if(!fab){ fab=document.createElement('div'); fab.id='review-fab'; fab.onclick=openReviewModal; document.body.appendChild(fab); }
+  fab.style.cssText='position:fixed;right:16px;bottom:78px;z-index:9500;background:var(--negative);color:#fff;padding:11px 16px;border-radius:24px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4)';
+  fab.textContent=`⚠️ ${n} to review`;
+}
+
 function renderAll() {
   reconcileEntryTags();
+  _baselineConfirmed(); _markPending(); _renderReviewFab();
   renderMobile();   // render mobile FIRST so a later desktop-render error can't starve it
   renderKPIs();
   renderWatchlist();
@@ -2952,7 +3047,7 @@ function renderAll() {
 }
 
 function renderKPIs() {
-  const closed = STATE.trades.filter(t=>t.status!=="Open");
+  const closed = STATE.trades.filter(t=>t.status!=="Open" && !t._pending);
   const open = STATE.trades.filter(t=>t.status==="Open");
   const pnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
   const wins = closed.filter(t=>(t.realizedPnl||0)>0).length;
@@ -4871,7 +4966,7 @@ function renderDiaryList() {
   const allTrades = [...STATE.trades].sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate));
   const filtered = diaryFilter==="All" ? allTrades : allTrades.filter(t=>t.status===diaryFilter);
   const open = allTrades.filter(t=>t.status==="Open");
-  const closed = allTrades.filter(t=>t.status!=="Open");
+  const closed = allTrades.filter(t=>t.status!=="Open" && !t._pending);
   const totalPnl = closed.reduce((s,t)=>s+(t.realizedPnl||0),0);
   const wins = closed.filter(t=>(t.realizedPnl||0)>0);
   const wr = closed.length ? Math.round(wins.length/closed.length*100) : 0;
@@ -5613,7 +5708,7 @@ function filterTradesByDate(trades) {
   return trades.filter(t => (t.exitDate || t.entryDate) >= cutStr);
 }
 function renderStatsContent(force) {
-  const closed = filterTradesByDate(STATE.trades.filter(t=>t.status!=="Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t=>t.status!=="Open" && !t._pending));
   const el = document.getElementById("stats-sub");
   if (!el) return;
   // Skip AI tab re-render if chat is already mounted (preserves scroll + typing state)
@@ -6029,7 +6124,7 @@ function _dailyPnlCalendar(closed) {
 // given date; each row click → openDiary(id) which switches to Diary tab and
 // loads the full detail panel.
 function _calendarOpenDay(dateStr) {
-  const trades = (STATE.trades || []).filter(t => t.status !== "Open" && t.exitDate === dateStr);
+  const trades = (STATE.trades || []).filter(t => t.status !== "Open" && !t._pending && t.exitDate === dateStr);
   if (!trades.length) return;
   const total = trades.reduce((s, t) => s + (t.realizedPnl || 0), 0);
   const wins = trades.filter(t => (t.realizedPnl || 0) > 0).length;
@@ -6510,7 +6605,7 @@ function _maeOutcomeHistogram(data) {
 // MAE-depth bucket + outcome (won or lost). Each row click → opens the
 // trade in the preview modal (with chart + MAE/MFE markers).
 function _openMaeBucketList(metric, minPct, maxPct, isWin, bucketLabel) {
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   const matches = closed.filter(t => {
     const prem = t.premiumCollected;
     if (!prem) return false;
@@ -6631,7 +6726,7 @@ function _openTradeListModal(title, subtitle, trades) {
 // Strategy Ranking row click → list that strategy's trades. Re-derives the
 // strategy key exactly as renderStatsStrategies does so the grouping matches.
 function _openStrategyTradeList(stratKey) {
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   const matches = closed.filter(t => (t.strategyType || (t.tradeType||"").replace('⭐ ','') || "Unknown") === stratKey);
   const wins = matches.filter(t => (t.realizedPnl||0) > 0).length;
   _openTradeListModal(stratKey, `${matches.length} trade${matches.length!==1?'s':''} · ${wins}W / ${matches.length-wins}L`, matches);
@@ -6640,7 +6735,7 @@ function _openStrategyTradeList(stratKey) {
 // Day-of-Week bar click → list trades entered on that weekday (matches _dayOfWeekChart).
 function _openDayOfWeekTradeList(dayIdx) {
   const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   const matches = closed.filter(t => {
     const ds = t.entryDate || t.exitDate;
     if (!ds) return false;
@@ -7267,7 +7362,7 @@ function _scatterHoverHide() {
 // Scatter-specific AI helper — summarizes the visible dots into a compact
 // context string and asks Claude for trade-management implications.
 function _aiBreakdownScatter(kind) {
-  const closed = (STATE.trades || []).filter(t => t.status !== "Open");
+  const closed = (STATE.trades || []).filter(t => t.status !== "Open" && !t._pending);
   const data = closed.map(t => {
     const prem = t.premiumCollected || 0;
     if (!prem) return null;
@@ -7495,7 +7590,7 @@ function _buildStatsReportHTML(closed, chartsHTML = "") {
 }
 
 function _exportStatsPDF() {
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   if (!closed.length) { alert("No closed trades in scope for this date range."); return; }
   const html = _buildStatsReportHTML(closed);
   const w = window.open("", "_blank");
@@ -7506,7 +7601,7 @@ function _exportStatsPDF() {
 // Same report, but with the 5/30/4h NQ charts rendered in as images so an AI
 // (or you) can review the actual price action per trade.
 async function _exportStatsPDFCharts() {
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   if (!closed.length) { alert("No closed trades in scope for this date range."); return; }
   const nq = closed.filter(t => (t.ticker || "").startsWith("/NQ") && t._candles);
   if (!nq.length) { alert("No /NQ trades with chart data in this date range."); return; }
@@ -7540,7 +7635,7 @@ async function _exportStatsPDFCharts() {
 }
 
 async function _copyStatsForAI() {
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   if (!closed.length) { alert("No closed trades in scope."); return; }
   // Use the full report builder — worst time/day, hold periods, MAE/MFE, and the
   // SL/TP replay with recommendations — not just the thin KPI summary.
@@ -7685,7 +7780,7 @@ _Generated from the trader's IBKR-synced journal. For AI review: identify the 2�
 }
 
 function _downloadStatsReport() {
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   if (!closed.length) { alert("No closed trades in scope."); return; }
   const md = _buildStatsReport(closed);
   const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
@@ -7915,7 +8010,7 @@ function _tradingReviewPanel(closed) {
 async function _runTradingReview() {
   const body = document.getElementById("trading-review-body");
   if (!body) return;
-  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open"));
+  const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   if (!closed.length) { body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">No closed trades in the current date filter.</div>`; return; }
   body.innerHTML = `<div style="color:${C.textSec};text-align:center;padding:20px">Generating review… (10-20 sec)</div>`;
 
@@ -8952,7 +9047,7 @@ function getAIDateFilter() {
 
 function buildAIContext() {
   const dateFilter = getAIDateFilter();
-  const allClosed = STATE.trades.filter(t=>t.status!=="Open");
+  const allClosed = STATE.trades.filter(t=>t.status!=="Open" && !t._pending);
   // Apply date filter to closed trades
   const closed = allClosed.filter(t => {
     if (!dateFilter.from && !dateFilter.to) return true;
@@ -9431,7 +9526,7 @@ function renderForward() {
   const el = document.getElementById("forward-content");
   if (!el) return;
   const open = (STATE.trades || []).filter(t => t.status === "Open");
-  const closedRecent = (STATE.trades || []).filter(t => t.status !== "Open")
+  const closedRecent = (STATE.trades || []).filter(t => t.status !== "Open" && !t._pending)
     .sort((a,b) => (b.exitDate||"").localeCompare(a.exitDate||"")).slice(0, 30);
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
@@ -10375,7 +10470,7 @@ function _runGuard() {
 function renderEntryExitCharts() {
   const el = document.getElementById("eecharts-content");
   if (!el) return;
-  const closed = (STATE.trades || []).filter(t => t.status !== "Open" && (t.entryDate || t.exitDate));
+  const closed = (STATE.trades || []).filter(t => t.status !== "Open" && !t._pending && (t.entryDate || t.exitDate));
   let trades = closed;
   if (_eeFilter === "win") trades = closed.filter(t => (t.realizedPnl || 0) > 0);
   else if (_eeFilter === "loss") trades = closed.filter(t => (t.realizedPnl || 0) <= 0);
@@ -10655,7 +10750,7 @@ async function _runWeekAhead() {
   const body = document.getElementById("week-ahead-body");
   if (!body) return;
   const open = (STATE.trades || []).filter(t => t.status === "Open");
-  const closedRecent = (STATE.trades || []).filter(t => t.status !== "Open")
+  const closedRecent = (STATE.trades || []).filter(t => t.status !== "Open" && !t._pending)
     .sort((a,b) => (b.exitDate||"").localeCompare(a.exitDate||"")).slice(0, 30);
   body.innerHTML = `<div style="color:${C.textSec};text-align:center;padding:20px">Generating week-ahead review… (10-20 sec)</div>`;
 
@@ -10781,7 +10876,7 @@ function renderForecast() {
   //                     This is what you compound FROM in the projection — projecting from
   //                     cost basis would lose all your accumulated gains.
   const capitalDeployed = (STATE.accountBalance||0) + getTotalDeposits();
-  const allClosed = STATE.trades.filter(t => t.status!=="Open" && t.exitDate);
+  const allClosed = STATE.trades.filter(t => t.status!=="Open" && !t._pending && t.exitDate);
   const realizedPnlAll = allClosed.reduce((s,t) => s + (t.realizedPnl||0), 0);
   const base = capitalDeployed + realizedPnlAll;  // current equity — the projection starting point
 
@@ -10794,7 +10889,7 @@ function renderForecast() {
     // Use actual elapsed time — don't divide by more days than we have data for
     const effectiveCutoff = days === 99999 ? firstTradeDate : cutoff;
     const effectiveDays = days === 99999 ? daysSinceFirst : Math.min(days, daysSinceFirst);
-    const trades = STATE.trades.filter(t => t.status!=="Open" && t.exitDate && new Date(t.exitDate) >= effectiveCutoff);
+    const trades = STATE.trades.filter(t => t.status!=="Open" && !t._pending && t.exitDate && new Date(t.exitDate) >= effectiveCutoff);
     const pnl = trades.reduce((s,t)=>s+(t.realizedPnl||0),0);
     const months = effectiveDays / 30;
     // Denominator = equity at the START of the period.
@@ -12362,7 +12457,7 @@ function runBrowserChecklist(trade) {
   const flags = [];
   const checks = [];
   const open = STATE.trades.filter(t => t.status === 'Open' && !(t.tradeType||'').startsWith('Stock'));
-  const closed = STATE.trades.filter(t => t.status !== 'Open');
+  const closed = STATE.trades.filter(t => t.status !== 'Open' && !t._pending);
   const acct = STATE.accountBalance || 0;
   const width = Math.abs(trade.shortStrike - trade.longStrike);
   const maxLoss = (width * getOptionMultiplier(trade.ticker) * trade.contracts) - trade.premiumCollected;
@@ -12892,7 +12987,7 @@ function renderMobile() {
   const v = STATE._mView || (_isMorningET() ? "am" : (_isEveningET() ? "eod" : "tag"));
   document.querySelectorAll(".m-navbtn").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
   const sub = document.getElementById("m-sub");
-  const closed = (STATE.trades || []).filter(t => t.status !== "Open" && t.realizedPnl != null);
+  const closed = (STATE.trades || []).filter(t => t.status !== "Open" && !t._pending && t.realizedPnl != null);
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const todayPnl = closed.filter(t => String(t.exitDate || "").slice(0,10) === today).reduce((s,t)=>s+(+t.realizedPnl||0),0);
   let syncStr = "—";
@@ -12920,7 +13015,7 @@ function _equityStats(){
   const cur = _liveEquity();
   if (!cur) return { cur:0, peak:0, offDollar:0, offPct:0, atHigh:false, ok:false };
   const events = [];
-  (STATE.trades||[]).filter(t=>t.status!=="Open"&&t.realizedPnl!=null&&t.exitDate)
+  (STATE.trades||[]).filter(t=>t.status!=="Open"&&!t._pending&&t.realizedPnl!=null&&t.exitDate)
     .forEach(t=>events.push({ d:String(t.exitDate).slice(0,10), v:(+t.realizedPnl||0) }));
   (STATE.deposits||[]).forEach(d=>events.push({ d:String(d.date).slice(0,10), v:(parseFloat(d.amount)||0) }));
   events.sort((a,b)=>a.d.localeCompare(b.d));
@@ -13023,7 +13118,7 @@ function renderMEOD(){
   const G="var(--positive)",R="var(--negative)",MU="var(--text-muted)",TP="var(--text-primary)",WN="var(--warning,#e0a800)";
   const hi=new Date().toLocaleString("en-US",{timeZone:"America/New_York",weekday:"long",month:"short",day:"numeric"});
   const todayET=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
-  const closed=(STATE.trades||[]).filter(t=>t.status!=="Open"&&t.realizedPnl!=null);
+  const closed=(STATE.trades||[]).filter(t=>t.status!=="Open"&&!t._pending&&t.realizedPnl!=null);
   const todays=closed.filter(t=>String(t.exitDate||"").slice(0,10)===todayET);
   const todayPnl=todays.reduce((s,t)=>s+(+t.realizedPnl||0),0);
   const dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, dailyStop=Math.round(_liveEquity()*dpct/100);
@@ -14867,6 +14962,7 @@ async function bootApp() {
     if (STATE.theme !== 'original') document.documentElement.dataset.theme = STATE.theme;
   }
   renderAll();
+  maybeShowReviewModal();   // critical: surface unconfirmed trades on login so they're never forgotten
   _showChartPanel(false);
   refreshAll();
   pollTimer = setInterval(refreshAll, POLL_INTERVAL);
