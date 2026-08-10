@@ -13210,6 +13210,47 @@ function mSetPeak(){
   const n=parseFloat(String(v).replace(/[^0-9.]/g,""));
   if(!isNaN(n)&&n>0){ STATE.highWaterMark=n; save(); renderMobile(); }
 }
+// Position-size calculator: you don't control the credit, you control contracts.
+// contracts = floor( riskBudget / (SL% × credit) ), rounded DOWN so you never over-risk.
+function mSizer(){
+  const nav=_liveEquity()||0; const sr=STATE.standingRules||{};
+  const riskPct=sr.riskPerTradePct ?? 2, budget=Math.round(nav*riskPct/100);
+  return `<div style="border:1px solid var(--border-visible);border-radius:12px;padding:12px 12px 14px;margin:2px 0 12px;background:var(--bg-surface)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary)">🧮 Position size</div>
+      <div style="font-size:11px;color:var(--text-muted)">1R = ${riskPct}% = <b style="color:var(--text-primary)">$${budget.toLocaleString()}</b></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">Credit / contract $</span>
+      <input id="msz-credit" type="number" inputmode="decimal" placeholder="450" oninput="mCalcSize()"
+        style="flex:1;min-width:0;padding:9px;border-radius:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-visible);font-size:16px;font-weight:600">
+    </div>
+    <div id="msz-out" style="margin-top:10px;font-size:13px;color:var(--text-muted)">Enter the credit to size the trade.</div>
+  </div>`;
+}
+function mCalcSize(){
+  const el=document.getElementById('msz-out'); if(!el) return;
+  const nav=_liveEquity()||0; const sr=STATE.standingRules||{};
+  const riskPct=sr.riskPerTradePct ?? 2, slPct=sr.slPct ?? 125, tpPct=sr.tpPct ?? 50;
+  const budget=nav*riskPct/100;
+  const inp=document.getElementById('msz-credit');
+  const credit=parseFloat(inp&&inp.value)||0;
+  const G='var(--positive)',R='var(--negative)',TP='var(--text-primary)';
+  if(credit<=0){ el.innerHTML='Enter the credit to size the trade.'; return; }
+  const rpc=slPct/100*credit;                       // risk per contract at the 125% stop
+  const n=Math.floor(budget/rpc);
+  if(n<1){
+    el.innerHTML=`<span style="color:${R};font-weight:600">Even 1 contract = $${Math.round(rpc).toLocaleString()} risk — over your $${Math.round(budget).toLocaleString()} budget.</span> Trim the width or pass.`;
+    return;
+  }
+  const risk=n*rpc, pct=risk/nav*100, tp=n*credit*tpPct/100;
+  el.innerHTML=`<div style="font-size:24px;font-weight:800;color:${TP};margin-bottom:5px">${n} contract${n>1?'s':''}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--text-secondary)">
+      <span>risk <b style="color:${R}">−$${Math.round(risk).toLocaleString()}</b> (${pct.toFixed(1)}%)</span>
+      <span>TP <b style="color:${G}">+$${Math.round(tp).toLocaleString()}</b></span>
+      <span>stop <b style="color:${R}">−$${Math.round(risk).toLocaleString()}</b> @ ${slPct}%</span>
+    </div>`;
+}
 function renderMTag() {
   const pending = (STATE.entryTags || []).filter(t => !t.matched).length;
   const chips = _ideaSources().map(s =>
@@ -13226,6 +13267,7 @@ function renderMTag() {
   const isCustomTk = _mDraft.ticker && !_mTickerPresets.includes(_mDraft.ticker);
   const tkChips = _mTickerPresets.map(tk => `<div class="m-chip ${_mDraft.ticker===tk?"on":""}" onclick="mSetTicker('${tk}')">${tk}</div>`).join("");
   return `
+    ${mSizer()}
     ${_mEditId?`<div style="background:var(--accent-faint,rgba(88,166,255,0.10));border:1px solid var(--accent);border-radius:8px;padding:8px 12px;margin:2px 0 4px;font-size:12px;color:var(--accent)">✎ Editing a past tag — change fields & save</div>`:""}
     <div class="m-lbl" style="margin-top:2px">Ticker</div>
     <div style="display:flex;flex-wrap:wrap;gap:9px">${tkChips}<div class="m-chip ${isCustomTk?"on":""}" style="border-style:dashed" onclick="mSetTickerOther()">${isCustomTk?escapeHtml(_mDraft.ticker):"+ other"}</div></div>
