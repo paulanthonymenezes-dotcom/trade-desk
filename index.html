@@ -2968,11 +2968,17 @@ function rejectTrade(id){
 const CONFIRM_TYPES=["Bull Put Spread","Bear Call Spread","Bull Call Spread","Bear Put Spread",
   "Short Put","Long Put","Short Call","Long Call","Covered Call","Strangle","Stock Long","Incomplete (dropped leg)"];
 
+// R-multiple: 1R = your 125% stop (intended risk), auto-derived from the credit — nothing to type.
+// A full stop = −1R; a 50% TP win ≈ +0.4R. Expectancy = average R across trades.
+function tradeR(t){ if(!t||t.realizedPnl==null) return null; const cr=+t.premiumCollected||0; if(cr<=0) return null; return t.realizedPnl/(1.25*cr); }
+function fmtR(r){ return r==null?"—":(r>=0?"+":"")+r.toFixed(2)+"R"; }
+
 // ── Review UI (pops on login; FAB as backup so it's never forgotten) ─────────
 function _reviewCardHTML(t){
   const p=t.realizedPnl;
+  const r=tradeR(t), oneR=(+t.premiumCollected||0)*1.25;
   const pnlStr = p==null ? `<span style="color:var(--text-muted)">open</span>`
-    : `<b style="color:${p>=0?'var(--positive)':'var(--negative)'}">${p>=0?'+':''}$${Math.round(p).toLocaleString()}</b>`;
+    : `<b style="color:${p>=0?'var(--positive)':'var(--negative)'}">${p>=0?'+':''}$${Math.round(p).toLocaleString()}</b>${r!=null?` <span style="font-size:12px;font-weight:600;color:${r>=0?'var(--positive)':'var(--negative)'}">${fmtR(r)}</span>`:''}`;
   const strikes=(t.shortStrike!=null||t.longStrike!=null)?`${t.shortStrike??'?'}/${t.longStrike??'?'}`:'';
   // always include the trade's CURRENT type so the dropdown shows what the classifier
   // actually thinks it is (even "Iron Condor"/"Multi-leg") instead of silently defaulting.
@@ -2983,7 +2989,7 @@ function _reviewCardHTML(t){
       <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${escapeHtml(t.ticker||'?')} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${t.entryDate||''} ${String(t.entryTime||'').slice(0,5)}</span></div>
       <div style="font-size:15px">${pnlStr}</div>
     </div>
-    <div style="font-size:11px;color:var(--text-muted);margin-bottom:9px">${t.contracts||'?'}ct · ${strikes}${t.expiry?(' · exp '+t.expiry):''}</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:9px">${t.contracts||'?'}ct · ${strikes}${t.expiry?(' · exp '+t.expiry):''}${oneR>0?' · 1R $'+Math.round(oneR).toLocaleString():''}</div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
       <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Type</span>
       <select id="rv-type-${t.id}" style="flex:1;padding:7px;border-radius:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-visible);font-size:13px">${opts}</select>
@@ -13387,6 +13393,7 @@ function renderMStats(allClosed){
     ${srcList.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"><span style="font-size:11px;color:${MU};align-self:center">src</span>${srcList.map(srcChip).join("")}</div>`:`<div style="margin-bottom:12px"></div>`}`;
   if(!fc.length) return periodRow+filterRow+`<div style="color:${MU};font-size:13px">No trades match these filters. <span style="color:${AC}" onclick="mClearStatFilters()">Clear</span></div>`;
   const net=fc.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=fc.filter(t=>+t.realizedPnl>0).length;
+  const _rs=fc.map(tradeR).filter(x=>x!=null); const avgR=_rs.length?_rs.reduce((a,b)=>a+b,0)/_rs.length:null;
   const nq=fc.filter(t=>String(t.ticker||"").startsWith("/NQ"));
   const bal=_liveEquity(), dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, lim=Math.round(bal*dpct/100);
   const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
@@ -13404,7 +13411,7 @@ function renderMStats(allClosed){
     ${filterRow}
     ${anyF?`<div style="font-size:11px;color:${AC};margin-bottom:9px">${fc.length} of ${closed.length} trades${fConv?` · conv ${fConv}`:""}${fSrcs.length?` · ${fSrcs.map(escapeHtml).join(" or ")}`:""}</div>`:""}
     <div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?G:R)}${stat("Win rate",Math.round(wins/fc.length*100)+"%")}</div>
-    <div style="display:flex;gap:9px">${stat("Trades",fc.length)}${stat("/NQ",nq.length)}</div>
+    <div style="display:flex;gap:9px">${stat("Trades",fc.length)}${stat("/NQ",nq.length)}${stat("Avg R (exp)",avgR==null?"—":(avgR>=0?"+":"")+avgR.toFixed(2)+"R",avgR>=0?G:R)}</div>
     ${bal&&!anyF?`<div class="m-lbl">Today vs daily stop</div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid ${todayPnl<=-lim?R:"var(--border-visible)"};border-radius:10px">
         <span style="font-size:18px;font-weight:700;color:${todayPnl>=0?G:R};font-variant-numeric:tabular-nums">${todayPnl>=0?"+":""}$${todayPnl.toLocaleString()}</span>
