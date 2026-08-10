@@ -13215,36 +13215,44 @@ function mSetPeak(){
 function mSizer(){
   const nav=_liveEquity()||0; const sr=STATE.standingRules||{};
   const riskPct=sr.riskPerTradePct ?? 2, budget=Math.round(nav*riskPct/100);
+  const inst=STATE._mSizeInst||'NQ';
+  const b=(k,lbl)=>`<button onclick="mSetSizeInst('${k}')" style="flex:1;padding:7px 0;border-radius:8px;border:1px solid ${inst===k?'var(--accent)':'var(--border-visible)'};background:${inst===k?'var(--accent)':'transparent'};color:${inst===k?'#0a0c10':'var(--text-primary)'};font-size:12px;font-weight:600;cursor:pointer">${lbl}</button>`;
   return `<div style="border:1px solid var(--border-visible);border-radius:12px;padding:12px 12px 14px;margin:2px 0 12px;background:var(--bg-surface)">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
       <div style="font-size:13px;font-weight:700;color:var(--text-primary)">🧮 Position size</div>
       <div style="font-size:11px;color:var(--text-muted)">1R = ${riskPct}% = <b style="color:var(--text-primary)">$${budget.toLocaleString()}</b></div>
     </div>
+    <div style="display:flex;gap:6px;margin-bottom:9px">${b('NQ','/NQ ×20')}${b('ES','/ES ×50')}${b('EQ','Equity ×100')}</div>
     <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">Credit / contract $</span>
-      <input id="msz-credit" type="number" inputmode="decimal" placeholder="450" oninput="mCalcSize()"
+      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">Spread price</span>
+      <input id="msz-price" type="number" inputmode="decimal" placeholder="2.24" value="${STATE._mSizePrice||''}" oninput="mSizePriceInput(this.value)"
         style="flex:1;min-width:0;padding:9px;border-radius:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-visible);font-size:16px;font-weight:600">
     </div>
-    <div id="msz-out" style="margin-top:10px;font-size:13px;color:var(--text-muted)">Enter the credit to size the trade.</div>
+    <div id="msz-out" style="margin-top:10px;font-size:13px;color:var(--text-muted)">Pick the instrument, enter the spread price.</div>
   </div>`;
 }
+function mSizePriceInput(v){ STATE._mSizePrice=v; mCalcSize(); }
+function mSetSizeInst(k){ STATE._mSizeInst=k; renderMobile(); mCalcSize(); }
 function mCalcSize(){
   const el=document.getElementById('msz-out'); if(!el) return;
   const nav=_liveEquity()||0; const sr=STATE.standingRules||{};
-  const riskPct=sr.riskPerTradePct ?? 2, slPct=sr.slPct ?? 125, tpPct=sr.tpPct ?? 50;
+  const riskPct=sr.riskPerTradePct ?? 2, slPct=sr.slPct ?? 120, tpPct=sr.tpPct ?? 60;
   const budget=nav*riskPct/100;
-  const inp=document.getElementById('msz-credit');
-  const credit=parseFloat(inp&&inp.value)||0;
+  const MULT={NQ:20,ES:50,EQ:100}; const inst=STATE._mSizeInst||'NQ'; const mult=MULT[inst]||100;
+  const inp=document.getElementById('msz-price');
+  const price=parseFloat(inp&&inp.value)||0;
   const G='var(--positive)',R='var(--negative)',TP='var(--text-primary)';
-  if(credit<=0){ el.innerHTML='Enter the credit to size the trade.'; return; }
-  const rpc=slPct/100*credit;                       // risk per contract at the 125% stop
+  if(price<=0){ el.innerHTML='Pick the instrument, enter the spread price.'; return; }
+  const credit=price*mult;                          // per-contract $ credit = price × multiplier
+  const conv=`<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:4px">${price} × ${mult} = <b style="color:var(--text-primary)">$${Math.round(credit).toLocaleString()}/ct credit</b></div>`;
+  const rpc=slPct/100*credit;                        // risk per contract at the stop
   const n=Math.floor(budget/rpc);
   if(n<1){
-    el.innerHTML=`<span style="color:${R};font-weight:600">Even 1 contract = $${Math.round(rpc).toLocaleString()} risk — over your $${Math.round(budget).toLocaleString()} budget.</span> Trim the width or pass.`;
+    el.innerHTML=conv+`<span style="color:${R};font-weight:600">Even 1 contract = $${Math.round(rpc).toLocaleString()} risk — over your $${Math.round(budget).toLocaleString()} budget.</span> Trim the width or pass.`;
     return;
   }
   const risk=n*rpc, pct=risk/nav*100, tp=n*credit*tpPct/100;
-  el.innerHTML=`<div style="font-size:24px;font-weight:800;color:${TP};margin-bottom:5px">${n} contract${n>1?'s':''}</div>
+  el.innerHTML=conv+`<div style="font-size:24px;font-weight:800;color:${TP};margin-bottom:5px">${n} contract${n>1?'s':''}</div>
     <div style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--text-secondary)">
       <span>risk <b style="color:${R}">−$${Math.round(risk).toLocaleString()}</b> (${pct.toFixed(1)}%)</span>
       <span>TP <b style="color:${G}">+$${Math.round(tp).toLocaleString()}</b></span>
