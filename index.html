@@ -2968,15 +2968,32 @@ function rejectTrade(id){
 const CONFIRM_TYPES=["Bull Put Spread","Bear Call Spread","Bull Call Spread","Bear Put Spread",
   "Short Put","Long Put","Short Call","Long Call","Covered Call","Strangle","Stock Long","Incomplete (dropped leg)"];
 
-// R-multiple: 1R = your 125% stop (intended risk), auto-derived from the credit — nothing to type.
-// A full stop = −1R; a 50% TP win ≈ +0.4R. Expectancy = average R across trades.
-function tradeR(t){ if(!t||t.realizedPnl==null) return null; const cr=+t.premiumCollected||0; if(cr<=0) return null; return t.realizedPnl/(1.25*cr); }
+// R-multiple: 1R = your stop (intended risk), auto-derived from the credit — nothing to type.
+// A full stop = −1R; a 60% TP win ≈ +0.50R. Expectancy = average R across trades.
+// 1R = slPct% of credit, read live from the standing rule (currently 120%). Change the rule and
+// R re-bases everywhere — no hardcoded stop percentage anywhere.
+function _stopMult(){ const s=+((STATE.standingRules||{}).slPct); return (s>0?s:120)/100; }
+function tradeR(t){ if(!t||t.realizedPnl==null) return null; const cr=+t.premiumCollected||0; if(cr<=0) return null; return t.realizedPnl/(_stopMult()*cr); }
 function fmtR(r){ return r==null?"—":(r>=0?"+":"")+r.toFixed(2)+"R"; }
+// −1R BREACH = a CLOSED loss that printed worse than −1R — the stop was NOT honored. Derived from
+// realized P&L (broker truth via Flex), so it cannot be self-graded away. The 0.10 tolerance
+// absorbs honest slippage/gap fills so a −1.05R clip isn't flagged as a discipline failure.
+const BREACH_R = -1.10;
+function isBreach(t){ const r=tradeR(t); return r!=null && r < BREACH_R; }
+function breachStats(trades){
+  const arr = trades||[];
+  const losers = arr.filter(t=>{ const r=tradeR(t); return r!=null && r<0; }).length;
+  const breaches = arr.filter(isBreach).map(t=>({t, r:tradeR(t)})).sort((a,b)=>a.r-b.r);
+  const realizedR = breaches.reduce((s,b)=>s+b.r,0);            // total R printed by breach trades
+  const beyondR   = breaches.reduce((s,b)=>s+(b.r+1),0);        // R lost PAST the −1R ceiling (negative)
+  const dollarsBeyond = breaches.reduce((s,b)=>{ const cr=+b.t.premiumCollected||0; return s - (b.t.realizedPnl + _stopMult()*cr); }, 0); // extra $ lost past −1R (positive = avoidable loss)
+  return { breaches, losers, count:breaches.length, realizedR, beyondR, dollarsBeyond };
+}
 
 // ── Review UI (pops on login; FAB as backup so it's never forgotten) ─────────
 function _reviewCardHTML(t){
   const p=t.realizedPnl;
-  const r=tradeR(t), oneR=(+t.premiumCollected||0)*1.25;
+  const r=tradeR(t), oneR=(+t.premiumCollected||0)*_stopMult();
   const pnlStr = p==null ? `<span style="color:var(--text-muted)">open</span>`
     : `<b style="color:${p>=0?'var(--positive)':'var(--negative)'}">${p>=0?'+':''}$${Math.round(p).toLocaleString()}</b>${r!=null?` <span style="font-size:12px;font-weight:600;color:${r>=0?'var(--positive)':'var(--negative)'}">${fmtR(r)}</span>`:''}`;
   const strikes=(t.shortStrike!=null||t.longStrike!=null)?`${t.shortStrike??'?'}/${t.longStrike??'?'}`:'';
@@ -8925,6 +8942,35 @@ function renderStatsDiscipline(closed) {
     evs.forEach(([,d])=>{ cur+=d; if(cur>mx)mx=cur; if(cur>=2 && !wasStacked){stacks++;wasStacked=true;} if(cur<2)wasStacked=false; });
     if(mx>=2) _concur.push({ root:r, max:mx, stacks });
   });
+  // ── −1R STOP HONORED? — realized breaches (a closed loss worse than −1R). Broker-truth, unfakeable.
+  //    This is the accountability spine: the 155→44 drawdown WAS the sum of these. Target = zero.
+  const _bs = breachStats(closed);
+  const _ymNow = new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"}).slice(0,7);
+  const _bMonth = _bs.breaches.filter(b=>String(b.t.exitDate||"").slice(0,7)===_ymNow);
+  const _honorPct = _bs.losers ? Math.round((1 - _bs.count/_bs.losers)*100) : null;
+  const _honorCol = _honorPct==null?C.textSec:(_honorPct>=95?C.pos:_honorPct>=85?C.warn:C.neg);
+  const minusOneRBlock = `
+    ${sectionHdr("−1R STOP HONORED?")}
+    <div style="font-size:10px;color:${C.textSec};margin-bottom:8px">The number the whole system lives on. A <b style="color:${C.neg}">breach</b> = a closed loss worse than −1R — the stop wasn't honored. It's computed straight from realized broker P&L, so it can't be talked away. The 155→44 drawdown <i>was</i> the sum of these. <b style="color:${C.text}">Target: zero.</b></div>
+    <div class="g3" style="margin-bottom:8px">
+      <div class="card" style="padding:10px;border-left:3px solid ${_bs.count?C.neg:C.pos}"><div class="lbl">BREACHES (ALL)</div><div style="font-variant-numeric:tabular-nums;font-size:18px;color:${_bs.count?C.neg:C.pos}">${_bs.count}</div><div style="font-size:9px;color:${C.textSec}">of ${_bs.losers} losing trades</div></div>
+      <div class="card" style="padding:10px;border-left:3px solid ${_bMonth.length?C.neg:C.pos}"><div class="lbl">THIS MONTH</div><div style="font-variant-numeric:tabular-nums;font-size:18px;color:${_bMonth.length?C.neg:C.pos}">${_bMonth.length}</div><div style="font-size:9px;color:${C.textSec}">${_bMonth.length?"honor the stop":"clean — keep it"}</div></div>
+      <div class="card" style="padding:10px;border-left:3px solid ${C.neg}"><div class="lbl">LOST PAST −1R</div><div style="font-variant-numeric:tabular-nums;font-size:18px;color:${_bs.count?C.neg:C.pos}">${_bs.beyondR>=0?"":""}${_bs.beyondR.toFixed(1)}R</div><div style="font-size:9px;color:${C.textSec}">${_bs.dollarsBeyond>0?"≈ −$"+Math.round(_bs.dollarsBeyond).toLocaleString()+" avoidable":"nothing past stop"}</div></div>
+    </div>
+    ${_honorPct!==null?`<div class="card" style="padding:12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:10px;color:${C.textSec}">STOP-HONOR RATE — losing trades capped at −1R</span><span style="font-variant-numeric:tabular-nums;font-size:12px;color:${_honorCol}">${_honorPct}%</span></div>
+      <div style="height:5px;background:${C.borderVis};border-radius:2px"><div style="height:100%;width:${_honorPct}%;background:${_honorCol};border-radius:2px"></div></div>
+    </div>`:""}
+    ${_bs.count?`<div class="card" style="padding:10px;margin-bottom:10px">
+      <div style="font-size:9px;color:${C.textSec};margin-bottom:6px">WORST BREACHES — where the drawdown actually comes from</div>
+      ${_bs.breaches.slice(0,10).map(b=>`<div style="display:flex;align-items:center;gap:8px;font-size:10px;margin-bottom:3px">
+        <span style="width:46px;color:#fff">${escapeHtml(b.t.ticker||"?")}</span>
+        <span style="width:70px;color:${C.textSec};font-variant-numeric:tabular-nums">${b.t.exitDate||""}</span>
+        <span style="width:54px;text-align:right;color:${C.neg};font-variant-numeric:tabular-nums;font-weight:700">${b.r.toFixed(2)}R</span>
+        <span style="flex:1;text-align:right;font-size:9px;color:${C.neg}">lost $${Math.round(Math.abs(b.t.realizedPnl||0)).toLocaleString()} · −1R was $${Math.round(_stopMult()*(+b.t.premiumCollected||0)).toLocaleString()}</span>
+      </div>`).join("")}
+    </div>`:`<div class="card" style="padding:12px;margin-bottom:10px;font-size:11px;color:${C.pos}">✓ Every loss capped at −1R. This is the entire game — keep it here.</div>`}`;
+
   _concur.sort((a,b)=> b.max-a.max || b.stacks-a.stacks);
   const correlationBlock = _concur.length ? `
     ${sectionHdr("CORRELATION — STACKED POSITIONS")}
@@ -8938,6 +8984,7 @@ function renderStatsDiscipline(closed) {
     </div>` : '';
 
   return `
+    ${minusOneRBlock}
     ${dailyLossBlock}
     ${stopBreachBlock}
     ${correlationBlock}
@@ -13444,6 +13491,7 @@ function renderMStats(allClosed){
   if(!fc.length) return periodRow+filterRow+`<div style="color:${MU};font-size:13px">No trades match these filters. <span style="color:${AC}" onclick="mClearStatFilters()">Clear</span></div>`;
   const net=fc.reduce((s,t)=>s+(+t.realizedPnl||0),0), wins=fc.filter(t=>+t.realizedPnl>0).length;
   const _rs=fc.map(tradeR).filter(x=>x!=null); const avgR=_rs.length?_rs.reduce((a,b)=>a+b,0)/_rs.length:null;
+  const _mbs=breachStats(fc);
   const nq=fc.filter(t=>String(t.ticker||"").startsWith("/NQ"));
   const bal=_liveEquity(), dpct=(STATE.standingRules||{}).maxDailyLossPct ?? 3, lim=Math.round(bal*dpct/100);
   const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
@@ -13462,6 +13510,12 @@ function renderMStats(allClosed){
     ${anyF?`<div style="font-size:11px;color:${AC};margin-bottom:9px">${fc.length} of ${closed.length} trades${fConv?` · conv ${fConv}`:""}${fSrcs.length?` · ${fSrcs.map(escapeHtml).join(" or ")}`:""}</div>`:""}
     <div style="display:flex;gap:9px;margin-bottom:9px">${stat("Net P&L",(net>=0?"+":"")+"$"+Math.round(net).toLocaleString(),net>=0?G:R)}${stat("Win rate",Math.round(wins/fc.length*100)+"%")}</div>
     <div style="display:flex;gap:9px">${stat("Trades",fc.length)}${stat("/NQ",nq.length)}${stat("Avg R (exp)",avgR==null?"—":(avgR>=0?"+":"")+avgR.toFixed(2)+"R",avgR>=0?G:R)}</div>
+    ${_mbs.count?`<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid ${R};border-radius:10px;margin-top:9px;background:rgba(220,60,60,.07)">
+        <span style="font-size:14px;font-weight:700;color:${R}">🛑 ${_mbs.count} stop breach${_mbs.count===1?"":"es"}</span>
+        <span style="font-size:11px;color:${MU};text-align:right">${_mbs.beyondR.toFixed(1)}R past −1R${_mbs.dollarsBeyond>0?` · ≈$${Math.round(_mbs.dollarsBeyond).toLocaleString()}`:""}</span></div>`
+      :`<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid var(--border-visible);border-radius:10px;margin-top:9px">
+        <span style="font-size:14px;font-weight:700;color:${G}">✓ Every stop honored</span>
+        <span style="font-size:11px;color:${MU}">0 breaches · −1R held</span></div>`}
     ${bal&&!anyF?`<div class="m-lbl">Today vs daily stop</div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid ${todayPnl<=-lim?R:"var(--border-visible)"};border-radius:10px">
         <span style="font-size:18px;font-weight:700;color:${todayPnl>=0?G:R};font-variant-numeric:tabular-nums">${todayPnl>=0?"+":""}$${todayPnl.toLocaleString()}</span>
