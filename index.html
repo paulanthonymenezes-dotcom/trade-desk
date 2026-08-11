@@ -13129,14 +13129,22 @@ function renderMAM(){
   // each with ITS OWN stop. No averages, no manual logging (positions come from the sync).
   const syncSt=STATE.lastAutoSync?new Date(STATE.lastAutoSync).toLocaleString("en-US",{timeZone:"America/New_York",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
   const ibkrPos=(STATE.ibkrOpenPositions||[]).filter(p=>(p.premiumCollected||0)>0);
+  // Merge: the live IBKR position is broker-truth (strikes/credit/unreal), but POP + conviction
+  // live on the desk's own Open trade record (id from tags). Match by ticker+strikes so each
+  // position shows once, carrying what's useful from both. (id stays; it becomes the closed trade.)
+  const _openTr=(STATE.trades||[]).filter(t=>t.status==="Open");
+  const _annoFor=(tk,ss,ls)=>{ const m=_openTr.find(t=>t.ticker===tk && +t.shortStrike===+ss && +t.longStrike===+ls); return m||{}; };
+  // POP/conviction may live on the Open trade record (AMD) OR still on an entry tag (names with
+  // no trade record yet — they're open, not closed). Match by ticker root, most-recent tag wins.
+  const _tagAnno=(tk)=>{ const root=_mTickerRoot(tk); const tg=(STATE.entryTags||[]).filter(x=>_mTickerRoot(x.ticker)===root && (x.pop!=null||x.conviction!=null)).sort((a,b)=>String(b.ts).localeCompare(String(a.ts)))[0]; return tg||{}; };
   const allOpen=(ibkrPos.length?ibkrPos:(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0))
-    .map(t=>({ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/"), unreal:t.unrealizedPnl}));
+    .map(t=>{ const a=_annoFor(t.ticker,t.shortStrike,t.longStrike), g=_tagAnno(t.ticker); return {ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/"), unreal:t.unrealizedPnl, pop:(t.pop!=null?t.pop:(a.pop!=null?a.pop:g.pop)), conviction:(t.conviction!=null?t.conviction:(a.conviction!=null?a.conviction:g.conviction))}; });
   const secCount={}; allOpen.forEach(p=>{const s=getSector(p.ticker); if(s)secCount[s]=(secCount[s]||0)+1;});
   const dupSec=Object.entries(secCount).filter(([s,n])=>n>=2);
   const totalRisk=Math.round(allOpen.reduce((s,p)=>s+p.credit*2,0));
   const posRow=p=>{
     const sl=Math.round(p.credit*2), sec=getSector(p.ticker);
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${p.strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${p.strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.credit).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:(p.ticker?` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`:"")}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${p.strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${p.strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.credit).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:(p.ticker?` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`:"")}${p.pop!=null?` · <span style="color:var(--accent)">POP ${p.pop}%</span>`:""}${p.unreal!=null?` · <span style="color:${p.unreal>=0?G:R};font-weight:600">${p.unreal>=0?"+":"−"}$${Math.abs(Math.round(p.unreal)).toLocaleString()}</span> now`:""}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;
   };
   let perTradeBlock=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (200%) · open positions</div>`;
   if(allOpen.length){
