@@ -13037,6 +13037,7 @@ function renderMobile() {
   const el = document.getElementById("m-content"); if (!el || !_isMobile()) return;
   const ae = document.activeElement;
   if (ae && el.contains(ae) && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
+  reconcileEntryTags();   // phone-only usage never hits renderAll(); bind entry tags → synced fills here so POP/conviction attach after a mobile/cron sync (cheap: skips matched tags, saves only on change)
   const v = STATE._mView || (_isMorningET() ? "am" : (_isEveningET() ? "eod" : "tag"));
   document.querySelectorAll(".m-navbtn").forEach(b => b.classList.toggle("active", b.dataset.mv === v));
   const sub = document.getElementById("m-sub");
@@ -13445,7 +13446,7 @@ function reconcileEntryTags(){
       if(delta>BACK || delta< -FWD) continue;     // outside the asymmetric window
       const d=Math.abs(delta); if(d<bd){bd=d;best=tr;}
     }
-    if(best){ best.conviction=tag.conviction; best.ideaSources=tag.sources.slice(); best.ideaSource=best.ideaSource||tag.sources[0]; if((tag.note||"").trim())best.entryNote=tag.note; best._taggedBy=tag.id; tag.matched=best.id; changed=true; }
+    if(best){ best.conviction=tag.conviction; best.ideaSources=tag.sources.slice(); best.ideaSource=best.ideaSource||tag.sources[0]; if((tag.note||"").trim())best.entryNote=tag.note; if(tag.pop!=null && best.pop==null) best.pop=tag.pop; best._taggedBy=tag.id; tag.matched=best.id; changed=true; }
   }
   if(changed) save();
 }
