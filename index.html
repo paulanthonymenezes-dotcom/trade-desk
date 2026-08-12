@@ -13320,7 +13320,7 @@ function renderMTag() {
   const pending = (STATE.entryTags || []).filter(t => !t.matched).length;
   const chips = _ideaSources().map(s =>
     `<div class="m-chip ${_mDraft.sources.includes(s)?"on":""}" onclick="mToggleSrc('${escAttr(s)}')">${escapeHtml(s)}</div>`).join("");
-  const recent = (STATE.entryTags || []).slice(-8).reverse().map(t => {
+  const recent = (STATE.entryTags || []).slice(-20).reverse().map(t => {
     const tm = new Date(t.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"});
     const noteStr = (t.note||"").trim() ? ` · <span style="color:var(--accent)">${escapeHtml(t.note)}</span>` : "";
     const editing = _mEditId===t.id;
@@ -14746,6 +14746,10 @@ function startAutoSync() {
   const COOLDOWN_MS = 30 * 60 * 1000; // 30m — refresh on app open / tab focus if the last sync is stale (VPS cron still does the hourly heavy lifting)
   const maybeSync = () => {
     if (document.hidden) return;
+    // Cheap Supabase re-pull of the durable tag rows on every focus/open, so tags added on
+    // another device/session (or dropped by a stale-device clobber) reappear without a full
+    // reload. Additive only (merges missing tags), no save() → introduces no clobber risk.
+    if (typeof _loadTagRows === "function") _loadTagRows().then(() => { if (_isMobile()) renderMobile(); }).catch(()=>{});
     const last = STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0;
     if (Date.now() - last > COOLDOWN_MS) autoSyncIBKR();
   };
