@@ -1885,6 +1885,7 @@ async function _authHeaders() {
 }
 
 async function save() {
+  let _freshRev = 0;   // current cloud version, captured during the pre-save re-read below
   // ── RACE CONDITION FIX ──
   // Re-read fresh state from Supabase before saving.
   // The dashboard is authoritative for most fields, but the alerter may have
@@ -1896,6 +1897,7 @@ async function save() {
     });
     if (fr.ok) {
       const rows = await fr.json();
+      _freshRev = +((rows?.[0]?.data)?._rev) || 0;   // capture cloud version even if the trade-merge below is skipped
       if (rows?.[0]?.data?.trades) {
         const fresh = rows[0].data;
 
@@ -1964,6 +1966,10 @@ async function save() {
     }
   } catch(e) { /* proceed without merge — better to save than lose in-memory changes */ }
 
+  // Optimistic-concurrency version: write strictly newer than the cloud we just re-read, so
+  // the DB trigger rejects stale writes from a zombie/stale device. Service-key writes (VPS
+  // cron, admin scripts) bypass the guard server-side, so they don't need to bump this.
+  STATE._rev = Math.max(+STATE._rev || 0, _freshRev) + 1;
   const body = JSON.stringify({ id: "main", data: STATE });
   try {
     // Upsert — inserts if row missing, updates if exists. Reliable vs PATCH-only.
