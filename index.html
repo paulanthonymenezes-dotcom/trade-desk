@@ -10251,9 +10251,34 @@ function _eeSetFilter(f, btn) { _eeFilter = f; renderEntryExitCharts(); }
 let _eeShowMAE = localStorage.getItem("ee_mae") === "1";
 let _eeShowStops = localStorage.getItem("ee_stops") === "1";
 let _eeShowProfile = localStorage.getItem("ee_prof") === "1";
+let _eeShowPPO = localStorage.getItem("ee_ppo") === "1";
+let _eeShowADX = localStorage.getItem("ee_adx") === "1";
+// User-selected timeframes (minutes). 5/30/240 = current default, matches prior UI.
+// Legal values: 5, 15, 30, 60, 240. Max 4 concurrent for readability.
+const EE_TF_OPTIONS = [
+  { res: 5,   label: "5m"  },
+  { res: 15,  label: "15m" },
+  { res: 30,  label: "30m" },
+  { res: 60,  label: "1h"  },
+  { res: 240, label: "4h"  },
+];
+let _eeTimeframes = (() => {
+  try { const j = JSON.parse(localStorage.getItem("ee_timeframes") || "null"); if (Array.isArray(j) && j.length) return j.slice(0,4); } catch(e) {}
+  return [5, 30, 240];
+})();
+function _eeToggleTimeframe(res) {
+  const has = _eeTimeframes.includes(res);
+  if (has && _eeTimeframes.length > 1) _eeTimeframes = _eeTimeframes.filter(r => r !== res);
+  else if (!has && _eeTimeframes.length < 4) _eeTimeframes = [..._eeTimeframes, res].sort((a,b) => a-b);
+  else return;   // hitting bounds silently
+  localStorage.setItem("ee_timeframes", JSON.stringify(_eeTimeframes));
+  renderEntryExitCharts();
+}
 function _eeToggleOverlay(which) {
   if (which === "mae") { _eeShowMAE = !_eeShowMAE; localStorage.setItem("ee_mae", _eeShowMAE ? "1" : "0"); }
   else if (which === "prof") { _eeShowProfile = !_eeShowProfile; localStorage.setItem("ee_prof", _eeShowProfile ? "1" : "0"); }
+  else if (which === "ppo") { _eeShowPPO = !_eeShowPPO; localStorage.setItem("ee_ppo", _eeShowPPO ? "1" : "0"); }
+  else if (which === "adx") { _eeShowADX = !_eeShowADX; localStorage.setItem("ee_adx", _eeShowADX ? "1" : "0"); }
   else { _eeShowStops = !_eeShowStops; localStorage.setItem("ee_stops", _eeShowStops ? "1" : "0"); }
   renderEntryExitCharts();
 }
@@ -10944,6 +10969,81 @@ function _runGuard() {
     <div style="font-size:9px;color:${C.textMut};margin-top:9px">Premium prices (①) are exact — place them. /NQ levels (②) are modeled (Black-76 + vol-expansion) and drift with IV; a fast/violent move hits them sooner, so they err early. Telegram alerts coming next.</div>`;
 }
 
+// ── Indicator helpers for E/E charts ────────────────────────────────────────
+function _ee_ema(values, period) {
+  const k = 2 / (period + 1);
+  const out = new Array(values.length).fill(null);
+  let ema = null, seeded = 0;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v == null) continue;
+    if (ema == null) { ema = v; seeded = i; }
+    else ema = v * k + ema * (1 - k);
+    if (i - seeded >= period - 1) out[i] = ema;
+  }
+  return out;
+}
+// PPO = ((EMA12 - EMA26) / EMA26) * 100  ·  Signal = 9-EMA of PPO
+// "Cross" = PPO crossing Signal (up = bullish, down = bearish). We render two
+// lines; the human sees the crossing directly on the sub-pane.
+function _ee_ppo(closes, fast = 12, slow = 26, signal = 9) {
+  const eFast = _ee_ema(closes, fast);
+  const eSlow = _ee_ema(closes, slow);
+  const ppo = closes.map((_, i) =>
+    eFast[i] == null || eSlow[i] == null || !eSlow[i] ? null
+    : ((eFast[i] - eSlow[i]) / eSlow[i]) * 100
+  );
+  const cleaned = ppo.map(v => v == null ? 0 : v);
+  const sigRaw = _ee_ema(cleaned, signal);
+  const sig = ppo.map((v, i) => v == null ? null : sigRaw[i]);
+  return { ppo, signal: sig };
+}
+// ADX (Wilder). Returns adx, +DI, -DI arrays. 14-period default, standard.
+function _ee_adx(candles, period = 14) {
+  const n = candles.length;
+  const empty = () => new Array(n).fill(null);
+  if (n < period * 2) return { adx: empty(), plus: empty(), minus: empty() };
+  const tr = new Array(n).fill(0), pdm = new Array(n).fill(0), mdm = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const h = candles[i].high, l = candles[i].low, pc = candles[i-1].close;
+    tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    const up = h - candles[i-1].high;
+    const dn = candles[i-1].low - l;
+    pdm[i] = (up > dn && up > 0) ? up : 0;
+    mdm[i] = (dn > up && dn > 0) ? dn : 0;
+  }
+  // Wilder smoothing: seed with sum of first `period`, then EMA-like recurrence
+  const wilder = (arr) => {
+    const out = new Array(arr.length).fill(null);
+    if (arr.length <= period) return out;
+    let sum = 0;
+    for (let i = 1; i <= period; i++) sum += arr[i];
+    out[period] = sum;
+    for (let i = period + 1; i < arr.length; i++) out[i] = out[i-1] - out[i-1] / period + arr[i];
+    return out;
+  };
+  const trSm = wilder(tr), pdmSm = wilder(pdm), mdmSm = wilder(mdm);
+  const plus  = trSm.map((s, i) => s ? (pdmSm[i] / s) * 100 : null);
+  const minus = trSm.map((s, i) => s ? (mdmSm[i] / s) * 100 : null);
+  const dx = plus.map((p, i) => {
+    const m = minus[i];
+    return (p == null || m == null || (p + m) === 0) ? null : Math.abs(p - m) / (p + m) * 100;
+  });
+  const adx = new Array(n).fill(null);
+  let adxVal = null, seedSum = 0, seedCnt = 0;
+  for (let i = period; i < n; i++) {
+    if (dx[i] == null) continue;
+    if (adxVal == null) {
+      seedSum += dx[i]; seedCnt++;
+      if (seedCnt === period) { adxVal = seedSum / period; adx[i] = adxVal; }
+    } else {
+      adxVal = (adxVal * (period - 1) + dx[i]) / period;
+      adx[i] = adxVal;
+    }
+  }
+  return { adx, plus, minus };
+}
+
 function renderEntryExitCharts() {
   const el = document.getElementById("eecharts-content");
   if (!el) return;
@@ -10985,11 +11085,11 @@ function renderEntryExitCharts() {
         </div>
       </div>
       <div style="display:flex;gap:0;flex-wrap:wrap">
-        ${pane(5, "5-min · execution")}
-        <div style="width:1px;background:${C.borderVis}"></div>
-        ${pane(30, "30-min · context")}
-        <div style="width:1px;background:${C.borderVis}"></div>
-        ${pane(240, "4-hour · 4 weeks")}
+        ${_eeTimeframes.map((res, i) => {
+          const opt = EE_TF_OPTIONS.find(o => o.res === res) || { label: res + "m" };
+          const paneLabel = opt.label + (res === 240 ? " · 4 weeks" : res === 60 ? " · 2 weeks" : res <= 5 ? " · execution" : " · context");
+          return (i > 0 ? `<div style="width:1px;background:${C.borderVis}"></div>` : "") + pane(res, paneLabel);
+        }).join("")}
       </div>
     </div>`;
   }).join("");
@@ -11003,7 +11103,14 @@ function renderEntryExitCharts() {
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${pill("all", "All")}${pill("nq", "/NQ")}${pill("win", "Winners")}${pill("loss", "Losers")}
         <span style="width:1px;height:16px;background:${C.borderVis};margin:0 3px"></span>
         <span style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Overlays</span>
-        ${tog(_eeShowMAE, "MAE/MFE", "mae")}${tog(_eeShowStops, "−200% stop", "stops")}${tog(_eeShowProfile, "Profile", "prof")}</div>
+        ${tog(_eeShowMAE, "MAE/MFE", "mae")}${tog(_eeShowStops, "−200% stop", "stops")}${tog(_eeShowProfile, "Profile", "prof")}${tog(_eeShowPPO, "PPO (12/26/9)", "ppo")}${tog(_eeShowADX, "ADX (14)", "adx")}
+        <span style="width:1px;height:16px;background:${C.borderVis};margin:0 3px"></span>
+        <span style="font-size:9px;color:${C.textMut};text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Timeframes</span>
+        ${EE_TF_OPTIONS.map(o => {
+          const on = _eeTimeframes.includes(o.res);
+          return `<button onclick="_eeToggleTimeframe(${o.res})" class="btn btn-g stats-pill${on ? " active" : ""}" style="font-size:10px;padding:5px 9px" title="Toggle ${o.label} pane (max 4)">${on?"● ":"○ "}${o.label}</button>`;
+        }).join("")}
+      </div>
     </div>
     ${_stopActualBanner()}
     ${trades.length ? `<div style="font-size:10px;color:${C.textMut};margin-bottom:10px">${trades.length} trades · charts load as you scroll${_eeShowStops ? ` · <span style="color:#ff453a">STOP -200%</span> line + actual crossing` : ""}${_eeShowMAE ? " · MAE/MFE" : ""} · set live stops in the 🛡️ Guardrails tab${(() => { const thru = _eeDataThrough(); return thru ? ` · 🕒 FirstRate data through ${thru} ET` : ""; })()}</div>
@@ -11056,6 +11163,62 @@ async function _eeRenderChart(t, chartEl, statusEl, res, opts = {}) {
   });
   const series = chart.addCandlestickSeries({ upColor: C.pos, downColor: C.neg, borderUpColor: C.pos, borderDownColor: C.neg, wickUpColor: C.pos, wickDownColor: C.neg, lastValueVisible: false, priceLineVisible: false });
   series.setData(data);
+
+  // ── PPO / ADX indicator sub-panes ──
+  // LightweightCharts v3 doesn't do real subplots — we simulate by giving each
+  // indicator its own priceScaleId anchored to the bottom of the chart via
+  // scaleMargins. Main price series gets squeezed proportionally to make room.
+  const showPPO = opts.showPPO ?? _eeShowPPO;
+  const showADX = opts.showADX ?? _eeShowADX;
+  if (showPPO || showADX) {
+    // Layout: if BOTH on, split the bottom into two bands (PPO ~15%, ADX ~15%);
+    // if only one, give it a single 22% band. Main price gets top 60-70%.
+    const both = showPPO && showADX;
+    const priceMainBottom = both ? 0.32 : 0.24;
+    chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.05, bottom: priceMainBottom } });
+    if (showPPO) {
+      const closes = data.map(d => d.close);
+      const { ppo, signal } = _ee_ppo(closes);
+      const ppoData = data.map((d, i) => ppo[i]    == null ? null : ({ time: d.time, value: ppo[i]    })).filter(Boolean);
+      const sigData = data.map((d, i) => signal[i] == null ? null : ({ time: d.time, value: signal[i] })).filter(Boolean);
+      const ppoLine = chart.addLineSeries({ color: "#4a9eff", lineWidth: 1.5, priceScaleId: "ppo",
+        lastValueVisible: false, priceLineVisible: false, title: "PPO" });
+      const sigLine = chart.addLineSeries({ color: "#ff9500", lineWidth: 1,   priceScaleId: "ppo",
+        lastValueVisible: false, priceLineVisible: false, title: "Signal" });
+      ppoLine.setData(ppoData); sigLine.setData(sigData);
+      // Add a zero baseline for visual anchor
+      const zeroLine = chart.addLineSeries({ color: "rgba(200,200,200,0.4)", lineWidth: 1, lineStyle: 2,
+        priceScaleId: "ppo", lastValueVisible: false, priceLineVisible: false });
+      zeroLine.setData(ppoData.length ? [{ time: ppoData[0].time, value: 0 }, { time: ppoData[ppoData.length-1].time, value: 0 }] : []);
+      // PPO occupies bottom band: if both, top:0.70 bottom:0.16 ; if PPO only, top:0.78 bottom:0
+      chart.priceScale("ppo").applyOptions({
+        scaleMargins: both ? { top: 0.70, bottom: 0.16 } : { top: 0.78, bottom: 0 },
+        visible: true, borderColor: C.borderVis,
+      });
+    }
+    if (showADX) {
+      const { adx, plus, minus } = _ee_adx(data);
+      const adxLine = chart.addLineSeries({ color: "#ffd60a", lineWidth: 1.5, priceScaleId: "adx",
+        lastValueVisible: false, priceLineVisible: false, title: "ADX" });
+      const plusLine = chart.addLineSeries({ color: "#30d158", lineWidth: 1, priceScaleId: "adx",
+        lastValueVisible: false, priceLineVisible: false, title: "+DI" });
+      const minusLine = chart.addLineSeries({ color: "#ff453a", lineWidth: 1, priceScaleId: "adx",
+        lastValueVisible: false, priceLineVisible: false, title: "-DI" });
+      adxLine.setData(data.map((d, i) => adx[i]  == null ? null : ({ time: d.time, value: adx[i]  })).filter(Boolean));
+      plusLine.setData(data.map((d, i) => plus[i] == null ? null : ({ time: d.time, value: plus[i] })).filter(Boolean));
+      minusLine.setData(data.map((d, i) => minus[i] == null ? null : ({ time: d.time, value: minus[i] })).filter(Boolean));
+      // ADX 25-line threshold marker (trend-strength convention)
+      if (data.length) {
+        const t25 = chart.addLineSeries({ color: "rgba(200,200,200,0.35)", lineWidth: 1, lineStyle: 2,
+          priceScaleId: "adx", lastValueVisible: false, priceLineVisible: false });
+        t25.setData([{ time: data[0].time, value: 25 }, { time: data[data.length-1].time, value: 25 }]);
+      }
+      chart.priceScale("adx").applyOptions({
+        scaleMargins: both ? { top: 0.86, bottom: 0 } : { top: 0.78, bottom: 0 },
+        visible: true, borderColor: C.borderVis,
+      });
+    }
+  }
 
   const dateToTime = (iso) => Math.floor(new Date(iso + "T00:00:00").getTime() / 1000);
   const etToUnix = (ds, ts) => { if (!ds) return null; const [Y, Mo, D] = ds.split("-").map(Number); const [h, m] = (ts || "12:00").split(":").map(Number); const g = Date.UTC(Y, Mo - 1, D, h, m); const tzn = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "short" }).formatToParts(new Date(g)).find(p => p.type === "timeZoneName").value; return Math.floor(g / 1000) + (tzn === "EDT" ? 4 : 5) * 3600; };
