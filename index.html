@@ -5689,7 +5689,7 @@ function setStatsTab(tab, btn) {
 }
 function renderStats() {
   const tabs = [
-    ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
+    ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["montecarlo","MONTE CARLO"],["maemfe","MAE/MFE"],
     ["strategies","STRATEGIES"],["sessions","SESSIONS"],["sources","SOURCES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
   ];
   const dateFilters = [["1d","1D"],["1w","1W"],["mtd","MTD"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"],["custom","CUSTOM"]];
@@ -5766,6 +5766,7 @@ function renderStatsContent(force) {
     case "overview":    el.innerHTML = renderStatsOverview(closed); break;
     case "risk":        el.innerHTML = renderStatsRisk(closed); break;
     case "rr":          el.innerHTML = renderStatsRR(closed); break;
+    case "montecarlo":  el.innerHTML = renderStatsMonteCarlo(closed); break;
     case "maemfe":      el.innerHTML = renderStatsMAEMFE(closed); break;
     case "strategies":  el.innerHTML = renderStatsStrategies(closed); break;
     case "sessions":    el.innerHTML = renderStatsSessions(closed); break;
@@ -5851,6 +5852,21 @@ function renderStatsOverview(closed) {
       ${kpiCard("Avg Win", "+$"+avgWin.toFixed(0), C.pos)}
       ${kpiCard("Avg Loss", "-$"+Math.abs(avgLoss).toFixed(0), C.neg)}
       ${kpiCard("Avg P&L/Trade", fmt$(avgPnl), avgPnl>=0?C.pos:C.neg)}
+      ${(() => {
+        // R-multiple KPIs (1R = slPct% of credit, per standing rule).
+        // Anything without a credit basis (equity trades) is excluded.
+        const rs = closed.map(t=>tradeR(t)).filter(r=>r!=null);
+        if (!rs.length) return "";
+        const totalR = rs.reduce((s,r)=>s+r,0);
+        const avgR = totalR/rs.length;
+        const bs = breachStats(closed);
+        const breachSub = bs.count===0 ? "stops honored" : (bs.dollarsBeyond>0?"-$"+Math.round(bs.dollarsBeyond)+" past 1R":"");
+        return `
+          ${kpiCard("Total R", fmtR(totalR), totalR>=0?C.pos:C.neg, rs.length+" scored")}
+          ${kpiCard("Expectancy / trade", fmtR(avgR), avgR>0?C.pos:C.neg, "R per trade")}
+          ${kpiCard("−1R Breaches", String(bs.count), bs.count===0?C.pos:C.neg, breachSub)}
+        `;
+      })()}
     </div>
 
     ${_dailyPnlCalendar(closed)}
@@ -6309,6 +6325,196 @@ function renderStatsRisk(closed) {
 
     ${insightText("Position sizing over 2% of account per trade significantly increases portfolio volatility. Consistent sizing improves expectancy realization. Max drawdown shows your worst peak-to-trough decline.")}
   `;
+}
+
+// ── 3½. Monte Carlo ─────────────────────────────────────────────────────────
+// Projects future equity by bootstrap-sampling from your OWN R-multiples. The
+// window selector picks which slice of history the sim samples from — recent
+// (1W) is high-variance but responsive; longer (1Y) is more stable but averages
+// through regime changes. Fixed $ per 1R sizing (no compounding) — realistic
+// for a discretionary /NQ book where you cap risk per trade, not compound.
+function _windowStart(win){
+  const d = new Date();
+  if(win==="1w") d.setDate(d.getDate()-7);
+  else if(win==="1m") d.setMonth(d.getMonth()-1);
+  else if(win==="3m") d.setMonth(d.getMonth()-3);
+  else if(win==="1y") d.setFullYear(d.getFullYear()-1);
+  else return "0000-00-00";
+  return d.toISOString().slice(0,10);
+}
+function _rSamplesFor(closed, win){
+  const cutoff = _windowStart(win);
+  return closed
+    .filter(t => (t.exitDate||"") >= cutoff)
+    .map(t => tradeR(t))
+    .filter(r => r != null);
+}
+// Bootstrap sim. Returns fan-chart percentile bands + terminal + max-DD stats.
+// Deterministic seed → same window/params render the same fan every time
+// (avoids visual jitter on re-renders).
+function _runMonteCarlo(rSamples, years, oneR, tradesPerYear, nPaths){
+  if(!rSamples.length || tradesPerYear<=0) return null;
+  const nTrades = Math.max(20, Math.round(tradesPerYear*years));
+  const nCheck = 40;                                     // fan chart resolution
+  const step = Math.max(1, Math.floor(nTrades/nCheck));
+  const rn = rSamples.length;
+  // xorshift32 with fixed seed so rendering is stable across re-clicks
+  let s = 1234567 ^ (rn*7919) ^ (nTrades*31);
+  const rand = () => { s ^= s<<13; s ^= s>>>17; s ^= s<<5; return ((s>>>0)/0x100000000); };
+  const finals = new Float32Array(nPaths);
+  const dds    = new Float32Array(nPaths);
+  const checkpoints = [];   // eq at each checkpoint across all paths
+  for(let c=0;c<nCheck;c++) checkpoints.push(new Float32Array(nPaths));
+  for(let p=0;p<nPaths;p++){
+    let eq = 0, peak = 0, dd = 0, ci = 0, next = step;
+    for(let i=0;i<nTrades;i++){
+      eq += rSamples[Math.floor(rand()*rn)] * oneR;
+      if(eq>peak) peak=eq;
+      const cur = (peak-eq);
+      if(cur>dd) dd = cur;
+      if(i+1===next && ci<nCheck){ checkpoints[ci][p] = eq; ci++; next+=step; }
+    }
+    while(ci<nCheck){ checkpoints[ci][p] = eq; ci++; }
+    finals[p] = eq;
+    dds[p]    = dd;
+  }
+  const pct = (arr, p) => { const a = Float32Array.from(arr).sort(); return a[Math.floor((a.length-1)*p)]; };
+  const bands = checkpoints.map(arr => ({
+    p05: pct(arr,0.05), p25: pct(arr,0.25), p50: pct(arr,0.50), p75: pct(arr,0.75), p95: pct(arr,0.95)
+  }));
+  const nTradesArr = bands.map((_,i) => step*(i+1));
+  return {
+    bands, nTradesArr,
+    final: { p05:pct(finals,0.05), p50:pct(finals,0.50), p95:pct(finals,0.95) },
+    maxDD: { p50:pct(dds,0.50), p95:pct(dds,0.95) },   // p95 = "worst 5% of paths lose at least this much peak-to-trough"
+    pBelow0:   Array.from(finals).filter(v=>v<0).length / nPaths,
+    pDouble:   Array.from(finals).filter((v,i) => v > oneR*tradesPerYear*years*0.5).length / nPaths,   // "beat +0.5R/trade avg"
+    nTrades
+  };
+}
+function _mcFanSVG(bands, nTradesArr, startEquity){
+  const W = 640, H = 220, ML = 60, MR = 8, MT = 8, MB = 28;
+  const iw = W-ML-MR, ih = H-MT-MB;
+  const maxE = Math.max(...bands.map(b => b.p95 + startEquity));
+  const minE = Math.min(...bands.map(b => b.p05 + startEquity), startEquity);
+  const y = v => MT + ih - ((v-minE)/(maxE-minE))*ih;
+  const x = i => ML + (i/(bands.length-1))*iw;
+  const path = (key) => bands.map((b,i) => (i?'L':'M')+x(i)+','+y(startEquity+b[key])).join(' ');
+  const area = (top,bot) => {
+    const t = bands.map((b,i) => (i?'L':'M')+x(i)+','+y(startEquity+b[top])).join(' ');
+    const b = bands.map((_,i) => 'L'+x(bands.length-1-i)+','+y(startEquity+bands[bands.length-1-i][bot])).join(' ');
+    return t+' '+b+' Z';
+  };
+  const nY = 5, ticksY = [];
+  for(let i=0;i<=nY;i++){ const v = minE + (i/nY)*(maxE-minE); ticksY.push({v, y:y(v)}); }
+  const nX = 4, ticksX = [];
+  for(let i=0;i<=nX;i++){ const t = Math.round(nTradesArr[Math.floor((nTradesArr.length-1)*i/nX)]); ticksX.push({t, x: ML + (i/nX)*iw}); }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;font-family:inherit;font-size:10px">
+    <path d="${area('p05','p95')}" fill="${C.text}" fill-opacity="0.08"/>
+    <path d="${area('p25','p75')}" fill="${C.pos}" fill-opacity="0.18"/>
+    <path d="${path('p50')}" fill="none" stroke="${C.pos}" stroke-width="2"/>
+    <path d="${path('p05')}" fill="none" stroke="${C.neg}" stroke-width="1" stroke-dasharray="3,3"/>
+    <path d="${path('p95')}" fill="none" stroke="${C.pos}" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="${ML}" y1="${y(startEquity)}" x2="${W-MR}" y2="${y(startEquity)}" stroke="${C.textSec}" stroke-width="1" stroke-dasharray="2,4" opacity="0.5"/>
+    ${ticksY.map(t=>`<text x="${ML-6}" y="${t.y+3}" text-anchor="end" fill="${C.textSec}">${'$'+Math.round(t.v/1000)+'k'}</text><line x1="${ML}" y1="${t.y}" x2="${W-MR}" y2="${t.y}" stroke="${C.border}" stroke-width="0.5" opacity="0.3"/>`).join('')}
+    ${ticksX.map(t=>`<text x="${t.x}" y="${H-8}" text-anchor="middle" fill="${C.textSec}">${t.t}t</text>`).join('')}
+  </svg>`;
+}
+function _setMCWindow(w){ STATE._mcWindow = w; save(); renderStatsContent(true); }
+function _setMCYears(y){ STATE._mcYears = +y; save(); renderStatsContent(true); }
+function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); renderStatsContent(true); }
+function renderStatsMonteCarlo(closedAllTime){
+  const win = STATE._mcWindow || "1m";
+  const years = STATE._mcYears || 2;
+  const nav = (typeof currentEquity==="function") ? currentEquity() : (STATE.ibkrNAV || 49000);
+  const oneRDefault = Math.max(100, Math.round(nav*0.02));   // 2% of live NAV
+  const oneR = STATE._mcOneR || oneRDefault;
+
+  const rSamples = _rSamplesFor(closedAllTime, win);
+  const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months"})[win];
+  const winDays = ({"1w":7,"1m":30,"3m":90,"1y":365})[win];
+  const tradesPerYear = rSamples.length ? Math.round(rSamples.length*(365/winDays)) : 0;
+
+  const pillBtn = (key,label,active) => `<button onclick="_setMCWindow('${key}')" class="btn btn-g" style="padding:5px 11px;font-size:11px;${active?`background:${C.pos};color:#08210f;font-weight:700`:''}">${label}</button>`;
+  const yrsBtn  = (key,label,active) => `<button onclick="_setMCYears(${key})" class="btn btn-g" style="padding:5px 11px;font-size:11px;${active?`background:${C.pos};color:#08210f;font-weight:700`:''}">${label}</button>`;
+
+  const controls = `<div class="card" style="padding:12px;margin-bottom:10px">
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">SAMPLE FROM</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      ${pillBtn("1w","Last 7d",win==="1w")}${pillBtn("1m","Last 30d",win==="1m")}
+      ${pillBtn("3m","Last 3mo",win==="3m")}${pillBtn("1y","Last 12mo",win==="1y")}
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:${C.textSec}">
+      <div>Project forward: ${yrsBtn(2,"2 years",years===2)} ${yrsBtn(3,"3 years",years===3)}</div>
+      <div>1R = <input type="number" value="${oneR}" min="50" step="10" onchange="_setMCOneR(this.value)" style="width:80px;padding:3px 6px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:4px;font-size:11px"> USD  <span style="color:${C.textSec};font-size:10px">(2% of NAV = $${oneRDefault})</span></div>
+    </div>
+  </div>`;
+
+  if(rSamples.length < 8){
+    return controls + `<div class="card" style="padding:14px;background:${C.warn}15;border-left:3px solid ${C.warn}">
+      <div style="font-size:12px;color:${C.warn};font-weight:700;margin-bottom:4px">TOO FEW TRADES IN ${winLabel.toUpperCase()}</div>
+      <div style="font-size:11px;color:${C.text}">Only ${rSamples.length} R-scored trade${rSamples.length===1?'':'s'} in this window. Need at least 8 for a projection worth looking at. Pick a longer window.</div>
+    </div>`;
+  }
+
+  const meanR = rSamples.reduce((s,r)=>s+r,0)/rSamples.length;
+  const stdR = Math.sqrt(rSamples.reduce((s,r)=>s+(r-meanR)*(r-meanR),0)/rSamples.length);
+  const wr = rSamples.filter(r=>r>0).length/rSamples.length;
+  const worstR = Math.min(...rSamples);
+  const breachRate = rSamples.filter(r=>r<-1.10).length/rSamples.length;
+
+  const sim = _runMonteCarlo(rSamples, years, oneR, tradesPerYear, 4000);
+  const startEq = nav;
+
+  const inputSummary = `<div class="card" style="padding:12px;margin-bottom:10px">
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">INPUT DISTRIBUTION · ${winLabel}</div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
+      ${kpiCard("Trades", String(rSamples.length), C.text)}
+      ${kpiCard("Win Rate", (wr*100).toFixed(0)+"%", wr>=0.6?C.pos:wr>=0.5?C.warn:C.neg)}
+      ${kpiCard("Mean R", fmtR(meanR), meanR>0?C.pos:C.neg)}
+      ${kpiCard("Std R", stdR.toFixed(2)+"R", C.text)}
+      ${kpiCard("Worst R", fmtR(worstR), C.neg)}
+      ${kpiCard("Breach rate", (breachRate*100).toFixed(0)+"%", breachRate<=0.05?C.pos:C.neg)}
+    </div>
+    <div style="margin-top:10px;font-size:10px;color:${C.textSec}">
+      Annualized pace: <b style="color:${C.text}">${tradesPerYear.toLocaleString()} trades/yr</b>
+      · Projected <b style="color:${C.text}">${sim.nTrades.toLocaleString()} trades over ${years}yr</b>
+      · Starting NAV <b style="color:${C.text}">$${startEq.toLocaleString()}</b>
+    </div>
+  </div>`;
+
+  const term = sim.final;
+  const dd = sim.maxDD;
+  const projCards = `<div class="card" style="padding:12px;margin-bottom:10px">
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">${years}-YEAR PROJECTION · TERMINAL EQUITY</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      ${kpiCard("P5 (bad-luck 5%)",  "$"+Math.round(startEq+term.p05).toLocaleString(), term.p05>=0?C.warn:C.neg, "5% chance below")}
+      ${kpiCard("P50 (median)",      "$"+Math.round(startEq+term.p50).toLocaleString(), term.p50>=0?C.pos:C.neg, "50% land here or better")}
+      ${kpiCard("P95 (good-luck 5%)","$"+Math.round(startEq+term.p95).toLocaleString(), C.pos, "5% chance above")}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
+      ${kpiCard("Median max DD", "-$"+Math.round(dd.p50).toLocaleString(), C.warn, "typical worst peak→trough")}
+      ${kpiCard("P95 max DD",    "-$"+Math.round(dd.p95).toLocaleString(), C.neg, "bad-luck path DD")}
+      ${kpiCard("P(finish red)", (sim.pBelow0*100).toFixed(0)+"%", sim.pBelow0<0.1?C.pos:sim.pBelow0<0.3?C.warn:C.neg, "% of paths ending below start")}
+    </div>
+  </div>`;
+
+  const fan = `<div class="card" style="padding:12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600">EQUITY FAN CHART · 4,000 simulated paths</div>
+      <div style="font-size:9px;color:${C.textSec}">Green solid = median · dashed = P5/P95 · shaded = P25–P75 band</div>
+    </div>
+    ${_mcFanSVG(sim.bands, sim.nTradesArr, startEq)}
+  </div>`;
+
+  const caveat = `<div style="padding:10px 12px;background:${C.bg};border-left:3px solid ${C.textSec};border-radius:4px;font-size:10px;color:${C.textSec};line-height:1.5">
+    <b style="color:${C.text}">Reading this honestly.</b> Bootstrap sampling replays your OWN trade R-values in random order.
+    It assumes tomorrow looks like the sample window. If ${winLabel.toLowerCase()} was atypically good (light losses, no stops missed)
+    the projection is optimistic. If atypically bad, pessimistic. Compare 1M vs 1Y to see how sensitive your future is to the window you pick.
+    Fixed \$/R (no compounding) — a real book that sizes up as NAV grows will fan wider both ways.
+  </div>`;
+
+  return controls + inputSummary + projCards + fan + caveat;
 }
 
 // ── 3. R:R ──────────────────────────────────────────────────────────────────
