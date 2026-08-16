@@ -8322,7 +8322,11 @@ const _REVIEW_SYSTEM_PROMPT = `You are an expert options-trading coach producing
 
 The trader is a premium-seller on NQ futures options and equity options (bull put spreads, bear call spreads, iron condors, short puts). You're looking at their REAL recent trade data and surfacing what they should ACT on this week.
 
+IMPORTANT — the user's CURRENT RULES appear in the data block. Take them into account. If a rule is being followed, don't tell them to adopt it. If a rule is being VIOLATED (e.g. actual losses larger than the standing SL cap), flag that as the finding — the rule already exists.
+
 Identify 2-4 patterns worth flagging. Each insight should be ACTIONABLE — name the problem, the data behind it, give a concrete next step. Be DIRECT and DATA-DRIVEN. Don't hedge. No "consider exploring" — instead say "do X". Sort insights by severity (HIGH first).
+
+Whenever a finding is grounded in specific trades, list their IDs in evidence_trade_ids so the user can click through to inspect. Prefer 1-5 IDs — the worst offenders that most support the claim.
 
 Return ONLY a JSON object matching this exact schema. No markdown fences, no preamble, no explanation outside the JSON.
 
@@ -8335,11 +8339,51 @@ Return ONLY a JSON object matching this exact schema. No markdown fences, no pre
       "metric": "short headline number (e.g. '7.0x', '$5,302', '38%')",
       "trend": "worsening" | "improving" | "stable",
       "context_facts": ["Avg Win: $701", "Avg Loss: $4,902", "Recoverable: $63,010"],
+      "evidence_trade_ids": [123, 456, 789],
       "next_action": "1-sentence concrete action",
       "why_surfaced": "1-sentence data-driven explanation citing specific numbers"
     }
   ]
 }`;
+
+// Separate prompt for the CONVERSATIONAL follow-up. The initial review returns
+// structured JSON; follow-ups return plain text so the human can just read.
+const _REVIEW_CHAT_SYSTEM_PROMPT = `You are the same options-trading coach continuing a conversation with the trader. The initial structured review has already been shown. Now the user is asking follow-up questions.
+
+Answer conversationally and DIRECTLY. Keep responses tight — 2-5 sentences unless deeper detail is genuinely needed. Reference specific trade IDs when they support the point (format: "#970" or "trade 970"). Reference the user's rules when relevant. Do NOT return JSON.
+
+The trader's rules, recent trades, and prior review are all in the data block.`;
+
+// Rules snapshot — what the trader has COMMITTED to. Fed into every AI review
+// so the coach knows what's already policy vs what needs to become policy.
+// Reads standingRules (TP/SL/risk/daily-loss caps) + tradingRules (freehand
+// journaled rules). Compact so it doesn't burn tokens.
+function _buildRulesContext() {
+  const sr = STATE.standingRules || {};
+  const tp = sr.tpPct != null ? `TP${sr.tpPct}` : "TP—";
+  const sl = sr.slPct != null ? `SL${sr.slPct}%` : "SL—";
+  const risk = sr.riskPerTradePct != null ? sr.riskPerTradePct + "%/trade" : "risk% not set";
+  const daily = sr.maxDailyLossPct != null ? `daily-loss-cap ${sr.maxDailyLossPct}%` : "no daily cap";
+  const spreadSL = sr.defaultSpreadSLPct != null ? `default spread-SL ${sr.defaultSpreadSLPct}%` : "";
+  const custom = (STATE.tradingRules || []).slice(0, 12);
+  const nav = (STATE.ibkrNAV != null && STATE.ibkrNAV > 0) ? STATE.ibkrNAV : null;
+  const oneR = nav && sr.riskPerTradePct ? Math.round(nav * sr.riskPerTradePct / 100) : null;
+  const stopMult = _stopMult();
+  const lines = [
+    `Live NAV: ${nav ? "$"+nav.toLocaleString() : "unknown"}`,
+    `Standing rules: ${risk}, ${tp}, ${sl}, ${daily}${spreadSL ? ", "+spreadSL : ""}.`,
+    oneR ? `Therefore 1R = ~$${oneR} (${sr.riskPerTradePct}% of NAV). A −1R loss = ${sr.slPct}% of the credit collected. Losses beyond that = STOP NOT HONORED.` : "",
+  ].filter(Boolean);
+  if (custom.length) {
+    lines.push("");
+    lines.push("Custom journaled rules the trader is holding themselves to:");
+    for (const r of custom) {
+      const txt = typeof r === "string" ? r : (r.text || JSON.stringify(r));
+      lines.push(`  - ${txt}`);
+    }
+  }
+  return lines.join("\n");
+}
 
 function _buildReviewSummary(closed) {
   if (!closed.length) return "No closed trades in scope.";
@@ -8388,7 +8432,26 @@ function _buildReviewSummary(closed) {
   // Top 5 losers
   const topLosers = [...losses].sort((a,b) => (a.realizedPnl||0) - (b.realizedPnl||0)).slice(0, 5);
 
-  return `TRADING REVIEW DATA — ${closed.length} closed trades (filter: ${statsDateFilter}).
+  // Group trade IDs per hour so the AI can cite specific trades when it
+  // makes an hourly claim (fixes the "10am bleed" without proof problem).
+  const idsByHour = {};
+  closed.forEach(t => {
+    if (!t.entryTime) return;
+    const h = parseInt(t.entryTime.split(":")[0], 10);
+    if (isNaN(h)) return;
+    (idsByHour[h] = idsByHour[h] || []).push(t.id);
+  });
+  const idsByDow = {};
+  closed.forEach(t => {
+    if (!t.entryDate) return;
+    const d = new Date(t.entryDate + "T12:00:00").getDay();
+    (idsByDow[d] = idsByDow[d] || []).push(t.id);
+  });
+
+  return `RULES & CONTEXT — the trader's current playbook:
+${_buildRulesContext()}
+
+TRADING REVIEW DATA — ${closed.length} closed trades (filter: ${statsDateFilter}).
 
 KPIs:
   Total P&L: $${totalPnl.toFixed(0)}
@@ -8401,14 +8464,14 @@ KPIs:
 By symbol (top 8 by impact):
 ${topSymbols.map(([k,v]) => `  ${k}: ${v.n} trades, ${Math.round(v.wins/v.n*100)}% WR, $${v.pnl.toFixed(0)} P&L`).join("\n")}
 
-By day-of-week:
-${byDow.map((s,i) => s.n ? `  ${dows[i]}: ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)}` : null).filter(Boolean).join("\n")}
+By day-of-week (with trade IDs so you can cite them):
+${byDow.map((s,i) => s.n ? `  ${dows[i]}: ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)}  ids=[${(idsByDow[i]||[]).slice(0,8).join(",")}]` : null).filter(Boolean).join("\n")}
 
-By hour-of-entry (ET):
-${Object.entries(byHour).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([h,s]) => `  ${String(h).padStart(2,"0")}:00 — ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)}`).join("\n")}
+By hour-of-entry (ET, with trade IDs):
+${Object.entries(byHour).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([h,s]) => `  ${String(h).padStart(2,"0")}:00 — ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)}  ids=[${(idsByHour[+h]||[]).slice(0,8).join(",")}]`).join("\n")}
 
-Top 5 worst trades:
-${topLosers.map(t => `  ${t.ticker} ${t.tradeType} ${t.entryDate}: $${(t.realizedPnl||0).toFixed(0)} (premium $${(t.premiumCollected||0).toFixed(0)})`).join("\n")}`;
+Top 5 worst trades (cite these IDs in evidence_trade_ids when discussing tail risk):
+${topLosers.map(t => `  id=${t.id} ${t.ticker} ${t.tradeType} ${t.entryDate}: $${(t.realizedPnl||0).toFixed(0)} (premium $${(t.premiumCollected||0).toFixed(0)}, ${t.premiumCollected>0 ? Math.round((t.realizedPnl/t.premiumCollected)*100) : "?"}% of credit)`).join("\n")}`;
 }
 
 function _relativeTime(ts) {
@@ -8480,6 +8543,7 @@ async function _runTradingReview() {
   if (!body) return;
   const closed = filterTradesByDate(STATE.trades.filter(t => t.status !== "Open" && !t._pending));
   if (!closed.length) { body.innerHTML = `<div style="color:${C.warn};text-align:center;padding:20px">No closed trades in the current date filter.</div>`; return; }
+  _reviewChatLog = [];   // fresh review = fresh conversation
   body.innerHTML = `<div style="color:${C.textSec};text-align:center;padding:20px">Generating review… (10-20 sec)</div>`;
 
   // Key handled server-side by /api/anthropic.
@@ -8528,7 +8592,89 @@ function _renderTradingReviewBody(review) {
     ${insights.length ? `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:10px">
       ${insights.map(_renderInsightCard).join("")}
     </div>` : `<div style="color:${C.textMut};font-style:italic;padding:12px">No insights returned.</div>`}
+    ${_renderReviewChatUI()}
   `;
+}
+
+// ── Conversational follow-up ────────────────────────────────────────────────
+// After the initial review, the user can ask the coach follow-up questions
+// (e.g. "Why do you think Tuesdays are so bad?"). Each follow-up gets the
+// SAME data context + a compact form of the prior review, so the coach
+// stays grounded instead of hallucinating a new take every turn.
+let _reviewChatLog = [];   // [{role: 'user'|'assistant', text}]
+function _renderReviewChatMessages() {
+  return _reviewChatLog.map(m => {
+    const isUser = m.role === "user";
+    const bg = isUser ? C.bg : (C.accent + "11");
+    const align = isUser ? "flex-end" : "flex-start";
+    const border = isUser ? "1px solid " + C.border : "1px solid " + C.accent + "33";
+    return `<div style="display:flex;justify-content:${align};margin-bottom:8px">
+      <div style="max-width:78%;background:${bg};border:${border};border-radius:8px;padding:8px 11px;font-size:12px;color:${C.text};line-height:1.5;white-space:pre-wrap;word-wrap:break-word">${escapeHtml(m.text)}</div>
+    </div>`;
+  }).join("");
+}
+function _renderReviewChatUI() {
+  return `<div id="review-chat-panel" style="margin-top:16px;padding-top:14px;border-top:1px solid ${C.border}">
+    <div style="font-size:9px;color:${C.accent};letter-spacing:0.06em;font-weight:700;margin-bottom:8px">💬 ASK THE COACH — follow-up questions grounded in your data + rules</div>
+    <div id="review-chat-log" style="margin-bottom:10px;max-height:400px;overflow-y:auto">${_renderReviewChatMessages()}</div>
+    <div style="display:flex;gap:8px">
+      <textarea id="review-chat-input" placeholder="e.g. Why is Tuesday so bad? · Should I still trade /ES? · What rule would have saved me on #970?" rows="2" style="flex:1;background:${C.bg};border:1px solid ${C.border};border-radius:6px;padding:8px 10px;color:${C.text};font-size:12px;font-family:inherit;resize:vertical" onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){_sendReviewChat();event.preventDefault();}"></textarea>
+      <button onclick="_sendReviewChat()" class="btn btn-p" style="padding:6px 14px;font-size:11px;white-space:nowrap;align-self:stretch">Send ↵</button>
+    </div>
+    <div style="font-size:9px;color:${C.textMut};margin-top:4px">⌘/Ctrl+Enter to send. Coach sees the same rules + trade data as the review above.</div>
+  </div>`;
+}
+async function _sendReviewChat() {
+  const inp = document.getElementById("review-chat-input");
+  const log = document.getElementById("review-chat-log");
+  if (!inp || !log) return;
+  const q = (inp.value || "").trim();
+  if (!q) return;
+  _reviewChatLog.push({ role: "user", text: q });
+  inp.value = "";
+  // Include a compact "prior review" summary so follow-ups reference it
+  const cacheKey = `_aiTradingReview:${statsDateFilter}:${(STATE.trades||[]).filter(t => t.status !== "Open" && !t._pending).length}`;
+  const cached = _readReviewCache(cacheKey);
+  const priorReview = cached?.data
+    ? "PRIOR REVIEW (already shown to user):\n" +
+      "  Takeaway: " + (cached.data.coach_takeaway || "") + "\n" +
+      (cached.data.insights || []).map(i => `  - ${i.title} [${i.severity}]: ${i.metric || ""} — ${i.next_action || ""}`).join("\n")
+    : "(No prior review cached — user is asking cold.)";
+  const closed = filterTradesByDate((STATE.trades||[]).filter(t => t.status !== "Open" && !t._pending));
+  const summary = _buildReviewSummary(closed);
+  // Include conversation history so the coach can maintain context across turns
+  const history = _reviewChatLog.map(m => ({ role: m.role, content: m.text }));
+  // Render "thinking" placeholder
+  _reviewChatLog.push({ role: "assistant", text: "…thinking" });
+  log.innerHTML = _renderReviewChatMessages();
+  log.scrollTop = log.scrollHeight;
+  try {
+    const resp = await fetch("/api/anthropic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system: _REVIEW_CHAT_SYSTEM_PROMPT + "\n\n" + summary + "\n\n" + priorReview,
+        messages: history,
+      }),
+    });
+    const data = await resp.json();
+    let text = "";
+    if (!resp.ok || data.error) text = "⚠ " + (data.error?.message || `HTTP ${resp.status}`);
+    else text = data.content?.[0]?.text || "(empty response)";
+    // Replace the "…thinking" placeholder with the real answer
+    _reviewChatLog[_reviewChatLog.length - 1] = { role: "assistant", text };
+  } catch (e) {
+    _reviewChatLog[_reviewChatLog.length - 1] = { role: "assistant", text: "⚠ Failed: " + e.message };
+  }
+  // Full re-render of the chat panel to pick up assistant text
+  const panel = document.getElementById("review-chat-panel");
+  if (panel) panel.outerHTML = _renderReviewChatUI();
+  const newLog = document.getElementById("review-chat-log");
+  if (newLog) newLog.scrollTop = newLog.scrollHeight;
+  const newInp = document.getElementById("review-chat-input");
+  if (newInp) newInp.focus();
 }
 
 function _renderInsightCard(ins) {
@@ -8538,6 +8684,26 @@ function _renderInsightCard(ins) {
   const trendBadge = trend === "worsening" ? `<span style="font-size:9px;color:${C.neg};margin-left:6px">worsening ↗</span>`
                    : trend === "improving" ? `<span style="font-size:9px;color:${C.pos};margin-left:6px">improving ↘</span>`
                    : `<span style="font-size:9px;color:${C.textSec};margin-left:6px">stable →</span>`;
+  // Evidence chips: AI cited these trade IDs. Click to open the trade in the
+  // diary so the user can inspect the actual trade instead of taking the AI
+  // at its word. Skips IDs that don't resolve to real trades (AI can hallucinate).
+  let evidenceHTML = "";
+  if (Array.isArray(ins.evidence_trade_ids) && ins.evidence_trade_ids.length) {
+    const known = new Set((STATE.trades||[]).map(t => t.id));
+    const chips = ins.evidence_trade_ids.filter(id => known.has(+id) || known.has(String(id))).slice(0, 6).map(id => {
+      const t = (STATE.trades||[]).find(x => String(x.id) === String(id));
+      if (!t) return "";
+      const pnl = t.realizedPnl != null ? (t.realizedPnl >= 0 ? "+" : "−") + "$" + Math.abs(Math.round(t.realizedPnl)) : "open";
+      const pnlCol = t.realizedPnl == null ? C.textSec : (t.realizedPnl >= 0 ? C.pos : C.neg);
+      return `<button onclick="_reviewOpenTrade(${t.id})" title="Open trade in diary" style="background:${C.bg};border:1px solid ${C.border};border-radius:4px;padding:3px 8px;font-size:10px;color:${C.text};cursor:pointer;font-variant-numeric:tabular-nums;display:inline-flex;align-items:center;gap:6px">
+        <span style="color:${C.textSec}">#${t.id}</span>
+        <span>${escapeHtml(t.ticker||"")}</span>
+        <span style="color:${C.textMut}">${(t.exitDate||t.entryDate||"").slice(5)}</span>
+        <span style="color:${pnlCol};font-weight:600">${pnl}</span>
+      </button>`;
+    }).filter(Boolean).join("");
+    if (chips) evidenceHTML = `<div style="margin:8px 0;padding-top:8px;border-top:1px solid ${C.border}22"><div style="font-size:9px;color:${C.textMut};letter-spacing:0.06em;font-weight:700;margin-bottom:5px">EVIDENCE — click to inspect</div><div style="display:flex;flex-wrap:wrap;gap:5px">${chips}</div></div>`;
+  }
   return `<div class="card" style="padding:12px;border-left:3px solid ${sevColor}">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
       <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
@@ -8551,8 +8717,17 @@ function _renderInsightCard(ins) {
       ${ins.context_facts.map(f => `<span>${escapeHtml(String(f))}</span>`).join("")}
     </div>` : ""}
     ${ins.next_action ? `<div style="font-size:11px;color:${C.text};margin-bottom:6px;line-height:1.5"><span style="color:${C.accent};font-weight:600">▶ Next:</span> ${escapeHtml(ins.next_action)}</div>` : ""}
+    ${evidenceHTML}
     ${ins.why_surfaced ? `<div style="font-size:10px;color:${C.textSec};font-style:italic;padding-top:6px;border-top:1px solid ${C.border}">Why this surfaced: ${escapeHtml(ins.why_surfaced)}</div>` : ""}
   </div>`;
+}
+
+// Open a trade referenced by the AI in the diary. Uses the canonical
+// switchTab helper so mobile / desktop / layout modes all behave.
+function _reviewOpenTrade(tradeId) {
+  currentDiaryId = tradeId;
+  switchTab("diary");
+  if (typeof renderDiary === "function") setTimeout(renderDiary, 30);
 }
 
 function _maeScatterInsight(data) {
