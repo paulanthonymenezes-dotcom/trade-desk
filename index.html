@@ -6576,7 +6576,14 @@ function renderStatsMonteCarlo(closedAllTime){
       ${pillBtn("3m","Last 3mo",win==="3m")}${pillBtn("ytd","YTD",win==="ytd")}${pillBtn("1y","Last 12mo",win==="1y")}
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:${C.textSec}">
-      <div>Project forward: ${yrsBtn(2,"2 years",years===2)} ${yrsBtn(3,"3 years",years===3)}</div>
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">Project forward:
+        ${yrsBtn(0.25,"3 mo",years===0.25)}
+        ${yrsBtn(0.5, "6 mo",years===0.5)}
+        ${yrsBtn(1,   "12 mo",years===1)}
+        ${yrsBtn(1.5, "18 mo",years===1.5)}
+        ${yrsBtn(2,   "2 yr",years===2)}
+        ${yrsBtn(3,   "3 yr",years===3)}
+      </div>
       <div>1R = <input type="number" value="${oneR}" min="50" step="10" onchange="_setMCOneR(this.value)" style="width:80px;padding:3px 6px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:4px;font-size:11px"> USD  <span style="color:${C.textSec};font-size:10px">(2% of NAV = $${oneRDefault})</span></div>
     </div>
   </div>`;
@@ -6595,16 +6602,21 @@ function renderStatsMonteCarlo(closedAllTime){
   const breachRate = rSamples.filter(r=>r<-1.10).length/rSamples.length;
 
   // Build the sample points the sim needs to record — fan chart + milestone table.
-  const totalTrades = Math.max(20, Math.round(tradesPerYear*years));
+  const totalTrades = Math.max(5, Math.round(tradesPerYear*years));
   const tpm = tradesPerYear/12;
-  const fanN = 48;
+  const fanN = Math.min(48, totalTrades);   // don't over-sample when the horizon is short
   const fanPts = [];
   for(let i=1;i<=fanN;i++){
     const t = Math.max(1, Math.round((i/fanN)*totalTrades));
     fanPts.push({ trades:t, months: t/tpm, kind:'fan' });
   }
-  const milestoneMonths = years <= 2 ? [3,6,12,18,24] : [3,6,12,18,24,36];
-  const mileMonths = milestoneMonths.filter(m => m <= years*12 + 0.5);
+  // Milestones adapt to the horizon: sub-year picks use finer marks so the table
+  // isn't just one row when you project 3 or 6 months.
+  const totalMonths = years * 12;
+  const allMile = [1, 3, 6, 12, 18, 24, 36];
+  const mileMonths = allMile.filter(m => m <= totalMonths + 0.5)
+                            .filter(m => m >= Math.max(1, totalMonths/8));   // drop trivially-close marks
+  if (!mileMonths.length && totalMonths > 0) mileMonths.push(Math.round(totalMonths));   // safety: always at least one row (final)
   const mileLabels = mileMonths.map(m => m<12 ? m+' mo' : (m/12).toFixed(m%12===0?0:1)+' yr');
   const milePts = mileMonths.map((m,i) => ({ trades: Math.max(1, Math.round(m*tpm)), months: m, kind:'mile', label: mileLabels[i] }));
 
@@ -6646,7 +6658,7 @@ function renderStatsMonteCarlo(closedAllTime){
   const term = sim.final;
   const dd = sim.maxDD;
   const projCards = `<div class="card" style="padding:12px;margin-bottom:10px">
-    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">${years}-YEAR PROJECTION · TERMINAL EQUITY</div>
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">${years < 1 ? Math.round(years*12)+"-MONTH" : (years%1===0 ? years+"-YEAR" : (years*12)+"-MONTH")} PROJECTION · TERMINAL EQUITY</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
       ${kpiCard("P5 (bad-luck 5%)",  "$"+Math.round(startEq+term.p05).toLocaleString(), term.p05>=0?C.warn:C.neg, "5% chance below")}
       ${kpiCard("P50 (median)",      "$"+Math.round(startEq+term.p50).toLocaleString(), term.p50>=0?C.pos:C.neg, "50% land here or better")}
