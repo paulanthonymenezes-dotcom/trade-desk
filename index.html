@@ -14047,23 +14047,63 @@ function _etToMs(dateStr, hm){
 function reconcileEntryTags(){
   if(!Array.isArray(STATE.entryTags)||!STATE.entryTags.length) return;
   const trades=STATE.trades||[]; let changed=false;
+  // Pass A — heal broken bidi links: trade points at tag but tag.matched isn't set
+  // (happens if a save was interrupted). Sync the tag → trade side, apply payload.
+  const tagsById = {};
+  for(const t of STATE.entryTags) tagsById[t.id] = t;
+  for(const tr of trades){
+    if(!tr._taggedBy) continue;
+    const tg = tagsById[tr._taggedBy];
+    if(!tg || tg.matched === tr.id) continue;
+    if(tg.conviction!=null && tr.conviction==null) tr.conviction=tg.conviction;
+    if(Array.isArray(tg.sources) && tg.sources.length){
+      tr.ideaSources = (tr.ideaSources && tr.ideaSources.length) ? tr.ideaSources : tg.sources.slice();
+      if(!tr.ideaSource) tr.ideaSource = tg.sources[0];
+    }
+    if((tg.note||"").trim() && !tr.entryNote) tr.entryNote = tg.note;
+    if(tg.pop!=null && tr.pop==null) tr.pop = tg.pop;
+    tg.matched = tr.id;
+    changed = true;
+  }
+  // Pass B — bind unmatched tags to trades with widened window and a garbage-time
+  // fallback. FWD widened 20→90min because Paul often tags on the SIGNAL and enters
+  // 30-60 min later; the tight window was leaving those orphaned. Fallback: if a
+  // trade has a garbage entryTime (evening-session reconstruction bug leaves
+  // 02:00 / 23:53 etc on old trades), fall through to same-date+ticker matching.
   for(const tag of STATE.entryTags){
     if(tag.matched) continue;
     const tt=Date.parse(tag.ts); const tagRoot=tag.ticker?_mTickerRoot(tag.ticker):null;
-    // You tag WITHIN ~90 min AFTER entering, so the fill sits BEFORE the tag.
-    // Look back 120 min (buffer over 90) and allow 20 min ahead for clock skew /
-    // tagging while the order is still filling. Nearest fill inside the window wins,
-    // so multi-trade days bind each tag to its closest entry, not the first one.
-    const BACK=120*60000, FWD=20*60000; let best=null,bd=Infinity;
+    const tagDay = String(tag.ts||"").slice(0,10);
+    const BACK=180*60000, FWD=90*60000; let best=null, bd=Infinity, bestKind=null;
     for(const tr of trades){
       if(tr._taggedBy) continue;
-      if(tagRoot && _mTickerRoot(tr.ticker)!==tagRoot) continue;   // ticker must match if the tag has one
-      const te=_etToMs(tr.entryDate,tr.entryTime); if(te==null) continue;
-      const delta=tt-te;                          // >0 => tag came after the fill (the normal case)
-      if(delta>BACK || delta< -FWD) continue;     // outside the asymmetric window
-      const d=Math.abs(delta); if(d<bd){bd=d;best=tr;}
+      if(tagRoot && _mTickerRoot(tr.ticker)!==tagRoot) continue;
+      const te=_etToMs(tr.entryDate,tr.entryTime);
+      if(te!=null){
+        const delta=tt-te;
+        if(delta<=BACK && delta>=-FWD){
+          const d=Math.abs(delta);
+          if(d<bd){bd=d; best=tr; bestKind="time";}
+          continue;
+        }
+      }
+      // Fallback: same trade date + same ticker root, no time match. Penalize
+      // vs any real time match so time-matches always win.
+      if(bestKind !== "time" && tr.entryDate === tagDay){
+        const d = 24*3600*1000;   // stub distance, worse than any in-window time match
+        if(d<bd){bd=d; best=tr; bestKind="date";}
+      }
     }
-    if(best){ best.conviction=tag.conviction; best.ideaSources=tag.sources.slice(); best.ideaSource=best.ideaSource||tag.sources[0]; if((tag.note||"").trim())best.entryNote=tag.note; if(tag.pop!=null && best.pop==null) best.pop=tag.pop; best._taggedBy=tag.id; tag.matched=best.id; changed=true; }
+    if(best){
+      best.conviction=tag.conviction;
+      best.ideaSources=tag.sources.slice();
+      best.ideaSource=best.ideaSource||tag.sources[0];
+      if((tag.note||"").trim()) best.entryNote=tag.note;
+      if(tag.pop!=null && best.pop==null) best.pop=tag.pop;
+      best._taggedBy=tag.id;
+      tag.matched=best.id;
+      changed=true;
+    }
   }
   if(changed) save();
 }
