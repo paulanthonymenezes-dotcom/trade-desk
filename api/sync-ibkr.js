@@ -335,14 +335,14 @@ function applyFlexAppendOnly(recon, STATE) {
     const db = Date.parse(String(b).slice(0, 10) + "T00:00:00Z");
     return isFinite(da) && isFinite(db) && Math.abs(da - db) <= 36 * 3600 * 1000;
   };
-  const isPresent = (r) => {
+  const findExisting = (r) => {
     const rl = legs(r);
     if (rl.length) {
-      return existing.some(e => legs(e).some(s => rl.includes(s)) &&
+      return existing.find(e => legs(e).some(s => rl.includes(s)) &&
         (dnear(e.entryDate, r.entryDate) || dnear(e.exitDate, r.exitDate)));
     }
     // no leg symbols (plain stock): match ticker + close date + ~same realized P&L
-    return existing.some(e => e.ticker === r.ticker && dnear(e.exitDate, r.exitDate) &&
+    return existing.find(e => e.ticker === r.ticker && dnear(e.exitDate, r.exitDate) &&
       Math.abs((+e.realizedPnl || 0) - (+r.realizedPnl || 0)) < 1);
   };
   // RECENCY GUARD: only append trades that closed recently. A genuinely new trade is
@@ -350,12 +350,31 @@ function applyFlexAppendOnly(recon, STATE) {
   // (e.g. a slightly different regrouping) that would DUPLICATE history. Block it.
   const staleCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
   let nid = Math.max(0, ...existing.map(t => t.id || 0)) + 1;
-  let added = 0, skipped = 0, openSkipped = 0, staleSkipped = 0;
+  let added = 0, skipped = 0, upgraded = 0, openSkipped = 0, staleSkipped = 0;
   const addedTrades = [];
+  const upgradedTrades = [];
   for (const r of recon) {
     if (r.status !== "Closed") { openSkipped++; continue; } // open positions sync when you open the desk
     if (r.exitDate && r.exitDate < staleCutoff) { staleSkipped++; continue; } // too old to be new
-    if (isPresent(r)) { skipped++; continue; }
+    const match = findExisting(r);
+    if (match) {
+      // UPGRADE Open → Closed: the trade was already in the desk from an earlier
+      // sync (when it opened), and now the closing legs are in this Flex CSV. Apply
+      // the close instead of skipping. Otherwise the trade sits as forever-Open even
+      // though IBKR knows it's flat (the AMD id=956 bug — closed 8/12, dedup ate it).
+      if (match.status === "Open" && r.status === "Closed") {
+        match.status = "Closed";
+        match.exitDate = r.exitDate;
+        if (r.exitTime) match.exitTime = r.exitTime;
+        if (r.realizedPnl != null) match.realizedPnl = r.realizedPnl;
+        if (r.exitReason && !match.exitReason) match.exitReason = r.exitReason;
+        upgraded++;
+        upgradedTrades.push({ id: match.id, ticker: match.ticker, exitDate: match.exitDate, pnl: match.realizedPnl });
+      } else {
+        skipped++;
+      }
+      continue;
+    }
     r.id = nid++;
     addedTrades.push(r);
     added++;
@@ -363,8 +382,9 @@ function applyFlexAppendOnly(recon, STATE) {
   STATE.trades = existing.concat(addedTrades);
   STATE.nextId = Math.max(0, ...STATE.trades.map(t => t.id || 0)) + 1;
   return {
-    added, skipped, openSkipped, staleSkipped, existing: existing.length, total: STATE.trades.length,
+    added, upgraded, skipped, openSkipped, staleSkipped, existing: existing.length, total: STATE.trades.length,
     addedSample: addedTrades.slice(0, 10).map(t => ({ ticker: t.ticker, type: t.tradeType, entryDate: t.entryDate, entryTime: t.entryTime, exitDate: t.exitDate, short: t.shortSymbol, pnl: t.realizedPnl })),
+    upgradedSample: upgradedTrades.slice(0, 10),
   };
 }
 
