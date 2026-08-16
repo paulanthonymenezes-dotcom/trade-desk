@@ -6352,76 +6352,145 @@ function _rSamplesFor(closed, win){
     .map(t => tradeR(t))
     .filter(r => r != null);
 }
-// Bootstrap sim. Returns fan-chart percentile bands + terminal + max-DD stats.
-// Deterministic seed → same window/params render the same fan every time
-// (avoids visual jitter on re-renders).
-function _runMonteCarlo(rSamples, years, oneR, tradesPerYear, nPaths){
-  if(!rSamples.length || tradesPerYear<=0) return null;
-  const nTrades = Math.max(20, Math.round(tradesPerYear*years));
-  const nCheck = 40;                                     // fan chart resolution
-  const step = Math.max(1, Math.floor(nTrades/nCheck));
+// Bootstrap sim. Records equity + rolling-max-DD at each requested "sample
+// point" (specific trade counts we care about — a mix of evenly-spaced fan-chart
+// checkpoints and named milestones like "3mo" / "1yr" for the table). Deterministic
+// seed so re-renders are stable.
+function _runMonteCarlo(rSamples, oneR, nPaths, samplePoints){
+  if(!rSamples.length || !samplePoints.length) return null;
+  const pts = samplePoints.slice().sort((a,b)=>a.trades-b.trades);
+  const nTrades = pts[pts.length-1].trades;
+  const nPts = pts.length;
   const rn = rSamples.length;
-  // xorshift32 with fixed seed so rendering is stable across re-clicks
   let s = 1234567 ^ (rn*7919) ^ (nTrades*31);
   const rand = () => { s ^= s<<13; s ^= s>>>17; s ^= s<<5; return ((s>>>0)/0x100000000); };
-  const finals = new Float32Array(nPaths);
-  const dds    = new Float32Array(nPaths);
-  const checkpoints = [];   // eq at each checkpoint across all paths
-  for(let c=0;c<nCheck;c++) checkpoints.push(new Float32Array(nPaths));
+  const eqAt = pts.map(() => new Float32Array(nPaths));
+  const ddAt = pts.map(() => new Float32Array(nPaths));
   for(let p=0;p<nPaths;p++){
-    let eq = 0, peak = 0, dd = 0, ci = 0, next = step;
+    let eq=0, peak=0, dd=0, si=0;
     for(let i=0;i<nTrades;i++){
       eq += rSamples[Math.floor(rand()*rn)] * oneR;
       if(eq>peak) peak=eq;
-      const cur = (peak-eq);
+      const cur = peak-eq;
       if(cur>dd) dd = cur;
-      if(i+1===next && ci<nCheck){ checkpoints[ci][p] = eq; ci++; next+=step; }
+      // Multiple sample points may share the same trade count — record all of them.
+      while(si<nPts && i+1===pts[si].trades){ eqAt[si][p]=eq; ddAt[si][p]=dd; si++; }
     }
-    while(ci<nCheck){ checkpoints[ci][p] = eq; ci++; }
-    finals[p] = eq;
-    dds[p]    = dd;
   }
   const pct = (arr, p) => { const a = Float32Array.from(arr).sort(); return a[Math.floor((a.length-1)*p)]; };
-  const bands = checkpoints.map(arr => ({
-    p05: pct(arr,0.05), p25: pct(arr,0.25), p50: pct(arr,0.50), p75: pct(arr,0.75), p95: pct(arr,0.95)
+  const stats = pts.map((pt,i) => ({
+    ...pt,
+    p05: pct(eqAt[i],0.05), p25: pct(eqAt[i],0.25), p50: pct(eqAt[i],0.50),
+    p75: pct(eqAt[i],0.75), p95: pct(eqAt[i],0.95),
+    ddMed: pct(ddAt[i],0.50), ddP95: pct(ddAt[i],0.95),
   }));
-  const nTradesArr = bands.map((_,i) => step*(i+1));
+  const last = eqAt[nPts-1];
+  const lastDD = ddAt[nPts-1];
   return {
-    bands, nTradesArr,
-    final: { p05:pct(finals,0.05), p50:pct(finals,0.50), p95:pct(finals,0.95) },
-    maxDD: { p50:pct(dds,0.50), p95:pct(dds,0.95) },   // p95 = "worst 5% of paths lose at least this much peak-to-trough"
-    pBelow0:   Array.from(finals).filter(v=>v<0).length / nPaths,
-    pDouble:   Array.from(finals).filter((v,i) => v > oneR*tradesPerYear*years*0.5).length / nPaths,   // "beat +0.5R/trade avg"
+    stats,
+    final: { p05:pct(last,0.05), p50:pct(last,0.50), p95:pct(last,0.95) },
+    maxDD: { p50:pct(lastDD,0.50), p95:pct(lastDD,0.95) },
+    pBelow0: Array.from(last).filter(v=>v<0).length / nPaths,
     nTrades
   };
 }
-function _mcFanSVG(bands, nTradesArr, startEquity){
-  const W = 640, H = 220, ML = 60, MR = 8, MT = 8, MB = 28;
+// Global for hover — set by the render, read by _mcHover on mousemove.
+let _mcFanState = null;
+function _mcFanSVG(fanBands, startEquity, tradesPerYear){
+  const W = 660, H = 250, ML = 62, MR = 10, MT = 10, MB = 42;
   const iw = W-ML-MR, ih = H-MT-MB;
-  const maxE = Math.max(...bands.map(b => b.p95 + startEquity));
-  const minE = Math.min(...bands.map(b => b.p05 + startEquity), startEquity);
+  const maxE = Math.max(...fanBands.map(b => b.p95 + startEquity));
+  const minE = Math.min(...fanBands.map(b => b.p05 + startEquity), startEquity);
   const y = v => MT + ih - ((v-minE)/(maxE-minE))*ih;
-  const x = i => ML + (i/(bands.length-1))*iw;
-  const path = (key) => bands.map((b,i) => (i?'L':'M')+x(i)+','+y(startEquity+b[key])).join(' ');
+  const x = i => ML + (i/(fanBands.length-1))*iw;
+  const path = (key) => fanBands.map((b,i) => (i?'L':'M')+x(i)+','+y(startEquity+b[key])).join(' ');
   const area = (top,bot) => {
-    const t = bands.map((b,i) => (i?'L':'M')+x(i)+','+y(startEquity+b[top])).join(' ');
-    const b = bands.map((_,i) => 'L'+x(bands.length-1-i)+','+y(startEquity+bands[bands.length-1-i][bot])).join(' ');
+    const t = fanBands.map((b,i) => (i?'L':'M')+x(i)+','+y(startEquity+b[top])).join(' ');
+    const b = fanBands.map((_,i) => 'L'+x(fanBands.length-1-i)+','+y(startEquity+fanBands[fanBands.length-1-i][bot])).join(' ');
     return t+' '+b+' Z';
   };
   const nY = 5, ticksY = [];
   for(let i=0;i<=nY;i++){ const v = minE + (i/nY)*(maxE-minE); ticksY.push({v, y:y(v)}); }
-  const nX = 4, ticksX = [];
-  for(let i=0;i<=nX;i++){ const t = Math.round(nTradesArr[Math.floor((nTradesArr.length-1)*i/nX)]); ticksX.push({t, x: ML + (i/nX)*iw}); }
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;font-family:inherit;font-size:10px">
-    <path d="${area('p05','p95')}" fill="${C.text}" fill-opacity="0.08"/>
-    <path d="${area('p25','p75')}" fill="${C.pos}" fill-opacity="0.18"/>
-    <path d="${path('p50')}" fill="none" stroke="${C.pos}" stroke-width="2"/>
-    <path d="${path('p05')}" fill="none" stroke="${C.neg}" stroke-width="1" stroke-dasharray="3,3"/>
-    <path d="${path('p95')}" fill="none" stroke="${C.pos}" stroke-width="1" stroke-dasharray="3,3"/>
-    <line x1="${ML}" y1="${y(startEquity)}" x2="${W-MR}" y2="${y(startEquity)}" stroke="${C.textSec}" stroke-width="1" stroke-dasharray="2,4" opacity="0.5"/>
-    ${ticksY.map(t=>`<text x="${ML-6}" y="${t.y+3}" text-anchor="end" fill="${C.textSec}">${'$'+Math.round(t.v/1000)+'k'}</text><line x1="${ML}" y1="${t.y}" x2="${W-MR}" y2="${t.y}" stroke="${C.border}" stroke-width="0.5" opacity="0.3"/>`).join('')}
-    ${ticksX.map(t=>`<text x="${t.x}" y="${H-8}" text-anchor="middle" fill="${C.textSec}">${t.t}t</text>`).join('')}
-  </svg>`;
+  // X ticks — show months (from tradesPerYear) instead of raw trade counts. Cleaner.
+  const tpm = tradesPerYear/12;
+  const totalMonths = fanBands[fanBands.length-1].trades / tpm;
+  const monthStops = totalMonths <= 12 ? [0,3,6,9,12] : totalMonths <= 24 ? [0,6,12,18,24] : [0,6,12,18,24,30,36];
+  const validStops = monthStops.filter(m => m <= totalMonths + 0.5);
+  const ticksX = validStops.map(m => {
+    const targetTrades = Math.round(m*tpm);
+    // Find fan index closest to target
+    let bi = 0, bd = Infinity;
+    fanBands.forEach((b,i) => { const d = Math.abs(b.trades-targetTrades); if(d<bd){bd=d;bi=i;} });
+    return { m, x: x(bi), t: fanBands[bi].trades };
+  });
+
+  // Cache fan geometry so hover can translate mouse-x → fan index.
+  _mcFanState = { fanBands, startEquity, ML, MR, MT, MB, W, H, iw, ih, minE, maxE };
+
+  return `<div id="mc-fan-wrap" style="position:relative">
+    <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;font-family:inherit;font-size:10px"
+         onmousemove="_mcHover(event, this)" onmouseleave="_mcHoverHide()">
+      <path d="${area('p05','p95')}" fill="${C.text}" fill-opacity="0.08"/>
+      <path d="${area('p25','p75')}" fill="${C.pos}" fill-opacity="0.18"/>
+      <path d="${path('p50')}" fill="none" stroke="${C.pos}" stroke-width="2"/>
+      <path d="${path('p05')}" fill="none" stroke="${C.neg}" stroke-width="1" stroke-dasharray="3,3"/>
+      <path d="${path('p95')}" fill="none" stroke="${C.pos}" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="${ML}" y1="${y(startEquity)}" x2="${W-MR}" y2="${y(startEquity)}" stroke="${C.textSec}" stroke-width="1" stroke-dasharray="2,4" opacity="0.5"/>
+      ${ticksY.map(t=>`<text x="${ML-6}" y="${t.y+3}" text-anchor="end" fill="${C.textSec}">${'$'+Math.round(t.v/1000)+'k'}</text><line x1="${ML}" y1="${t.y}" x2="${W-MR}" y2="${t.y}" stroke="${C.border}" stroke-width="0.5" opacity="0.3"/>`).join('')}
+      ${ticksX.map(t=>`
+        <line x1="${t.x}" y1="${MT}" x2="${t.x}" y2="${H-MB}" stroke="${C.border}" stroke-width="0.5" opacity="0.25"/>
+        <text x="${t.x}" y="${H-24}" text-anchor="middle" fill="${C.textSec}">${t.m===0?'now':(t.m<12?t.m+'mo':(t.m/12)+'yr')}</text>
+        <text x="${t.x}" y="${H-12}" text-anchor="middle" fill="${C.textSec}" opacity="0.55" font-size="9">${t.t.toLocaleString()}t</text>
+      `).join('')}
+      <text x="${ML + iw/2}" y="${H-1}" text-anchor="middle" fill="${C.text}" font-size="10" opacity="0.7">Time forward (months) · trade count below</text>
+      <line id="mc-hover-line" x1="0" y1="${MT}" x2="0" y2="${H-MB}" stroke="${C.text}" stroke-width="1" opacity="0" pointer-events="none"/>
+      <circle id="mc-hover-dot" r="4" fill="${C.pos}" stroke="${C.bg}" stroke-width="1.5" opacity="0" pointer-events="none"/>
+    </svg>
+    <div id="mc-hover-tip" style="position:absolute;top:10px;right:12px;padding:9px 11px;background:${C.bg};border:1px solid ${C.border};border-radius:6px;font-size:10.5px;color:${C.text};pointer-events:none;display:none;min-width:180px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-variant-numeric:tabular-nums">
+      hover the chart to see percentiles at any point
+    </div>
+  </div>`;
+}
+function _mcHover(evt, svg){
+  const S = _mcFanState; if(!S) return;
+  const rect = svg.getBoundingClientRect();
+  const vbx = (evt.clientX - rect.left) * (S.W / rect.width);
+  const vby = (evt.clientY - rect.top)  * (S.H / rect.height);
+  if(vbx < S.ML || vbx > S.W - S.MR){ _mcHoverHide(); return; }
+  // Map mouse-x → fan index
+  const frac = (vbx - S.ML) / S.iw;
+  const idx = Math.max(0, Math.min(S.fanBands.length-1, Math.round(frac*(S.fanBands.length-1))));
+  const b = S.fanBands[idx];
+  const xAt = S.ML + (idx/(S.fanBands.length-1))*S.iw;
+  const yP50 = S.MT + S.ih - ((S.startEquity + b.p50 - S.minE)/(S.maxE-S.minE))*S.ih;
+  const line = document.getElementById('mc-hover-line');
+  const dot  = document.getElementById('mc-hover-dot');
+  const tip  = document.getElementById('mc-hover-tip');
+  if(line){ line.setAttribute('x1', xAt); line.setAttribute('x2', xAt); line.setAttribute('opacity', 0.55); }
+  if(dot){ dot.setAttribute('cx', xAt); dot.setAttribute('cy', yP50); dot.setAttribute('opacity', 1); }
+  if(tip){
+    const eq = v => '$'+Math.round(S.startEquity + v).toLocaleString();
+    const tpy = S.fanBands[S.fanBands.length-1].trades / (S.fanBands.length-1) * S.fanBands.length;   // approx not used
+    const months = b.months;
+    const timeLabel = months < 1 ? 'now' : months < 12 ? months.toFixed(1)+' mo' : (months/12).toFixed(1)+' yr';
+    tip.style.display = 'block';
+    tip.innerHTML = `
+      <div style="font-weight:700;color:${C.text};margin-bottom:5px;font-size:11px">${timeLabel} <span style="color:${C.textSec};font-weight:400">· ${b.trades.toLocaleString()} trades</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:${C.pos};font-weight:600">P95</span><span>${eq(b.p95)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:${C.textSec}">P75</span><span>${eq(b.p75)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid ${C.border};border-bottom:1px solid ${C.border};margin:2px 0"><span style="color:${C.pos};font-weight:700">P50 median</span><span style="font-weight:700">${eq(b.p50)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:${C.textSec}">P25</span><span>${eq(b.p25)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:${C.neg};font-weight:600">P5</span><span>${eq(b.p05)}</span></div>
+    `;
+  }
+}
+function _mcHoverHide(){
+  const line = document.getElementById('mc-hover-line');
+  const dot  = document.getElementById('mc-hover-dot');
+  const tip  = document.getElementById('mc-hover-tip');
+  if(line) line.setAttribute('opacity', 0);
+  if(dot)  dot.setAttribute('opacity', 0);
+  if(tip)  tip.innerHTML = '<div style="opacity:0.5">hover the chart to see percentiles at any point</div>';
 }
 function _rerenderMC(){
   // Works whether MC is shown inside the Stats sub-tabs or as its own top-level tab.
@@ -6476,8 +6545,37 @@ function renderStatsMonteCarlo(closedAllTime){
   const worstR = Math.min(...rSamples);
   const breachRate = rSamples.filter(r=>r<-1.10).length/rSamples.length;
 
-  const sim = _runMonteCarlo(rSamples, years, oneR, tradesPerYear, 4000);
+  // Build the sample points the sim needs to record — fan chart + milestone table.
+  const totalTrades = Math.max(20, Math.round(tradesPerYear*years));
+  const tpm = tradesPerYear/12;
+  const fanN = 48;
+  const fanPts = [];
+  for(let i=1;i<=fanN;i++){
+    const t = Math.max(1, Math.round((i/fanN)*totalTrades));
+    fanPts.push({ trades:t, months: t/tpm, kind:'fan' });
+  }
+  const milestoneMonths = years <= 2 ? [3,6,12,18,24] : [3,6,12,18,24,36];
+  const mileMonths = milestoneMonths.filter(m => m <= years*12 + 0.5);
+  const mileLabels = mileMonths.map(m => m<12 ? m+' mo' : (m/12).toFixed(m%12===0?0:1)+' yr');
+  const milePts = mileMonths.map((m,i) => ({ trades: Math.max(1, Math.round(m*tpm)), months: m, kind:'mile', label: mileLabels[i] }));
+
+  // Dedupe by trades — merge fan/mile flags if identical
+  const seen = new Map();
+  [...fanPts, ...milePts].forEach(p => {
+    const cur = seen.get(p.trades) || {};
+    seen.set(p.trades, { ...cur, ...p, kind: cur.kind==='mile'||p.kind==='mile' ? 'mile' : 'fan',
+      label: p.label || cur.label, months: p.months });
+    // If a fan point coincides with a mile point, keep both flags
+    if((cur.kind==='fan' && p.kind==='mile') || (cur.kind==='mile' && p.kind==='fan')){
+      seen.get(p.trades).kind = 'both';
+    }
+  });
+  const allPts = [...seen.values()].sort((a,b) => a.trades - b.trades);
+
+  const sim = _runMonteCarlo(rSamples, oneR, 4000, allPts);
   const startEq = nav;
+  const fanBands = sim.stats.filter(s => s.kind==='fan' || s.kind==='both');
+  const mileRows = sim.stats.filter(s => s.kind==='mile' || s.kind==='both');
 
   const inputSummary = `<div class="card" style="padding:12px;margin-bottom:10px">
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">INPUT DISTRIBUTION · ${winLabel}</div>
@@ -6514,10 +6612,51 @@ function renderStatsMonteCarlo(closedAllTime){
 
   const fan = `<div class="card" style="padding:12px;margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600">EQUITY FAN CHART · 4,000 simulated paths</div>
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600">EQUITY FAN CHART · 4,000 simulated paths · hover for details</div>
       <div style="font-size:9px;color:${C.textSec}">Green solid = median · dashed = P5/P95 · shaded = P25–P75 band</div>
     </div>
-    ${_mcFanSVG(sim.bands, sim.nTradesArr, startEq)}
+    ${_mcFanSVG(fanBands, startEq, tradesPerYear)}
+  </div>`;
+
+  // Milestone table — same percentiles the fan shows, but at named checkpoints.
+  const mileTable = `<div class="card" style="padding:12px;margin-bottom:10px">
+    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:10px">EQUITY AT KEY MILESTONES</div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums">
+      <thead>
+        <tr style="border-bottom:1px solid ${C.border};color:${C.textSec};text-align:right">
+          <th style="text-align:left;padding:6px 8px;font-weight:600">When</th>
+          <th style="padding:6px 8px;font-weight:600">Trades</th>
+          <th style="padding:6px 8px;font-weight:600;color:${C.neg}">P5</th>
+          <th style="padding:6px 8px;font-weight:600">P25</th>
+          <th style="padding:6px 8px;font-weight:600;color:${C.pos}">P50 (median)</th>
+          <th style="padding:6px 8px;font-weight:600">P75</th>
+          <th style="padding:6px 8px;font-weight:600;color:${C.pos}">P95</th>
+          <th style="padding:6px 8px;font-weight:600;color:${C.warn}">Med max DD</th>
+        </tr>
+      </thead>
+      <tbody>
+      ${mileRows.map(r => {
+        const eq = v => '$'+Math.round(startEq+v).toLocaleString();
+        const p50Col = r.p50 >= 0 ? C.pos : C.neg;
+        return `<tr style="border-bottom:1px solid ${C.border}22;text-align:right">
+          <td style="text-align:left;padding:7px 8px;font-weight:600;color:${C.text}">${r.label}</td>
+          <td style="padding:7px 8px;color:${C.textSec}">${r.trades.toLocaleString()}</td>
+          <td style="padding:7px 8px">${eq(r.p05)}</td>
+          <td style="padding:7px 8px;color:${C.textSec}">${eq(r.p25)}</td>
+          <td style="padding:7px 8px;color:${p50Col};font-weight:700">${eq(r.p50)}</td>
+          <td style="padding:7px 8px;color:${C.textSec}">${eq(r.p75)}</td>
+          <td style="padding:7px 8px">${eq(r.p95)}</td>
+          <td style="padding:7px 8px;color:${C.warn}">-$${Math.round(r.ddMed).toLocaleString()}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:${C.textSec}">
+      P5 = 5% of simulated paths end at or below this level · P50 = the middle path · P95 = 5% end at or above.
+      Med max DD = the median worst peak-to-trough drop that paths hit along the way to this milestone.
+    </div>
   </div>`;
 
   const caveat = `<div style="padding:10px 12px;background:${C.bg};border-left:3px solid ${C.textSec};border-radius:4px;font-size:10px;color:${C.textSec};line-height:1.5">
@@ -6527,7 +6666,7 @@ function renderStatsMonteCarlo(closedAllTime){
     Fixed \$/R (no compounding) — a real book that sizes up as NAV grows will fan wider both ways.
   </div>`;
 
-  return controls + inputSummary + projCards + fan + caveat;
+  return controls + inputSummary + projCards + fan + mileTable + caveat;
 }
 
 // ── 3. R:R ──────────────────────────────────────────────────────────────────
