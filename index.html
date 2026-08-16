@@ -3114,7 +3114,13 @@ function renderAll() {
   const posEl = document.getElementById('positions-content') || document.getElementById('tab-positions');
   if (!_userIsTypingIn(posEl)) renderPositions();
   renderTrades();
-  renderStats();
+  // Skip stats re-render if the review chat is active or typing — otherwise
+  // the poll wipes the chat log + textarea mid-conversation. Same guard as
+  // diary. User can force a rebuild by clicking a tab pill or Re-run Review.
+  const statsEl = document.getElementById('stats-content');
+  const chatInp = document.getElementById('review-chat-input');
+  const chatActive = (chatInp && document.activeElement === chatInp) || (_reviewChatLog && _reviewChatLog.length > 0);
+  if (!_userIsTypingIn(statsEl) && !chatActive) renderStats();
   const diaryEl = document.getElementById('tab-diary') || document.getElementById('diary-detail-panel');
   if (currentDiaryId && !_userIsTypingIn(diaryEl)) renderDiary();
   renderIncompleteBanner();
@@ -5787,6 +5793,15 @@ function renderStatsContent(force) {
   if (!el) return;
   // Skip AI tab re-render if chat is already mounted (preserves scroll + typing state)
   if (statsSubTab === "ai" && !force && document.getElementById("ai-chat-messages")) return;
+  // Same guard for the Trading Review's follow-up chat: if the user is typing
+  // in the chat input OR the chat has an active conversation going, don't rebuild
+  // the whole overview — poll would wipe the textarea mid-word.
+  if (statsSubTab === "overview" && !force) {
+    const chatInp = document.getElementById("review-chat-input");
+    const isTyping = chatInp && document.activeElement === chatInp;
+    const hasChat = _reviewChatLog && _reviewChatLog.length > 0;
+    if (isTyping || hasChat) return;
+  }
   switch(statsSubTab) {
     case "overview":    el.innerHTML = renderStatsOverview(closed); break;
     case "risk":        el.innerHTML = renderStatsRisk(closed); break;
