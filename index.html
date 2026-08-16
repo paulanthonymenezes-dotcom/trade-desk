@@ -6377,6 +6377,9 @@ function renderStatsRisk(closed) {
 // through regime changes. Fixed $ per 1R sizing (no compounding) — realistic
 // for a discretionary /NQ book where you cap risk per trade, not compound.
 function _windowStart(win){
+  const now = new Date();
+  if(win==="mtd"){ const d = new Date(now.getFullYear(), now.getMonth(), 1); return d.toISOString().slice(0,10); }
+  if(win==="ytd"){ const d = new Date(now.getFullYear(), 0, 1);              return d.toISOString().slice(0,10); }
   const d = new Date();
   if(win==="1w") d.setDate(d.getDate()-7);
   else if(win==="1m") d.setMonth(d.getMonth()-1);
@@ -6384,6 +6387,12 @@ function _windowStart(win){
   else if(win==="1y") d.setFullYear(d.getFullYear()-1);
   else return "0000-00-00";
   return d.toISOString().slice(0,10);
+}
+function _windowDays(win){
+  const now = new Date();
+  if(win==="mtd") return now.getDate();
+  if(win==="ytd"){ const s = new Date(now.getFullYear(),0,1); return Math.ceil((now-s)/86400000)+1; }
+  return ({"1w":7,"1m":30,"3m":90,"1y":365})[win] || 30;
 }
 function _rSamplesFor(closed, win){
   const cutoff = _windowStart(win);
@@ -6553,8 +6562,8 @@ function renderStatsMonteCarlo(closedAllTime){
   const oneR = STATE._mcOneR || oneRDefault;
 
   const rSamples = _rSamplesFor(closedAllTime, win);
-  const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months"})[win];
-  const winDays = ({"1w":7,"1m":30,"3m":90,"1y":365})[win];
+  const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months","mtd":"Month-to-date","ytd":"Year-to-date"})[win] || "Last 30 days";
+  const winDays = _windowDays(win);
   const tradesPerYear = rSamples.length ? Math.round(rSamples.length*(365/winDays)) : 0;
 
   const pillBtn = (key,label,active) => `<button onclick="_setMCWindow('${key}')" class="btn btn-g" style="padding:5px 11px;font-size:11px;${active?`background:${C.pos};color:#08210f;font-weight:700`:''}">${label}</button>`;
@@ -6563,8 +6572,8 @@ function renderStatsMonteCarlo(closedAllTime){
   const controls = `<div class="card" style="padding:12px;margin-bottom:10px">
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">SAMPLE FROM</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-      ${pillBtn("1w","Last 7d",win==="1w")}${pillBtn("1m","Last 30d",win==="1m")}
-      ${pillBtn("3m","Last 3mo",win==="3m")}${pillBtn("1y","Last 12mo",win==="1y")}
+      ${pillBtn("1w","Last 7d",win==="1w")}${pillBtn("mtd","MTD",win==="mtd")}${pillBtn("1m","Last 30d",win==="1m")}
+      ${pillBtn("3m","Last 3mo",win==="3m")}${pillBtn("ytd","YTD",win==="ytd")}${pillBtn("1y","Last 12mo",win==="1y")}
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:${C.textSec}">
       <div>Project forward: ${yrsBtn(2,"2 years",years===2)} ${yrsBtn(3,"3 years",years===3)}</div>
