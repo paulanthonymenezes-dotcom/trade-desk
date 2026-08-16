@@ -13608,7 +13608,16 @@ function openDiary(id) {
 // defaults; grows as the user adds sources via the "+ Add new source…" option.
 function _ideaSources() {
   if (!Array.isArray(STATE.ideaSources)) STATE.ideaSources = ["Me / Own DD", "Brent Donnelly", "The Options Seller", "Seasonax", "Longwashere", "Lyn Alden", "Finviz Heat Map", "News / Event", "GEX", "Vibes", "Other"];
-  ["Vibes", "GEX"].forEach(s => { if (!STATE.ideaSources.includes(s)) { const oi = STATE.ideaSources.indexOf("Other"); if (oi >= 0) STATE.ideaSources.splice(oi, 0, s); else STATE.ideaSources.push(s); } });
+  // Inject any tag sources that should always exist. Insert BEFORE "Other" so
+  // "Other" stays as the last-resort catch-all in the UI. Idempotent.
+  const ALWAYS = ["Vibes", "GEX", "PPO Cross", "PPO Continuation", "ADX Rising"];
+  for (const s of ALWAYS) {
+    if (!STATE.ideaSources.includes(s)) {
+      const oi = STATE.ideaSources.indexOf("Other");
+      if (oi >= 0) STATE.ideaSources.splice(oi, 0, s);
+      else STATE.ideaSources.push(s);
+    }
+  }
   return STATE.ideaSources;
 }
 function _setIdeaSource(id, v) {
@@ -13631,7 +13640,7 @@ function updateTradeField(id, field, value) {
 // A phone-first face of the desk. Quick-tag logs conviction + source(s) in 3 taps
 // at trade time; IBKR sync fills the trade later, and reconcileEntryTags() matches
 // the tag to it by entry timestamp. Same Supabase state as desktop.
-let _mDraft = { conviction: null, sources: [], ticker: "/NQ", note: "" };
+let _mDraft = { conviction: null, sources: [], ticker: "/NQ", note: "", pop: null, shortDelta: null };
 let _mEditId = null;   // when set, the tag form is editing an existing tag instead of creating one
 const _mTickerPresets = ["/NQ", "/ES", "SPY", "QQQ"];
 function _mTickerRoot(tk){ return String(tk||"").replace(/^\//,"").replace(/[FGHJKMNQUVXZ]\d$/,"").toUpperCase(); }
@@ -13931,9 +13940,11 @@ function renderMTag() {
   const recent = (STATE.entryTags || []).slice(-20).reverse().map(t => {
     const tm = new Date(t.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"});
     const noteStr = (t.note||"").trim() ? ` · <span style="color:var(--accent)">${escapeHtml(t.note)}</span>` : "";
+    const popStr = t.pop!=null ? ` · <span style="color:var(--text-muted)">${t.pop}% POP</span>` : "";
+    const deltaStr = t.shortDelta!=null ? ` · <span style="color:var(--text-muted)">Δ${(+t.shortDelta).toFixed(2)}</span>` : "";
     const editing = _mEditId===t.id;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 8px;margin:0 -8px;border-bottom:1px solid var(--border-subtle);font-size:12px${editing?";background:var(--accent-faint,rgba(88,166,255,0.10));border-radius:8px":""}" onclick="mEditTag('${t.id}')">
-      <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}${noteStr}</span>
+      <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}${popStr}${deltaStr}${noteStr}</span>
       <span style="display:flex;gap:10px;align-items:center;white-space:nowrap"><span style="color:${t.matched?"var(--positive)":"var(--text-muted)"};font-size:10px">${t.matched?"✓":"pending"}</span><span onclick="event.stopPropagation();mDeleteTag('${t.id}')" style="color:var(--text-muted);font-size:16px;line-height:1">✕</span></span></div>`;
   }).join("") || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No tags yet — log your next entry.</div>`;
   const ready = _mDraft.conviction != null && _mDraft.sources.length > 0;
@@ -13948,6 +13959,22 @@ function renderMTag() {
     <div style="display:flex;gap:10px">${[1,2,3].map(n=>`<button class="m-conv ${_mDraft.conviction===n?"on":""}" onclick="mSetConv(${n})">${n}</button>`).join("")}</div>
     <div class="m-lbl">Source <span style="text-transform:none;color:var(--text-muted)">· tap all that apply</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:9px">${chips}<div class="m-chip" style="border-style:dashed" onclick="mAddSrc()">+ add</div></div>
+    <div class="m-lbl">POP · Short-strike delta <span style="text-transform:none;color:var(--text-muted)">· both optional</span></div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1;position:relative">
+        <input id="m-tag-pop" type="number" inputmode="numeric" min="0" max="100" step="1" placeholder="POP %"
+               value="${_mDraft.pop!=null?_mDraft.pop:""}"
+               oninput="_mDraft.pop=this.value===''?null:Math.max(0,Math.min(100,+this.value))"
+               style="width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px 32px 11px 11px">
+        <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;pointer-events:none">%</span>
+      </div>
+      <div style="flex:1;position:relative">
+        <input id="m-tag-delta" type="number" inputmode="decimal" step="0.01" placeholder="Δ short (e.g. 0.18)"
+               value="${_mDraft.shortDelta!=null?_mDraft.shortDelta:""}"
+               oninput="_mDraft.shortDelta=this.value===''?null:+this.value"
+               style="width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px">
+      </div>
+    </div>
     <div class="m-lbl">Setup note <span style="text-transform:none;color:var(--text-muted)">· optional</span></div>
     <textarea id="m-tag-note" oninput="_mDraft.note=this.value" placeholder="e.g. 1-min 20EMA reclaim · failed breakdown · held VWAP" rows="3" style="width:100%;box-sizing:border-box;min-height:76px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px;font-family:inherit;line-height:1.45;resize:vertical">${escapeHtml(_mDraft.note||"")}</textarea>
     <div style="margin-top:22px"><button class="m-log" ${ready?"":"disabled"} onclick="mLogTag()">${_mEditId?"💾 SAVE EDIT":(ready?"⚡ LOG TAG":"pick conviction + a source")}</button>
@@ -13964,36 +13991,49 @@ function mLogTag(){
   if(_mDraft.conviction==null||!_mDraft.sources.length) return;
   if(!Array.isArray(STATE.entryTags)) STATE.entryTags=[];
   const note=(_mDraft.note||"").trim();
+  const pop = (_mDraft.pop==null||_mDraft.pop==="") ? null : Math.max(0, Math.min(100, +_mDraft.pop));
+  const shortDelta = (_mDraft.shortDelta==null||_mDraft.shortDelta==="") ? null : +_mDraft.shortDelta;
   let _tagRow=null;
   if(_mEditId){
     const t=STATE.entryTags.find(x=>x.id===_mEditId);
     if(t){
       t.conviction=_mDraft.conviction; t.sources=_mDraft.sources.slice(); t.ticker=_mDraft.ticker||"/NQ"; t.note=note;
+      t.pop = pop; t.shortDelta = shortDelta;
       // if it already merged onto a trade, push the edits through to that trade too
-      if(t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr){ tr.conviction=t.conviction; tr.ideaSources=t.sources.slice(); tr.ideaSource=t.sources[0]||tr.ideaSource; if(note)tr.entryNote=note; } }
+      if(t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr){ tr.conviction=t.conviction; tr.ideaSources=t.sources.slice(); tr.ideaSource=t.sources[0]||tr.ideaSource; if(note)tr.entryNote=note; if(pop!=null)tr.pop=pop; if(shortDelta!=null)tr.shortDelta=shortDelta; } }
       _tagRow=t;
     }
     _mEditId=null;
   } else {
-    _tagRow={ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ", conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), note, matched:null };
+    _tagRow={ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ",
+              conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), note,
+              pop, shortDelta, matched:null };
     STATE.entryTags.push(_tagRow);
   }
-  _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""};
+  _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null};
   reconcileEntryTags(); save(); renderMobile();
   if(_tagRow) _saveTagRow(_tagRow);   // durable per-tag row — survives any main-blob clobber
 }
 function mEditTag(id){
   const t=(STATE.entryTags||[]).find(x=>x.id===id); if(!t) return;
-  _mEditId=id; _mDraft={conviction:t.conviction, sources:(t.sources||[]).slice(), ticker:t.ticker||"/NQ", note:t.note||""};
+  _mEditId=id;
+  _mDraft={
+    conviction: t.conviction,
+    sources: (t.sources||[]).slice(),
+    ticker: t.ticker||"/NQ",
+    note: t.note||"",
+    pop: t.pop!=null ? t.pop : null,
+    shortDelta: t.shortDelta!=null ? t.shortDelta : null,
+  };
   renderMobile(); const c=document.getElementById("m-content"); if(c)c.scrollTop=0;
 }
-function mCancelTagEdit(){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""}; renderMobile(); }
+function mCancelTagEdit(){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null}; renderMobile(); }
 function mDeleteTag(id){
   if(!confirm("Delete this tag?")) return;
   const t=(STATE.entryTags||[]).find(x=>x.id===id);
   if(t&&t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr&&String(tr._taggedBy)===String(id)) delete tr._taggedBy; }  // unlock the trade for future re-match; leaves its conviction as-is
   STATE.entryTags=(STATE.entryTags||[]).filter(x=>x.id!==id);
-  if(_mEditId===id){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:""}; }
+  if(_mEditId===id){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null}; }
   save(); renderMobile();
   _deleteTagRow(id);   // drop the durable row so it can't re-heal on next load
 }
@@ -14062,6 +14102,7 @@ function reconcileEntryTags(){
     }
     if((tg.note||"").trim() && !tr.entryNote) tr.entryNote = tg.note;
     if(tg.pop!=null && tr.pop==null) tr.pop = tg.pop;
+    if(tg.shortDelta!=null && tr.shortDelta==null) tr.shortDelta = tg.shortDelta;
     tg.matched = tr.id;
     changed = true;
   }
@@ -14100,6 +14141,7 @@ function reconcileEntryTags(){
       best.ideaSource=best.ideaSource||tag.sources[0];
       if((tag.note||"").trim()) best.entryNote=tag.note;
       if(tag.pop!=null && best.pop==null) best.pop=tag.pop;
+      if(tag.shortDelta!=null && best.shortDelta==null) best.shortDelta=tag.shortDelta;
       best._taggedBy=tag.id;
       tag.matched=best.id;
       changed=true;
