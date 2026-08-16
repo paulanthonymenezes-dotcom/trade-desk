@@ -8339,7 +8339,9 @@ The trader is a premium-seller on NQ futures options and equity options (bull pu
 
 IMPORTANT — the user's CURRENT RULES appear in the data block. Take them into account. If a rule is being followed, don't tell them to adopt it. If a rule is being VIOLATED (e.g. actual losses larger than the standing SL cap), flag that as the finding — the rule already exists.
 
-Identify 2-4 patterns worth flagging. Each insight should be ACTIONABLE — name the problem, the data behind it, give a concrete next step. Be DIRECT and DATA-DRIVEN. Don't hedge. No "consider exploring" — instead say "do X". Sort insights by severity (HIGH first).
+Look at BOTH sides of the tape — flag problems to fix AND surface working patterns worth doubling down on. The "By IDEA SOURCE / TAG" section is where you'll spot which setups / signals are printing money and which are bleeding. A tag with 8W/0L +$3k is at least as important a finding as a loss concentration — call it out explicitly with the source name (e.g. "PPO Cross") so the user knows what to press on. Use severity="LOW" or a positive trend for wins-to-double-down-on if it's not a fire.
+
+Identify 2-4 patterns worth flagging. Each insight should be ACTIONABLE — name the problem OR the edge, the data behind it, give a concrete next step. Be DIRECT and DATA-DRIVEN. Don't hedge. No "consider exploring" — instead say "do X" or "size up on Y". Sort insights by severity (HIGH first).
 
 Whenever a finding is grounded in specific trades, list their IDs in evidence_trade_ids so the user can click through to inspect. Prefer 1-5 IDs — the worst offenders that most support the claim.
 
@@ -8463,6 +8465,28 @@ function _buildReviewSummary(closed) {
     (idsByDow[d] = idsByDow[d] || []).push(t.id);
   });
 
+  // ── By idea source / tag — the piece the AI was blind to. Each trade can
+  // have multiple sources (ideaSources array) OR just the legacy string
+  // (ideaSource). We aggregate both flavors so tag-based patterns like
+  // "PPO Cross" bubble up. Trades appear in EVERY source bucket they touch
+  // (a PPO Cross + ADX Rising trade counts for both), which is what you
+  // want — a signal working on its own vs in a stack is meaningful.
+  const bySource = {};
+  closed.forEach(t => {
+    const srcs = Array.isArray(t.ideaSources) && t.ideaSources.length ? t.ideaSources : (t.ideaSource ? [t.ideaSource] : []);
+    if (!srcs.length) { (bySource["(untagged)"] = bySource["(untagged)"] || { n:0, wins:0, pnl:0, ids:[] }); bySource["(untagged)"].n++; bySource["(untagged)"].pnl+=(t.realizedPnl||0); if((t.realizedPnl||0)>0) bySource["(untagged)"].wins++; bySource["(untagged)"].ids.push(t.id); return; }
+    for (const s of srcs) {
+      const k = s || "(untagged)";
+      if (!bySource[k]) bySource[k] = { n:0, wins:0, pnl:0, ids:[] };
+      bySource[k].n++;
+      bySource[k].pnl += (t.realizedPnl||0);
+      if ((t.realizedPnl||0) > 0) bySource[k].wins++;
+      bySource[k].ids.push(t.id);
+    }
+  });
+  // Sort by absolute P&L impact so the biggest signals (positive OR negative) surface.
+  const topSources = Object.entries(bySource).sort((a,b) => Math.abs(b[1].pnl) - Math.abs(a[1].pnl)).slice(0, 12);
+
   return `RULES & CONTEXT — the trader's current playbook:
 ${_buildRulesContext()}
 
@@ -8484,6 +8508,9 @@ ${byDow.map((s,i) => s.n ? `  ${dows[i]}: ${s.n} trades, ${Math.round(s.wins/s.n
 
 By hour-of-entry (ET, with trade IDs):
 ${Object.entries(byHour).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([h,s]) => `  ${String(h).padStart(2,"0")}:00 — ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)}  ids=[${(idsByHour[+h]||[]).slice(0,8).join(",")}]`).join("\n")}
+
+By IDEA SOURCE / TAG (each trade may appear under multiple sources; ranked by |P&L|):
+${topSources.map(([src, s]) => `  ${src}: ${s.n} trades, ${Math.round(s.wins/s.n*100)}% WR, $${s.pnl.toFixed(0)} P&L  ids=[${s.ids.slice(0,8).join(",")}]`).join("\n")}
 
 Top 5 worst trades (cite these IDs in evidence_trade_ids when discussing tail risk):
 ${topLosers.map(t => `  id=${t.id} ${t.ticker} ${t.tradeType} ${t.entryDate}: $${(t.realizedPnl||0).toFixed(0)} (premium $${(t.premiumCollected||0).toFixed(0)}, ${t.premiumCollected>0 ? Math.round((t.realizedPnl/t.premiumCollected)*100) : "?"}% of credit)`).join("\n")}`;
