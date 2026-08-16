@@ -628,6 +628,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('nqsessions',this)"><span class="nav-icon">📊</span><span class="side-label">NQ Sessions</span></button>
   <button class="side-btn" onclick="switchTab('backtester',this)"><span class="nav-icon">🧪</span><span class="side-label">NQ Backtester</span></button>
   <button class="side-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span><span class="side-label">Forecast</span></button>
+  <button class="side-btn" onclick="switchTab('montecarlo',this)"><span class="nav-icon">🎲</span><span class="side-label">Monte Carlo</span></button>
   <button class="side-btn" onclick="switchTab('calendar',this)"><span class="nav-icon">📅</span><span class="side-label">Calendar</span></button>
   <button class="side-btn" onclick="switchTab('resources',this)"><span class="nav-icon">🔗</span><span class="side-label">Resources</span></button>
 </nav>
@@ -779,6 +780,9 @@ table{width:100%;border-collapse:collapse}
   </div>
 
   <!-- FORECAST TAB -->
+  <div id="tab-montecarlo" class="section" style="display:none">
+    <div style="padding:12px" id="montecarlo-content">Loading…</div>
+  </div>
   <div id="tab-forecast" class="section">
     <div id="forecast-content" style="max-width:1200px;margin:0 auto"></div>
   </div>
@@ -5689,7 +5693,7 @@ function setStatsTab(tab, btn) {
 }
 function renderStats() {
   const tabs = [
-    ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["montecarlo","MONTE CARLO"],["maemfe","MAE/MFE"],
+    ["overview","OVERVIEW"],["risk","RISK"],["rr","R:R"],["maemfe","MAE/MFE"],
     ["strategies","STRATEGIES"],["sessions","SESSIONS"],["sources","SOURCES"],["discipline","DISCIPLINE"],["pretrade","PRE-TRADE"],["ai","AI ANALYSIS"]
   ];
   const dateFilters = [["1d","1D"],["1w","1W"],["mtd","MTD"],["1m","1M"],["3m","3M"],["ytd","YTD"],["all","ALL"],["custom","CUSTOM"]];
@@ -5766,7 +5770,6 @@ function renderStatsContent(force) {
     case "overview":    el.innerHTML = renderStatsOverview(closed); break;
     case "risk":        el.innerHTML = renderStatsRisk(closed); break;
     case "rr":          el.innerHTML = renderStatsRR(closed); break;
-    case "montecarlo":  el.innerHTML = renderStatsMonteCarlo(closed); break;
     case "maemfe":      el.innerHTML = renderStatsMAEMFE(closed); break;
     case "strategies":  el.innerHTML = renderStatsStrategies(closed); break;
     case "sessions":    el.innerHTML = renderStatsSessions(closed); break;
@@ -6420,9 +6423,19 @@ function _mcFanSVG(bands, nTradesArr, startEquity){
     ${ticksX.map(t=>`<text x="${t.x}" y="${H-8}" text-anchor="middle" fill="${C.textSec}">${t.t}t</text>`).join('')}
   </svg>`;
 }
-function _setMCWindow(w){ STATE._mcWindow = w; save(); renderStatsContent(true); }
-function _setMCYears(y){ STATE._mcYears = +y; save(); renderStatsContent(true); }
-function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); renderStatsContent(true); }
+function _rerenderMC(){
+  // Works whether MC is shown inside the Stats sub-tabs or as its own top-level tab.
+  const mcTab = document.getElementById('tab-montecarlo');
+  if (mcTab && mcTab.style.display !== 'none') {
+    const el = document.getElementById('montecarlo-content');
+    if (el) el.innerHTML = renderStatsMonteCarlo((STATE.trades || []).filter(t => t.status === 'Closed'));
+  } else {
+    renderStatsContent(true);
+  }
+}
+function _setMCWindow(w){ STATE._mcWindow = w; save(); _rerenderMC(); }
+function _setMCYears(y){ STATE._mcYears = +y; save(); _rerenderMC(); }
+function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); _rerenderMC(); }
 function renderStatsMonteCarlo(closedAllTime){
   const win = STATE._mcWindow || "1m";
   const years = STATE._mcYears || 2;
@@ -18033,7 +18046,7 @@ async function _btRun() {
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'backtester', 'resources', 'calendar'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'montecarlo', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'backtester', 'resources', 'calendar'].includes(tab);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -18080,7 +18093,10 @@ function switchTab(tab, btn) {
   }
 
   // Tab-specific render calls
-  if (tab === 'positions') {
+  if (tab === 'montecarlo') {
+    const el = document.getElementById('montecarlo-content');
+    if (el) el.innerHTML = renderStatsMonteCarlo((STATE.trades || []).filter(t => t.status === 'Closed'));
+  } else if (tab === 'positions') {
     renderPositions();
     renderSnapshot();
   } else if (tab === 'market') {
