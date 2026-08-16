@@ -372,12 +372,31 @@ function applyFlexAppendOnly(recon, STATE) {
 async function fetchFlexCSV(token, queryId) {
   const base = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService";
   const get = async (u) => (await fetch(u)).text();
-  const reqResp = await get(`${base}.SendRequest?t=${token}&q=${queryId}&v=3`);
-  const ref = (reqResp.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/) || [])[1];
-  if (!ref) {
-    const em = (reqResp.match(/<ErrorMessage>([^<]+)/) || [])[1] || "no reference code";
-    throw new Error("IBKR: " + em);
+
+  // ── SendRequest with retry ──
+  // IBKR's Flex frequently returns error 1001 "Statement could not be generated
+  // at this time" — often because the query is queued behind others or their
+  // report worker is transiently busy. It resolves in seconds. Without a retry
+  // loop here, ONE 1001 killed the whole run and the next attempt was hours
+  // later (via cron). We back off aggressively to stay clear of the 1018
+  // per-token rate cap (they charge roughly 1 request per few seconds).
+  let reqResp = null, ref = null, lastErr = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 4000 + attempt * 3000)); // 4s, 7s, 10s, 13s
+    reqResp = await get(`${base}.SendRequest?t=${token}&q=${queryId}&v=3`);
+    ref = (reqResp.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/) || [])[1];
+    if (ref) break;
+    const code = (reqResp.match(/<ErrorCode>(\d+)<\/ErrorCode>/) || [])[1] || "";
+    lastErr = (reqResp.match(/<ErrorMessage>([^<]+)/) || [])[1] || "no reference code";
+    // 1018 = "too many requests from this token" — retrying makes it worse. Bail.
+    if (code === "1018") break;
+    // 1001 = transient "can't generate right now" — retry. Any other code, bail
+    // (bad token, deleted query, etc. — no amount of retries fix those).
+    if (code !== "1001" && code !== "") break;
   }
+  if (!ref) throw new Error("IBKR: " + lastErr);
+
+  // ── GetStatement with polling (unchanged) ──
   for (let i = 0; i < 6; i++) {
     await new Promise(r => setTimeout(r, 3000 + i * 1500));
     const resp = await get(`${base}.GetStatement?q=${ref}&t=${token}&v=3`);

@@ -1962,6 +1962,16 @@ async function save() {
 
         // 7. Watchlist: client is authoritative (allow deletes to propagate).
         // Old "never shrink" merge was re-adding deleted tickers on the next save.
+
+        // 8. confirmedTradeIds — UNION with fresh. This field is monotonic
+        // (a confirm is never undone locally), so union is always correct and
+        // prevents cross-device confirms from getting lost when a save on one
+        // device races with a confirm on the other.
+        if (Array.isArray(fresh.confirmedTradeIds)) {
+          const _seen = new Set(STATE.confirmedTradeIds || []);
+          for (const _cid of fresh.confirmedTradeIds) _seen.add(_cid);
+          STATE.confirmedTradeIds = [..._seen];
+        }
       }
     }
   } catch(e) { /* proceed without merge — better to save than lose in-memory changes */ }
@@ -2555,6 +2565,7 @@ async function refreshAll() {
         const _oldSR = STATE.srLevels ? {...STATE.srLevels} : {};
         const _oldNotes = STATE.watchlistNotes ? {...STATE.watchlistNotes} : {};
         const _oldWL = STATE.watchlist ? [...STATE.watchlist] : [];
+        const _oldConfirmed = STATE.confirmedTradeIds ? [...STATE.confirmedTradeIds] : [];
         STATE = { ...STATE, ..._fresh };
         // ── APPEND-ONLY: never lose data from any field ──
         // Trades: union of old + fresh
@@ -2581,6 +2592,15 @@ async function refreshAll() {
         }
         // watchlist: client is authoritative (deletes must propagate). _oldWL kept for legacy callers.
         STATE.watchlist = STATE.watchlist || [];
+        // confirmedTradeIds: UNION with the pre-fetch local list. Otherwise a
+        // background poll during a save-in-flight overwrites in-memory confirms
+        // that haven't hit Supabase yet, and the confirm modal pops back up.
+        if (Array.isArray(_fresh.confirmedTradeIds) || Array.isArray(STATE.confirmedTradeIds)) {
+          const _pre = (typeof _oldConfirmed !== 'undefined') ? _oldConfirmed : (STATE.confirmedTradeIds || []);
+          const _seenC = new Set(_pre);
+          for (const _cid of (_fresh.confirmedTradeIds || [])) _seenC.add(_cid);
+          STATE.confirmedTradeIds = [..._seenC];
+        }
         // nextId: always take the max
         const _maxTradeId = (STATE.trades||[]).reduce((m,t)=>Math.max(m,t.id||0),0);
         STATE.nextId = Math.max(STATE.nextId||0, _fresh.nextId||0, _maxTradeId+1);
