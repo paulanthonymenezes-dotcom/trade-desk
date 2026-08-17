@@ -14200,8 +14200,25 @@ function renderMTag() {
     ${recent}`;
 }
 function mSetConv(n){ _mDraft.conviction = (_mDraft.conviction===n?null:n); renderMobile(); }
-function mSetTicker(tk){ _mDraft.ticker = tk; renderMobile(); }
-function mSetTickerOther(){ const t=(prompt("Ticker (e.g. DELL, MU, /ES):")||"").trim().toUpperCase(); if(t) _mDraft.ticker = t; renderMobile(); }
+// Auto-map the tag ticker → the sizer's instrument, and clear the sizer price so
+// a stale entry from the previous tag doesn't get reused across trades. The user
+// was seeing NQ's spread price appear on the ES tag because the sizer holds ONE
+// global price/instrument, not per-ticker.
+function _tickerToSizerInst(tk){
+  const s = String(tk||"").toUpperCase();
+  if (s.includes("/NQ") || s.includes("MNQ") || s === "NQ") return "NQ";
+  if (s.includes("/ES") || s.includes("MES") || s === "ES") return "ES";
+  return "EQ";
+}
+function _resetSizerForTicker(tk){
+  const inst = _tickerToSizerInst(tk);
+  if (STATE._mSizeInst !== inst || (STATE._mSizePrice != null && STATE._mSizePrice !== "")) {
+    STATE._mSizeInst = inst;
+    STATE._mSizePrice = null;   // force a fresh price for the new context
+  }
+}
+function mSetTicker(tk){ _mDraft.ticker = tk; _resetSizerForTicker(tk); renderMobile(); }
+function mSetTickerOther(){ const t=(prompt("Ticker (e.g. DELL, MU, /ES):")||"").trim().toUpperCase(); if(t){ _mDraft.ticker = t; _resetSizerForTicker(t); } renderMobile(); }
 function mToggleSrc(s){ const i=_mDraft.sources.indexOf(s); if(i>=0)_mDraft.sources.splice(i,1); else _mDraft.sources.push(s); renderMobile(); }
 function mAddSrc(){ const n=(prompt("New source (person / newsletter / tool):")||"").trim(); if(!n) return; const l=_ideaSources(); if(!l.includes(n))l.push(n); if(!_mDraft.sources.includes(n))_mDraft.sources.push(n); save(); renderMobile(); }
 function mLogTag(){
@@ -14228,6 +14245,9 @@ function mLogTag(){
     STATE.entryTags.push(_tagRow);
   }
   _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null};
+  // Also reset the sizer state — the next trade may be a different instrument /
+  // price. Left populated, it silently leaks into the next tag's context.
+  STATE._mSizePrice = null; STATE._mSizeInst = "NQ";
   reconcileEntryTags(); save(); renderMobile();
   if(_tagRow) _saveTagRow(_tagRow);   // durable per-tag row — survives any main-blob clobber
 }
@@ -14242,6 +14262,7 @@ function mEditTag(id){
     pop: t.pop!=null ? t.pop : null,
     shortDelta: t.shortDelta!=null ? t.shortDelta : null,
   };
+  _resetSizerForTicker(t.ticker||"/NQ");   // snap sizer to the edited tag's ticker; fresh price
   renderMobile(); const c=document.getElementById("m-content"); if(c)c.scrollTop=0;
 }
 function mCancelTagEdit(){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null}; renderMobile(); }
