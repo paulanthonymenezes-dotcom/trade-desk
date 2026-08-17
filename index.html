@@ -2062,9 +2062,32 @@ function getTotalDeposits() {
 // derive current equity here — it updates automatically every time a trade closes,
 // no manual edits needed. Same definition the desktop uses (capitalDeployed + realizedPnl).
 function _liveEquity() {
-  if (STATE.ibkrNAV != null && STATE.ibkrNAV > 0) return STATE.ibkrNAV;   // real IBKR net-liq when the Positions & NAV query is configured
+  // Priority: whichever NAV value was updated MOST RECENTLY between the IBKR
+  // Flex sync and any manual override. Falls back to derived from deposits+realized
+  // if neither is set. This fixes the "sizer stuck on stale NAV" problem when
+  // Flex is down for days (IBKR error 1001) but the user knows the true balance
+  // from their brokerage app.
+  const ibkr = (STATE.ibkrNAV != null && STATE.ibkrNAV > 0) ? {v: +STATE.ibkrNAV, ts: STATE.ibkrNAVDate ? _flexDateToMs(STATE.ibkrNAVDate) : (STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0)} : null;
+  const manual = (STATE.manualNAV != null && +STATE.manualNAV > 0) ? {v: +STATE.manualNAV, ts: STATE.manualNAVUpdatedAt ? Date.parse(STATE.manualNAVUpdatedAt) : 0} : null;
+  const picked = ibkr && manual ? (manual.ts > ibkr.ts ? manual : ibkr) : (manual || ibkr);
+  if (picked) return picked.v;
   const realized = (STATE.trades || []).reduce((s, t) => s + (t.status !== "Open" && t.realizedPnl != null && !t._pending ? (+t.realizedPnl || 0) : 0), 0);
   return (STATE.accountBalance || 0) + getTotalDeposits() + realized;
+}
+// Flex "ReportDate" format is YYYYMMDD — convert to ms for recency compare.
+function _flexDateToMs(d) {
+  const s = String(d || "");
+  if (s.length !== 8) return 0;
+  return Date.UTC(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8), 16, 0);
+}
+function _setManualNAV(v) {
+  const n = +v;
+  if (!isFinite(n) || n <= 0) return;
+  STATE.manualNAV = Math.round(n * 100) / 100;
+  STATE.manualNAVUpdatedAt = new Date().toISOString();
+  save();
+  if (typeof renderMobile === "function") renderMobile();
+  if (typeof mCalcSize === "function") mCalcSize();
 }
 
 // Net cash flow on/after cutoffDate. Used by periodRate() to subtract
@@ -14108,10 +14131,24 @@ function mSizer(){
   const riskPct=sr.riskPerTradePct ?? 2, budget=Math.round(nav*riskPct/100);
   const inst=STATE._mSizeInst||'NQ';
   const b=(k,lbl)=>`<button onclick="mSetSizeInst('${k}')" style="flex:1;padding:7px 0;border-radius:8px;border:1px solid ${inst===k?'var(--accent)':'var(--border-visible)'};background:${inst===k?'var(--accent)':'transparent'};color:${inst===k?'#0a0c10':'var(--text-primary)'};font-size:12px;font-weight:600;cursor:pointer">${lbl}</button>`;
+  // Freshness: how old is the NAV source? If IBKR sync is stale (>2 days) and
+  // there's no manual override, warn — sizer is under/over-sizing based on old data.
+  const ibkrTs = STATE.ibkrNAVDate ? _flexDateToMs(STATE.ibkrNAVDate) : (STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0);
+  const manualTs = STATE.manualNAVUpdatedAt ? Date.parse(STATE.manualNAVUpdatedAt) : 0;
+  const usingManual = manualTs > ibkrTs && STATE.manualNAV != null && +STATE.manualNAV > 0;
+  const srcTs = usingManual ? manualTs : ibkrTs;
+  const ageHours = srcTs ? (Date.now() - srcTs) / 3600000 : 999;
+  const ageStr = ageHours < 24 ? Math.round(ageHours) + "h ago" : Math.round(ageHours/24) + "d ago";
+  const srcLabel = usingManual ? "manual" : "IBKR";
+  const staleWarn = !usingManual && ageHours > 48 ? `<span style="color:var(--warning,#e0a800);font-weight:600">⚠ stale</span>` : "";
   return `<div style="border:1px solid var(--border-visible);border-radius:12px;padding:12px 12px 14px;margin:2px 0 12px;background:var(--bg-surface)">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
       <div style="font-size:13px;font-weight:700;color:var(--text-primary)">🧮 Position size</div>
       <div style="font-size:11px;color:var(--text-muted)">1R = ${riskPct}% = <b style="color:var(--text-primary)">$${budget.toLocaleString()}</b></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;font-size:10.5px;color:var(--text-muted)">
+      <span>NAV <b style="color:var(--text-primary)">$${Math.round(nav).toLocaleString()}</b> · ${srcLabel} · ${ageStr} ${staleWarn}</span>
+      <span onclick="_mPromptNAV()" style="color:var(--accent);cursor:pointer;text-decoration:underline">edit</span>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:9px">${b('NQ','/NQ ×20')}${b('ES','/ES ×50')}${b('EQ','Equity ×100')}</div>
     <div style="display:flex;align-items:center;gap:8px">
@@ -14121,6 +14158,13 @@ function mSizer(){
     </div>
     <div id="msz-out" style="margin-top:10px;font-size:13px;color:var(--text-muted)">Pick the instrument, enter the spread price.</div>
   </div>`;
+}
+function _mPromptNAV(){
+  const cur = _liveEquity() || 0;
+  const v = prompt("Set current NAV ($). This overrides the last IBKR sync until the next Flex refresh brings a newer value.", Math.round(cur));
+  if (v == null) return;
+  const n = parseFloat(String(v).replace(/[^0-9.]/g,""));
+  if (isFinite(n) && n > 0) _setManualNAV(n);
 }
 function mSizePriceInput(v){ STATE._mSizePrice=v; mCalcSize(); }
 function mSetSizeInst(k){ STATE._mSizeInst=k; renderMobile(); mCalcSize(); }
