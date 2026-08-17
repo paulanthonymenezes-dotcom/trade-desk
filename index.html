@@ -14158,7 +14158,7 @@ function renderMTag() {
     const tm = new Date(t.ts).toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"});
     const noteStr = (t.note||"").trim() ? ` · <span style="color:var(--accent)">${escapeHtml(t.note)}</span>` : "";
     const popStr = t.pop!=null ? ` · <span style="color:var(--text-muted)">${t.pop}% POP</span>` : "";
-    const deltaStr = t.shortDelta!=null ? ` · <span style="color:var(--text-muted)">Δ${(+t.shortDelta).toFixed(2)}</span>` : "";
+    const deltaStr = t.shortDelta!=null ? ` · <span style="color:var(--text-muted)">Δ${Math.abs(t.shortDelta) < 1 ? Math.round(Math.abs(t.shortDelta)*100) : Math.round(t.shortDelta)}</span>` : "";
     const editing = _mEditId===t.id;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 8px;margin:0 -8px;border-bottom:1px solid var(--border-subtle);font-size:12px${editing?";background:var(--accent-faint,rgba(88,166,255,0.10));border-radius:8px":""}" onclick="mEditTag('${t.id}')">
       <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}${popStr}${deltaStr}${noteStr}</span>
@@ -14186,9 +14186,9 @@ function renderMTag() {
         <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;pointer-events:none">%</span>
       </div>
       <div style="flex:1;position:relative">
-        <input id="m-tag-delta" type="number" inputmode="decimal" step="0.01" placeholder="Δ short (e.g. 0.18)"
-               value="${_mDraft.shortDelta!=null?_mDraft.shortDelta:""}"
-               oninput="_mDraft.shortDelta=this.value===''?null:+this.value"
+        <input id="m-tag-delta" type="number" inputmode="numeric" min="0" step="1" placeholder="Δ short (e.g. 17)"
+               value="${_mDraft.shortDelta!=null ? (Math.abs(_mDraft.shortDelta) < 1 ? Math.round(Math.abs(_mDraft.shortDelta)*100) : _mDraft.shortDelta) : ""}"
+               oninput="_mDraft.shortDelta = this.value==='' ? null : (Math.abs(+this.value) > 1 ? Math.abs(+this.value)/100 : Math.abs(+this.value))"
                style="width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px">
       </div>
     </div>
