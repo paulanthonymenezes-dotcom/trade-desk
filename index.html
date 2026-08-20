@@ -13850,7 +13850,7 @@ function _ideaSources() {
   if (!Array.isArray(STATE.ideaSources)) STATE.ideaSources = ["Me / Own DD", "Brent Donnelly", "The Options Seller", "Seasonax", "Longwashere", "Lyn Alden", "Finviz Heat Map", "News / Event", "GEX", "Vibes", "Other"];
   // Inject any tag sources that should always exist. Insert BEFORE "Other" so
   // "Other" stays as the last-resort catch-all in the UI. Idempotent.
-  const ALWAYS = ["Vibes", "GEX", "PPO Cross", "PPO Continuation", "ADX Rising"];
+  const ALWAYS = ["Vibes", "GEX", "PPO Cross", "PPO Continuation", "ADX Rising", "Pre RTH", "RTH", "Post RTH"];
   for (const s of ALWAYS) {
     if (!STATE.ideaSources.includes(s)) {
       const oi = STATE.ideaSources.indexOf("Other");
