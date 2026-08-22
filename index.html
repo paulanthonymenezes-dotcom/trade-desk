@@ -6595,7 +6595,7 @@ function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); _rerenderMC(); }
 function renderStatsMonteCarlo(closedAllTime){
   const win = STATE._mcWindow || "1m";
   const years = STATE._mcYears || 2;
-  const nav = (typeof currentEquity==="function") ? currentEquity() : (STATE.ibkrNAV || 49000);
+  const nav = (typeof _liveEquity==="function" ? _liveEquity() : 0) || STATE.ibkrNAV || 49000;   // live net-liq (ibkrNAV when synced, else computed from balance+realized); placeholder only if truly no data
   const oneRDefault = Math.max(100, Math.round(nav*0.02));   // 2% of live NAV
   const oneR = STATE._mcOneR || oneRDefault;
 
