@@ -2438,9 +2438,9 @@ function maxRisk(t) {
   if (!t.shortStrike || !t.longStrike || !t.contracts || !t.premiumCollected) return null;
   return Math.abs(t.longStrike - t.shortStrike) * t.contracts * getOptionMultiplier(t.ticker) - t.premiumCollected;
 }
-function kpiCard(label, value, color, subtitle) {
-  return `<div class="card" style="padding:8px 10px">
-    <div class="lbl">${label}</div>
+function kpiCard(label, value, color, subtitle, tip) {
+  return `<div class="card" style="padding:8px 10px${tip?';cursor:help':''}"${tip?` title="${escAttr(tip)}"`:''}>
+    <div class="lbl">${label}${tip?' <span style="opacity:.45;font-size:9px">&#9432;</span>':''}</div>
     <div style="font-size:${String(value).length>8?14:18}px;font-weight:600;color:${color}">${value}</div>
     ${subtitle?`<div style="font-size:10px;color:${C.textSec};margin-top:2px">${subtitle}</div>`:""}
   </div>`;
@@ -6501,7 +6501,7 @@ function _mcFanSVG(fanBands, startEquity, tradesPerYear){
   // X ticks — show months (from tradesPerYear) instead of raw trade counts. Cleaner.
   const tpm = tradesPerYear/12;
   const totalMonths = fanBands[fanBands.length-1].trades / tpm;
-  const monthStops = totalMonths <= 12 ? [0,3,6,9,12] : totalMonths <= 24 ? [0,6,12,18,24] : [0,6,12,18,24,30,36];
+  const monthStops = totalMonths <= 12 ? [0,3,6,9,12] : totalMonths <= 24 ? [0,6,12,18,24] : totalMonths <= 40 ? [0,6,12,18,24,30,36] : [0,12,24,36,48,60];
   const validStops = monthStops.filter(m => m <= totalMonths + 0.5);
   const ticksX = validStops.map(m => {
     const targetTrades = Math.round(m*tpm);
@@ -6523,6 +6523,8 @@ function _mcFanSVG(fanBands, startEquity, tradesPerYear){
       <path d="${path('p05')}" fill="none" stroke="${C.neg}" stroke-width="1" stroke-dasharray="3,3"/>
       <path d="${path('p95')}" fill="none" stroke="${C.pos}" stroke-width="1" stroke-dasharray="3,3"/>
       <line x1="${ML}" y1="${y(startEquity)}" x2="${W-MR}" y2="${y(startEquity)}" stroke="${C.textSec}" stroke-width="1" stroke-dasharray="2,4" opacity="0.5"/>
+      <circle cx="${ML}" cy="${y(startEquity)}" r="4" fill="${C.pos}" stroke="${C.bg}" stroke-width="1.5"/>
+      <text x="${ML+8}" y="${y(startEquity)-6}" fill="${C.text}" font-size="10.5" font-weight="700">Now &#183; $${startEquity.toLocaleString()}</text>
       ${ticksY.map(t=>`<text x="${ML-6}" y="${t.y+3}" text-anchor="end" fill="${C.textSec}">${'$'+Math.round(t.v/1000)+'k'}</text><line x1="${ML}" y1="${t.y}" x2="${W-MR}" y2="${t.y}" stroke="${C.border}" stroke-width="0.5" opacity="0.3"/>`).join('')}
       ${ticksX.map(t=>`
         <line x1="${t.x}" y1="${MT}" x2="${t.x}" y2="${H-MB}" stroke="${C.border}" stroke-width="0.5" opacity="0.25"/>
@@ -6592,12 +6594,20 @@ function _rerenderMC(){
 function _setMCWindow(w){ STATE._mcWindow = w; save(); _rerenderMC(); }
 function _setMCYears(y){ STATE._mcYears = +y; save(); _rerenderMC(); }
 function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); _rerenderMC(); }
+function _setMCRiskPct(v){ STATE._mcRiskPct = +v; save(); _rerenderMC(); }
+function _mcSlideRisk(v){   // live readout while dragging (no full re-sim until release/onchange)
+  const nav = (typeof _liveEquity==="function" ? _liveEquity() : 0) || STATE.ibkrNAV || 49000;
+  const pct = +v, d = Math.max(50, Math.round(nav * pct/100));
+  const ep = document.getElementById('mc-risk-pct'); if(ep){ ep.textContent = pct.toFixed(2)+'%'; ep.style.color = pct>2 ? 'var(--warning)' : 'var(--positive)'; }
+  const eu = document.getElementById('mc-risk-usd'); if(eu) eu.textContent = '$'+d.toLocaleString();
+}
 function renderStatsMonteCarlo(closedAllTime){
   const win = STATE._mcWindow || "1m";
   const years = STATE._mcYears || 2;
   const nav = (typeof _liveEquity==="function" ? _liveEquity() : 0) || STATE.ibkrNAV || 49000;   // live net-liq (ibkrNAV when synced, else computed from balance+realized); placeholder only if truly no data
   const oneRDefault = Math.max(100, Math.round(nav*0.02));   // 2% of live NAV
-  const oneR = STATE._mcOneR || oneRDefault;
+  const riskPct = (STATE._mcRiskPct!=null ? +STATE._mcRiskPct : 2);   // % of NAV per trade (slider-driven)
+  const oneR = Math.max(50, Math.round(nav * riskPct/100));
 
   const rSamples = _rSamplesFor(closedAllTime, win);
   const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months","mtd":"Month-to-date","ytd":"Year-to-date"})[win] || "Last 30 days";
@@ -6615,14 +6625,21 @@ function renderStatsMonteCarlo(closedAllTime){
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:${C.textSec}">
       <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">Project forward:
+        ${yrsBtn(1/12,"1 mo",Math.abs(years-1/12)<0.01)}
         ${yrsBtn(0.25,"3 mo",years===0.25)}
         ${yrsBtn(0.5, "6 mo",years===0.5)}
         ${yrsBtn(1,   "12 mo",years===1)}
         ${yrsBtn(1.5, "18 mo",years===1.5)}
         ${yrsBtn(2,   "2 yr",years===2)}
         ${yrsBtn(3,   "3 yr",years===3)}
+        ${yrsBtn(4,   "4 yr",years===4)}
+        ${yrsBtn(5,   "5 yr",years===5)}
       </div>
-      <div>1R = <input type="number" value="${oneR}" min="50" step="10" onchange="_setMCOneR(this.value)" style="width:80px;padding:3px 6px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:4px;font-size:11px"> USD  <span style="color:${C.textSec};font-size:10px">(2% of NAV = $${oneRDefault})</span></div>
+      <div style="display:flex;flex-direction:column;gap:5px;min-width:250px" title="1R = the dollars you risk per trade. Slide to model different position sizes: bigger 1R = faster growth but deeper drawdowns. Your rule is 2% of NAV. Above 2% turns the % amber as a nudge.">
+        <div>1R = <span id="mc-risk-pct" style="font-weight:700;color:${riskPct>2?C.warn:C.pos}">${riskPct.toFixed(2)}%</span> = <span id="mc-risk-usd" style="font-weight:700;color:${C.text}">$${oneR.toLocaleString()}</span> <span style="color:${C.textSec};font-size:10px">of $${nav.toLocaleString()} NAV · rule = 2%</span></div>
+        <input type="range" min="0.5" max="5" step="0.25" value="${riskPct}" list="mc-risk-ticks" oninput="_mcSlideRisk(this.value)" onchange="_setMCRiskPct(this.value)" style="width:100%;accent-color:${C.pos};cursor:pointer">
+        <datalist id="mc-risk-ticks"><option value="0.5"></option><option value="1"></option><option value="2"></option><option value="3"></option><option value="4"></option><option value="5"></option></datalist>
+      </div>
     </div>
   </div>`;
 
@@ -6651,7 +6668,7 @@ function renderStatsMonteCarlo(closedAllTime){
   // Milestones adapt to the horizon: sub-year picks use finer marks so the table
   // isn't just one row when you project 3 or 6 months.
   const totalMonths = years * 12;
-  const allMile = [1, 3, 6, 12, 18, 24, 36];
+  const allMile = [1, 3, 6, 12, 18, 24, 36, 48, 60];
   const mileMonths = allMile.filter(m => m <= totalMonths + 0.5)
                             .filter(m => m >= Math.max(1, totalMonths/8));   // drop trivially-close marks
   if (!mileMonths.length && totalMonths > 0) mileMonths.push(Math.round(totalMonths));   // safety: always at least one row (final)
@@ -6679,12 +6696,12 @@ function renderStatsMonteCarlo(closedAllTime){
   const inputSummary = `<div class="card" style="padding:12px;margin-bottom:10px">
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">INPUT DISTRIBUTION · ${winLabel}</div>
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
-      ${kpiCard("Trades", String(rSamples.length), C.text)}
-      ${kpiCard("Win Rate", (wr*100).toFixed(0)+"%", wr>=0.6?C.pos:wr>=0.5?C.warn:C.neg)}
-      ${kpiCard("Mean R", fmtR(meanR), meanR>0?C.pos:C.neg)}
-      ${kpiCard("Std R", stdR.toFixed(2)+"R", C.text)}
-      ${kpiCard("Worst R", fmtR(worstR), C.neg)}
-      ${kpiCard("Breach rate", (breachRate*100).toFixed(0)+"%", breachRate<=0.05?C.pos:C.neg)}
+      ${kpiCard("Trades", String(rSamples.length), C.text, null, "How many of your real closed trades fed this projection (from the sample window you picked above). More trades = a more reliable projection.")}
+      ${kpiCard("Win Rate", (wr*100).toFixed(0)+"%", wr>=0.6?C.pos:wr>=0.5?C.warn:C.neg, null, "Share of those trades that made money. High win rate feels good but isn't the whole story — a few big losses can still sink a high win rate (that's what Mean R captures).")}
+      ${kpiCard("Mean R", fmtR(meanR), meanR>0?C.pos:C.neg, null, "Your average result per trade, in R (1R = your risk unit, e.g. $1,000). +0.25R means you net a quarter of your risk per trade on average. THIS is your edge — positive = the machine makes money over time.")}
+      ${kpiCard("Std R", stdR.toFixed(2)+"R", C.text, null, "How spread-out your trade results are, in R. Higher = more volatile trade-to-trade (bigger swings both ways). It's what makes the fan chart widen.")}
+      ${kpiCard("Worst R", fmtR(worstR), C.neg, null, "Your single worst trade in the window, in R. -5.24R = a trade that lost 5x your intended risk — a blown/unhonored stop. This is the tail that hurts; the goal is to never see worse than -1R.")}
+      ${kpiCard("Breach rate", (breachRate*100).toFixed(0)+"%", breachRate<=0.05?C.pos:C.neg, null, "Share of trades that lost WORSE than -1R (stop not honored). This is the discipline metric — target is near 0%. Every breach is a trade where the ceiling came off by hand.")}
     </div>
     <div style="margin-top:10px;font-size:10px;color:${C.textSec}">
       Annualized pace: <b style="color:${C.text}">${tradesPerYear.toLocaleString()} trades/yr</b>
@@ -6696,16 +6713,16 @@ function renderStatsMonteCarlo(closedAllTime){
   const term = sim.final;
   const dd = sim.maxDD;
   const projCards = `<div class="card" style="padding:12px;margin-bottom:10px">
-    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">${years < 1 ? Math.round(years*12)+"-MONTH" : (years%1===0 ? years+"-YEAR" : (years*12)+"-MONTH")} PROJECTION · TERMINAL EQUITY</div>
+    <div title="Terminal equity = your projected ACCOUNT BALANCE at the end of this horizon. The cards below show the range of where you could land — from unlucky (P5) to typical (P50) to lucky (P95) — across 4,000 simulated futures." style="cursor:help;font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">${years < 1 ? Math.round(years*12)+"-MONTH" : (years%1===0 ? years+"-YEAR" : (years*12)+"-MONTH")} PROJECTION · TERMINAL EQUITY <span style="opacity:.45;font-size:9px">&#9432;</span></div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-      ${kpiCard("P5 (bad-luck 5%)",  "$"+Math.round(startEq+term.p05).toLocaleString(), term.p05>=0?C.warn:C.neg, "5% chance below")}
-      ${kpiCard("P50 (median)",      "$"+Math.round(startEq+term.p50).toLocaleString(), term.p50>=0?C.pos:C.neg, "50% land here or better")}
-      ${kpiCard("P95 (good-luck 5%)","$"+Math.round(startEq+term.p95).toLocaleString(), C.pos, "5% chance above")}
+      ${kpiCard("P5 (bad-luck 5%)",  "$"+Math.round(startEq+term.p05).toLocaleString(), term.p05>=0?C.warn:C.neg, "5% chance below", "Unlucky case: only 5% of simulated futures end BELOW this balance. Think of it as your realistic downside — if the dice go against you, this is roughly the floor.")}
+      ${kpiCard("P50 (median)",      "$"+Math.round(startEq+term.p50).toLocaleString(), term.p50>=0?C.pos:C.neg, "50% land here or better", "The median — the middle outcome. Half of all simulated futures land at this balance or better, half worse. This is the 'expected' result if you just keep trading the way you have been.")}
+      ${kpiCard("P95 (good-luck 5%)","$"+Math.round(startEq+term.p95).toLocaleString(), C.pos, "5% chance above", "Lucky case: only 5% of futures end ABOVE this balance. Your realistic upside if the dice fall your way. Don't plan around it — plan around P50.")}
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
-      ${kpiCard("Median max DD", "-$"+Math.round(dd.p50).toLocaleString(), C.warn, "typical worst peak→trough")}
-      ${kpiCard("P95 max DD",    "-$"+Math.round(dd.p95).toLocaleString(), C.neg, "bad-luck path DD")}
-      ${kpiCard("P(finish red)", (sim.pBelow0*100).toFixed(0)+"%", sim.pBelow0<0.1?C.pos:sim.pBelow0<0.3?C.warn:C.neg, "% of paths ending below start")}
+      ${kpiCard("Median max DD", "-$"+Math.round(dd.p50).toLocaleString(), C.warn, "typical worst peak→trough", "Max drawdown = the biggest peak-to-trough drop along the way. This is the TYPICAL one — even on a normal path to your median, expect to stomach a dip about this deep at some point. The pain is real even when the ending is good.")}
+      ${kpiCard("P95 max DD",    "-$"+Math.round(dd.p95).toLocaleString(), C.neg, "bad-luck path DD", "The bad-luck drawdown: 5% of paths hit a drop THIS deep or worse before recovering. This is the 'can I emotionally survive it' number — if this figure would make you break discipline, size down.")}
+      ${kpiCard("P(finish red)", (sim.pBelow0*100).toFixed(0)+"%", sim.pBelow0<0.1?C.pos:sim.pBelow0<0.3?C.warn:C.neg, "% of paths ending below start", "Probability of finishing DOWN — the share of simulated futures that end below where you started today. Low = your edge reliably compounds; high = you're gambling.")}
     </div>
   </div>`;
 
