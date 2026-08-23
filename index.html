@@ -6443,20 +6443,27 @@ function _rSamplesFor(closed, win){
 // point" (specific trade counts we care about — a mix of evenly-spaced fan-chart
 // checkpoints and named milestones like "3mo" / "1yr" for the table). Deterministic
 // seed so re-renders are stable.
-function _runMonteCarlo(rSamples, oneR, nPaths, samplePoints){
+function _runMonteCarlo(rSamples, oneR, nPaths, samplePoints, opts){
   if(!rSamples.length || !samplePoints.length) return null;
+  const compound = !!(opts && opts.compound);
+  const riskFrac = opts && opts.riskPct ? opts.riskPct/100 : 0.02;   // 1R as a fraction of live equity when compounding
+  const startEq  = opts && opts.startEq ? opts.startEq : 0;
   const pts = samplePoints.slice().sort((a,b)=>a.trades-b.trades);
   const nTrades = pts[pts.length-1].trades;
   const nPts = pts.length;
   const rn = rSamples.length;
-  let s = 1234567 ^ (rn*7919) ^ (nTrades*31);
+  let s = 1234567 ^ (rn*7919) ^ (nTrades*31) ^ (compound?101:0);
   const rand = () => { s ^= s<<13; s ^= s>>>17; s ^= s<<5; return ((s>>>0)/0x100000000); };
   const eqAt = pts.map(() => new Float32Array(nPaths));
   const ddAt = pts.map(() => new Float32Array(nPaths));
+  // eq is tracked as $ ABOVE start (delta) either way, so display (startEq + delta) is unchanged.
+  // Compound: 1R = riskFrac x current equity (startEq + eq), so gains snowball. DD stays in $.
   for(let p=0;p<nPaths;p++){
     let eq=0, peak=0, dd=0, si=0;
     for(let i=0;i<nTrades;i++){
-      eq += rSamples[Math.floor(rand()*rn)] * oneR;
+      const r = rSamples[Math.floor(rand()*rn)];
+      if(compound){ eq += r * riskFrac * (startEq + eq); }
+      else { eq += r * oneR; }
       if(eq>peak) peak=eq;
       const cur = peak-eq;
       if(cur>dd) dd = cur;
@@ -6595,6 +6602,7 @@ function _setMCWindow(w){ STATE._mcWindow = w; save(); _rerenderMC(); }
 function _setMCYears(y){ STATE._mcYears = +y; save(); _rerenderMC(); }
 function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); _rerenderMC(); }
 function _setMCRiskPct(v){ STATE._mcRiskPct = +v; save(); _rerenderMC(); }
+function _setMCCompound(v){ STATE._mcCompound = !!v; save(); _rerenderMC(); }
 function _mcSlideRisk(v){   // live readout while dragging (no full re-sim until release/onchange)
   const nav = (typeof _liveEquity==="function" ? _liveEquity() : 0) || STATE.ibkrNAV || 49000;
   const pct = +v, d = Math.max(50, Math.round(nav * pct/100));
@@ -6608,6 +6616,7 @@ function renderStatsMonteCarlo(closedAllTime){
   const oneRDefault = Math.max(100, Math.round(nav*0.02));   // 2% of live NAV
   const riskPct = (STATE._mcRiskPct!=null ? +STATE._mcRiskPct : 2);   // % of NAV per trade (slider-driven)
   const oneR = Math.max(50, Math.round(nav * riskPct/100));
+  const compound = !!STATE._mcCompound;   // when on, 1R is sized off the GROWING account each trade (snowball)
 
   const rSamples = _rSamplesFor(closedAllTime, win);
   const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months","mtd":"Month-to-date","ytd":"Year-to-date"})[win] || "Last 30 days";
@@ -6616,6 +6625,7 @@ function renderStatsMonteCarlo(closedAllTime){
 
   const pillBtn = (key,label,active) => `<button onclick="_setMCWindow('${key}')" class="btn btn-g" style="padding:5px 11px;font-size:11px;${active?`background:${C.pos};color:#08210f;font-weight:700`:''}">${label}</button>`;
   const yrsBtn  = (key,label,active) => `<button onclick="_setMCYears(${key})" class="btn btn-g" style="padding:5px 11px;font-size:11px;${active?`background:${C.pos};color:#08210f;font-weight:700`:''}">${label}</button>`;
+  const sizeBtn = (val,label,active) => `<button onclick="_setMCCompound(${val})" class="btn btn-g" style="padding:5px 11px;font-size:11px;${active?`background:${C.pos};color:#08210f;font-weight:700`:''}">${label}</button>`;
 
   const controls = `<div class="card" style="padding:12px;margin-bottom:10px">
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">SAMPLE FROM</div>
@@ -6635,6 +6645,7 @@ function renderStatsMonteCarlo(closedAllTime){
         ${yrsBtn(4,   "4 yr",years===4)}
         ${yrsBtn(5,   "5 yr",years===5)}
       </div>
+      <div style="display:flex;gap:5px;align-items:center" title="Fixed $/R: 1R stays at today's dollar amount the whole projection (linear, conservative). Compound %: 1R is re-sized to your risk % of the GROWING account every trade (snowball, exponential) — realistic while the account is small, fantasy at scale once fills can't keep up.">Sizing: ${sizeBtn(false,"Fixed $/R",!compound)}${sizeBtn(true,"Compound %",compound)}</div>
       <div style="display:flex;flex-direction:column;gap:5px;min-width:250px" title="1R = the dollars you risk per trade. Slide to model different position sizes: bigger 1R = faster growth but deeper drawdowns. Your rule is 2% of NAV. Above 2% turns the % amber as a nudge.">
         <div>1R = <span id="mc-risk-pct" style="font-weight:700;color:${riskPct>2?C.warn:C.pos}">${riskPct.toFixed(2)}%</span> = <span id="mc-risk-usd" style="font-weight:700;color:${C.text}">$${oneR.toLocaleString()}</span> <span style="color:${C.textSec};font-size:10px">of $${nav.toLocaleString()} NAV · rule = 2%</span></div>
         <input type="range" min="0.5" max="5" step="0.25" value="${riskPct}" list="mc-risk-ticks" oninput="_mcSlideRisk(this.value)" onchange="_setMCRiskPct(this.value)" style="width:100%;accent-color:${C.pos};cursor:pointer">
@@ -6688,7 +6699,7 @@ function renderStatsMonteCarlo(closedAllTime){
   });
   const allPts = [...seen.values()].sort((a,b) => a.trades - b.trades);
 
-  const sim = _runMonteCarlo(rSamples, oneR, 4000, allPts);
+  const sim = _runMonteCarlo(rSamples, oneR, 4000, allPts, { compound, riskPct, startEq: nav });
   const startEq = nav;
   const fanBands = sim.stats.filter(s => s.kind==='fan' || s.kind==='both');
   const mileRows = sim.stats.filter(s => s.kind==='mile' || s.kind==='both');
@@ -6779,7 +6790,9 @@ function renderStatsMonteCarlo(closedAllTime){
     <b style="color:${C.text}">Reading this honestly.</b> Bootstrap sampling replays your OWN trade R-values in random order.
     It assumes tomorrow looks like the sample window. If ${winLabel.toLowerCase()} was atypically good (light losses, no stops missed)
     the projection is optimistic. If atypically bad, pessimistic. Compare 1M vs 1Y to see how sensitive your future is to the window you pick.
-    Fixed \$/R (no compounding) — a real book that sizes up as NAV grows will fan wider both ways.
+    ${compound
+      ? `<b style="color:${C.warn}">Compounding ON</b> — each trade risks ${riskPct}% of the GROWING account, so gains snowball (exponential). Realistic while the account is small; a fantasy at scale — the 0DTE/weekly market can't fill ${riskPct}% of a \$1M+ book, so the late-year numbers are motivation, not forecast.`
+      : `<b style="color:${C.text}">Fixed \$/R</b> — 1R stays at today's \$${oneR.toLocaleString()} the whole way (linear, conservative). A real book that sizes up as NAV grows compounds faster than this early on — flip <b>Sizing &rarr; Compound %</b> to see it (mind the capacity caveat).`}
   </div>`;
 
   return controls + inputSummary + projCards + fan + mileTable + caveat;
