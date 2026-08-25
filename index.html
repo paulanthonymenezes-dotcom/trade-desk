@@ -610,6 +610,7 @@ table{width:100%;border-collapse:collapse}
     <button class="m-navbtn" data-mv="stats" onclick="mNav('stats')"><span>📊</span>Stats</button>
     <button class="m-navbtn" data-mv="journal" onclick="mNav('journal')"><span>📓</span>Journal</button>
     <button class="m-navbtn" data-mv="trades" onclick="mNav('trades')"><span>📋</span>Trades</button>
+    <button class="m-navbtn" data-mv="seasons" onclick="mNav('seasons')"><span>📅</span>Seasons</button>
     <button class="m-navbtn" data-mv="eod" onclick="mNav('eod')"><span>🌙</span>EOD</button>
   </nav>
 </div>
@@ -3026,7 +3027,7 @@ const CONFIRM_TYPES=["Bull Put Spread","Bear Call Spread","Bull Call Spread","Be
 // 1R = slPct% of credit, read live from the standing rule (currently 120%). Change the rule and
 // R re-bases everywhere — no hardcoded stop percentage anywhere.
 function _stopMult(){ const s=+((STATE.standingRules||{}).slPct); return (s>0?s:120)/100; }
-function tradeR(t){ if(!t||t.realizedPnl==null) return null; const cr=+t.premiumCollected||0; if(cr<=0) return null; return t.realizedPnl/(_stopMult()*cr); }
+function tradeR(t){ if(!t||t.realizedPnl==null) return null; const cr=+t.premiumCollected||0; if(cr<20) return null; return t.realizedPnl/(_stopMult()*cr); }   // credit floor $20: a sub-$20 "credit" is a debit/scalp/reconstruction artifact, not a real credit spread — its R explodes on a tiny denominator (e.g. the errant QQQ $6 → +8.4R). Excludes it from R stats + Monte Carlo; survives re-syncs since it's in the calc, not the data.
 function fmtR(r){ return r==null?"—":(r>=0?"+":"")+r.toFixed(2)+"R"; }
 // Time in trade — hours between entry and exit. Missing times default to 09:30
 // (open) → 16:00 (close) so day trades with no HH:MM still get a sane duration.
@@ -13940,6 +13941,7 @@ function renderMobile() {
   else if (v === "tag") el.innerHTML = renderMTag();
   else if (v === "stats") el.innerHTML = renderMStats(closed);
   else if (v === "journal") el.innerHTML = renderMJournal();
+  else if (v === "seasons") { el.innerHTML = renderMSeasons(); _mLoadSeasons(); }
   else if (v === "eod") el.innerHTML = renderMEOD();
   else el.innerHTML = renderMTrades();
 }
@@ -13970,6 +13972,133 @@ function _equityStats(){
   const offPct = peak > 0 ? offDollar / peak * 100 : 0;
   return { cur, peak, offDollar, offPct, atHigh: offDollar < 1, ok:true };
 }
+// ── SEASONALITY CANDIDATES ───────────────────────────────────────────────────
+// Read-only window onto the scan that runs on the Mac Studio (nq-research) and
+// pushes its summary to Supabase. The heavy part — 5,000 tickers, 25 years of
+// bars, half a gigabyte — never leaves that machine; the phone only needs the
+// answer, which is a few hundred rows.
+//
+// The column that decides a trade here is max_safe_delta: the largest short-put
+// delta that no historical instance of the window would have breached. A 90%
+// win rate on a window whose safe delta is 0.02 forces you so far out the credit
+// is worthless, so win rate alone is not the filter.
+let _seasonRows = [];
+let _seasonState = { loading: false, err: "", loadedAt: null, minWin: 75, minDelta: 0.15 };
+
+function _seasonSetFilter(field, value){
+  _seasonState[field] = value;
+  _seasonRows = [];
+  _seasonState.loadedAt = null;
+  renderMobile();
+}
+
+async function _mLoadSeasons(force){
+  if (_seasonState.loading) return;
+  if (_seasonRows.length && !force) return;
+  _seasonState.loading = true; _seasonState.err = "";
+  try {
+    const q = new URLSearchParams({
+      select: "ticker,company,start_md,end_md,n,win_rate,max_safe_delta,expectancy,payoff," +
+              "worst_drop_close,worst_drop_intraday,drop_sigma,vol,trading_days,scanned_at",
+      liquidity_tier: "eq.options",
+      win_rate: "gte." + _seasonState.minWin,
+      max_safe_delta: "gte." + _seasonState.minDelta,
+      n: "gte.15",
+      order: "max_safe_delta.desc",
+      limit: "60",
+    });
+    const r = await fetch(SUPABASE_URL + "/rest/v1/seasonality_scans?" + q.toString(),
+      { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const rows = await r.json();
+    _seasonRows = Array.isArray(rows) ? rows : [];
+    _seasonState.loadedAt = _seasonRows.length ? _seasonRows[0].scanned_at : null;
+  } catch (e) {
+    _seasonState.err = String(e && e.message || e);
+  } finally {
+    _seasonState.loading = false;
+    if (STATE._mView === "seasons") renderMobile();
+  }
+}
+
+function renderMSeasons(){
+  const S = _seasonState;
+  const head = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+      <div style="font-size:15px;font-weight:600">Seasonal candidates</div>
+      <div onclick="_mLoadSeasons(true)" style="font-size:9px;color:var(--accent);cursor:pointer">↻ refresh</div>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      ${[70,75,80,85,90].map(w => `<button onclick="_seasonSetFilter('minWin',${w})"
+        style="flex:1;min-width:44px;padding:6px 0;border-radius:6px;font-size:11px;cursor:pointer;
+        border:1px solid ${S.minWin===w?"var(--accent)":"var(--border-subtle)"};
+        background:${S.minWin===w?"rgba(79,195,220,.12)":"transparent"};
+        color:${S.minWin===w?"var(--accent)":"var(--text-muted)"}">${w}%+</button>`).join("")}
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      ${[0.10,0.15,0.20,0.25].map(d => `<button onclick="_seasonSetFilter('minDelta',${d})"
+        style="flex:1;min-width:52px;padding:6px 0;border-radius:6px;font-size:11px;cursor:pointer;
+        border:1px solid ${S.minDelta===d?"var(--accent)":"var(--border-subtle)"};
+        background:${S.minDelta===d?"rgba(79,195,220,.12)":"transparent"};
+        color:${S.minDelta===d?"var(--accent)":"var(--text-muted)"}">Δ${d.toFixed(2)}+</button>`).join("")}
+    </div>`;
+
+  if (S.loading && !_seasonRows.length)
+    return head + `<div style="padding:32px 0;text-align:center;color:var(--text-muted);font-size:12px">Loading candidates…</div>`;
+  if (S.err)
+    return head + `<div style="padding:24px 0;text-align:center;color:var(--neg,#E0605C);font-size:12px">
+      Couldn't reach the scan table.<br><span style="font-size:10px;color:var(--text-muted)">${escapeHtml(S.err)}</span></div>`;
+  if (!_seasonRows.length)
+    return head + `<div style="padding:32px 0;text-align:center;color:var(--text-muted);font-size:12px">
+      Nothing clears these filters.<br><span style="font-size:10px">Loosen the win rate or the delta.</span></div>`;
+
+  const stamp = S.loadedAt ? new Date(S.loadedAt).toLocaleDateString("en-US",
+    { timeZone:"America/New_York", month:"short", day:"numeric" }) : "—";
+
+  const cards = _seasonRows.map(r => {
+    const safe = +r.max_safe_delta, win = +r.win_rate;
+    // Green only when the safe delta clears the band he actually sells.
+    const good = safe >= 0.15;
+    return `
+    <div style="background:var(--bg-card);border:1px solid var(--border-subtle);
+                border-left:3px solid ${good?"var(--accent)":"var(--border-visible)"};
+                border-radius:8px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="min-width:0">
+          <span style="font-size:15px;font-weight:700">${escapeHtml(r.ticker)}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:6px">
+            ${escapeHtml(r.start_md)} → ${escapeHtml(r.end_md)} · ${Math.round(r.trading_days||0)}d</span>
+          ${r.company ? `<div style="font-size:10px;color:var(--text-muted);margin-top:1px;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">
+            ${escapeHtml(r.company)}</div>` : ""}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:16px;font-weight:700;color:${good?"var(--accent)":"var(--text-primary)"};
+                      font-variant-numeric:tabular-nums">Δ${safe.toFixed(2)}</div>
+          <div style="font-size:8px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">max safe</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:8px;font-size:10px;color:var(--text-muted);
+                  font-variant-numeric:tabular-nums">
+        <span>win <b style="color:var(--text-primary)">${win.toFixed(0)}%</b> · ${r.n}y</span>
+        <span>exp <b style="color:${(+r.expectancy)>=0?"var(--accent)":"var(--neg,#E0605C)"}">${(+r.expectancy).toFixed(2)}%</b></span>
+        <span>drop <b style="color:var(--neg,#E0605C)">${(+r.worst_drop_close).toFixed(1)}%</b> (${(+r.drop_sigma).toFixed(2)}σ)</span>
+        <span>vol ${(+r.vol).toFixed(0)}%</span>
+      </div>
+    </div>`;
+  }).join("");
+
+  return head + cards + `
+    <div style="font-size:9px;color:var(--text-muted);line-height:1.6;margin:14px 0 8px">
+      Max safe Δ is the largest short-put delta no historical instance of the window would
+      have breached, at today's volatility. Above your 0.15–0.20 band means the strike that
+      survived history is one you'd actually sell. Worst drop is on a closing basis; σ is the
+      same drawdown in standard deviations, which is what makes it comparable across names.
+      <br><br>Scan run ${stamp} on the Studio · options-grade names only · survivorship-biased
+      by construction, so treat it as a candidate list rather than evidence of an edge.
+    </div>`;
+}
+
 async function _mLoadMacro(){
   if (_macroCalEvents.length) return;
   const todayET = new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
