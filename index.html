@@ -6483,7 +6483,7 @@ function _runMonteCarlo(rSamples, oneR, nPaths, samplePoints, opts){
   const lastDD = ddAt[nPts-1];
   return {
     stats,
-    final: { p05:pct(last,0.05), p50:pct(last,0.50), p95:pct(last,0.95) },
+    final: { p05:pct(last,0.05), p10:pct(last,0.10), p25:pct(last,0.25), p50:pct(last,0.50), p75:pct(last,0.75), p90:pct(last,0.90), p95:pct(last,0.95) },
     maxDD: { p50:pct(lastDD,0.50), p95:pct(lastDD,0.95) },
     pBelow0: Array.from(last).filter(v=>v<0).length / nPaths,
     nTrades
@@ -6730,6 +6730,36 @@ function renderStatsMonteCarlo(closedAllTime){
       ${kpiCard("P5 (bad-luck 5%)",  "$"+Math.round(startEq+term.p05).toLocaleString(), term.p05>=0?C.warn:C.neg, "5% chance below", "Unlucky case: only 5% of simulated futures end BELOW this balance. Think of it as your realistic downside — if the dice go against you, this is roughly the floor.")}
       ${kpiCard("P50 (median)",      "$"+Math.round(startEq+term.p50).toLocaleString(), term.p50>=0?C.pos:C.neg, "50% land here or better", "The median — the middle outcome. Half of all simulated futures land at this balance or better, half worse. This is the 'expected' result if you just keep trading the way you have been.")}
       ${kpiCard("P95 (good-luck 5%)","$"+Math.round(startEq+term.p95).toLocaleString(), C.pos, "5% chance above", "Lucky case: only 5% of futures end ABOVE this balance. Your realistic upside if the dice fall your way. Don't plan around it — plan around P50.")}
+    </div>
+    <div style="margin-top:12px">
+      <div style="font-size:9px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:6px">FULL DISTRIBUTION · where the 4,000 simulated futures actually land</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums">
+        <thead><tr style="color:${C.textSec};text-align:right;border-bottom:1px solid ${C.border}">
+          <th style="text-align:left;padding:4px 6px;font-weight:600">Outcome</th>
+          <th style="padding:4px 6px;font-weight:600">Ending equity</th>
+          <th style="padding:4px 6px;font-weight:600">vs now</th>
+          <th style="text-align:left;padding:4px 6px;font-weight:600">What it means</th>
+        </tr></thead>
+        <tbody>
+        ${[
+          ['P5 · bad luck', term.p05, 'only 5% of futures end below this — your realistic floor'],
+          ['P10', term.p10, '10% end at or below here'],
+          ['P25 · lower quartile', term.p25, '25% end at or below — 3 in 4 do better'],
+          ['P50 · median', term.p50, 'the middle — half above, half below'],
+          ['P75 · upper quartile', term.p75, '75% end at or below — 1 in 4 beats this'],
+          ['P90', term.p90, '90% end at or below here'],
+          ['P95 · good luck', term.p95, 'only 5% end above this — your realistic ceiling'],
+        ].map(([lbl,v,desc])=>{
+          const eq=Math.round(startEq+v), gain=Math.round(v), isMed=String(lbl).includes('median');
+          return `<tr style="border-bottom:1px solid ${C.border}22;text-align:right;${isMed?`background:${C.pos}14`:''}">
+            <td style="text-align:left;padding:6px;color:${C.text};font-weight:${isMed?'700':'400'}">${lbl}</td>
+            <td style="padding:6px;color:${eq>=startEq?C.pos:C.neg};font-weight:${isMed?'700':'600'}">$${eq.toLocaleString()}</td>
+            <td style="padding:6px;color:${gain>=0?C.pos:C.neg}">${gain>=0?'+':'−'}$${Math.abs(gain).toLocaleString()}</td>
+            <td style="text-align:left;padding:6px;color:${C.textSec};font-size:10px">${desc}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
       ${kpiCard("Median max DD", "-$"+Math.round(dd.p50).toLocaleString(), C.warn, "typical worst peak→trough", "Max drawdown = the biggest peak-to-trough drop along the way. This is the TYPICAL one — even on a normal path to your median, expect to stomach a dip about this deep at some point. The pain is real even when the ending is good.")}
