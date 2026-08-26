@@ -6440,6 +6440,31 @@ function _rSamplesFor(closed, win){
     .map(t => tradeR(t))
     .filter(r => r != null);
 }
+// "If rules followed" transform. Same trades, but the -1R stop is enforced mechanically:
+//   1. Any trade that CLOSED worse than -1R (a real breach) is capped at -1R.
+//   2. Any trade whose intraday adverse path (clean Databento MAE) touched the stop
+//      is counted as the -1R stop it WOULD have been — even if it later recovered to a
+//      "win". This kills the rescued-breach inflation (the 92%→85% win-rate correction).
+// Only CLEAN MAE marks are trusted; the noisy '-approx' reconstructions (which printed
+// physically-impossible excursions like -1776% of credit) are ignored so they can't
+// mis-flag a genuine win as a stop. This is the ergodic sample: no draw is worse than -1R.
+function _discR(t){
+  const r = tradeR(t); if(r==null) return null;
+  if(r < -1.0) return -1.0;                                   // closed worse than the stop → capped
+  const cr = +t.premiumCollected||0;
+  const m = t && t._autoMAE;
+  if(m && cr>=20 && typeof m.pnl==='number' && !String(m.src||'').includes('approx')){
+    if(m.pnl <= -_stopMult()*cr) return -1.0;                 // adverse path breached the stop intraday → would've been stopped
+  }
+  return r;
+}
+function _rSamplesForDisc(closed, win){
+  const cutoff = _windowStart(win);
+  return closed
+    .filter(t => (t.exitDate||"") >= cutoff)
+    .map(_discR)
+    .filter(r => r != null);
+}
 // Bootstrap sim. Records equity + rolling-max-DD at each requested "sample
 // point" (specific trade counts we care about — a mix of evenly-spaced fan-chart
 // checkpoints and named milestones like "3mo" / "1yr" for the table). Deterministic
@@ -6599,6 +6624,7 @@ function _rerenderMC(){
     renderStatsContent(true);
   }
 }
+function _setMCMode(m){ STATE._mcMode = m; save(); _rerenderMC(); }
 function _setMCWindow(w){ STATE._mcWindow = w; save(); _rerenderMC(); }
 function _setMCYears(y){ STATE._mcYears = +y; save(); _rerenderMC(); }
 function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); _rerenderMC(); }
@@ -6619,7 +6645,20 @@ function renderStatsMonteCarlo(closedAllTime){
   const oneR = Math.max(50, Math.round(nav * riskPct/100));
   const compound = !!STATE._mcCompound;   // when on, 1R is sized off the GROWING account each trade (snowball)
 
-  const rSamples = _rSamplesFor(closedAllTime, win);
+  const mcMode = STATE._mcMode === "disc" ? "disc" : "real";
+  const rSamples = mcMode === "disc" ? _rSamplesForDisc(closedAllTime, win) : _rSamplesFor(closedAllTime, win);
+  const modeTabs = `<div style="display:flex;gap:6px;margin-bottom:10px">
+    <button onclick="_setMCMode('real')" class="btn btn-g" style="padding:7px 13px;font-size:11px;${mcMode==='real'?`background:${C.text};color:${C.bg};font-weight:700`:''}">📓 Real &middot; as traded</button>
+    <button onclick="_setMCMode('disc')" class="btn btn-g" style="padding:7px 13px;font-size:11px;${mcMode==='disc'?`background:${C.pos};color:#08210f;font-weight:700`:''}">🛡️ If rules followed &middot; −1R cap</button>
+  </div>`;
+  const modeBanner = mcMode === "disc"
+    ? `<div class="card" style="padding:10px 12px;margin-bottom:10px;background:${C.pos}12;border-left:3px solid ${C.pos}">
+        <div style="font-size:11px;color:${C.pos};font-weight:700;margin-bottom:3px">IF RULES FOLLOWED — every loss capped at −1R</div>
+        <div style="font-size:10.5px;color:${C.text};line-height:1.5">Same trades, same window — but the −1R stop is enforced: any trade that closed worse than −1R, or whose intraday path breached the stop and got rescued back to a "win", is counted as the −1R stop it would have been. This removes the trapdoor: no single trade can be worse than −1R, so no path can blow up. This is the ergodic version — <b>not your real record</b> (see the Real tab for that).</div>
+      </div>`
+    : `<div class="card" style="padding:10px 12px;margin-bottom:10px;background:${C.bg};border-left:3px solid ${C.textSec}">
+        <div style="font-size:10.5px;color:${C.textSec};line-height:1.5"><b style="color:${C.text}">Real — your actual results, uncapped.</b> Includes breaches (losses worse than −1R) exactly as they closed. This is the truth of what happened; the tail it carries is real. Flip to <b style="color:${C.pos}">If rules followed</b> to see the same trades with the −1R stop enforced.</div>
+      </div>`;
   const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months","mtd":"Month-to-date","ytd":"Year-to-date"})[win] || "Last 30 days";
   const winDays = _windowDays(win);
   const tradesPerYear = rSamples.length ? Math.round(rSamples.length*(365/winDays)) : 0;
@@ -6656,7 +6695,7 @@ function renderStatsMonteCarlo(closedAllTime){
   </div>`;
 
   if(rSamples.length < 8){
-    return controls + `<div class="card" style="padding:14px;background:${C.warn}15;border-left:3px solid ${C.warn}">
+    return modeTabs + controls + `<div class="card" style="padding:14px;background:${C.warn}15;border-left:3px solid ${C.warn}">
       <div style="font-size:12px;color:${C.warn};font-weight:700;margin-bottom:4px">TOO FEW TRADES IN ${winLabel.toUpperCase()}</div>
       <div style="font-size:11px;color:${C.text}">Only ${rSamples.length} R-scored trade${rSamples.length===1?'':'s'} in this window. Need at least 8 for a projection worth looking at. Pick a longer window.</div>
     </div>`;
@@ -6826,7 +6865,7 @@ function renderStatsMonteCarlo(closedAllTime){
       : `<b style="color:${C.text}">Fixed \$/R</b> — 1R stays at today's \$${oneR.toLocaleString()} the whole way (linear, conservative). A real book that sizes up as NAV grows compounds faster than this early on — flip <b>Sizing &rarr; Compound %</b> to see it (mind the capacity caveat).`}
   </div>`;
 
-  return controls + inputSummary + projCards + fan + mileTable + caveat;
+  return modeTabs + modeBanner + controls + inputSummary + projCards + fan + mileTable + caveat;
 }
 
 // ── 3. R:R ──────────────────────────────────────────────────────────────────
