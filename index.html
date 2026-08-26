@@ -13980,7 +13980,7 @@ function updateTradeField(id, field, value) {
 // A phone-first face of the desk. Quick-tag logs conviction + source(s) in 3 taps
 // at trade time; IBKR sync fills the trade later, and reconcileEntryTags() matches
 // the tag to it by entry timestamp. Same Supabase state as desktop.
-let _mDraft = { conviction: null, sources: [], ticker: "/NQ", note: "", pop: null, shortDelta: null };
+let _mDraft = { conviction: null, sources: [], ticker: "/NQ", note: "", pop: null, shortDelta: null, stopLevel: null };
 let _mEditId = null;   // when set, the tag form is editing an existing tag instead of creating one
 const _mTickerPresets = ["/NQ", "/ES", "SPY", "QQQ"];
 function _mTickerRoot(tk){ return String(tk||"").replace(/^\//,"").replace(/[FGHJKMNQUVXZ]\d$/,"").toUpperCase(); }
@@ -14223,14 +14223,14 @@ function renderMAM(){
   // no trade record yet — they're open, not closed). Match by ticker root, most-recent tag wins.
   const _tagAnno=(tk)=>{ const root=_mTickerRoot(tk); const tg=(STATE.entryTags||[]).filter(x=>_mTickerRoot(x.ticker)===root && (x.pop!=null||x.conviction!=null)).sort((a,b)=>String(b.ts).localeCompare(String(a.ts)))[0]; return tg||{}; };
   const allOpen=(ibkrPos.length?ibkrPos:(STATE.trades||[]).filter(t=>t.status==="Open"&&(t.premiumCollected||0)>0))
-    .map(t=>{ const a=_annoFor(t.ticker,t.shortStrike,t.longStrike), g=_tagAnno(t.ticker); return {ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/"), unreal:t.unrealizedPnl, pop:(t.pop!=null?t.pop:(a.pop!=null?a.pop:g.pop)), conviction:(t.conviction!=null?t.conviction:(a.conviction!=null?a.conviction:g.conviction))}; });
+    .map(t=>{ const a=_annoFor(t.ticker,t.shortStrike,t.longStrike), g=_tagAnno(t.ticker); return {ticker:t.ticker, credit:+t.premiumCollected||0, contracts:t.contracts||1, strikes:[t.shortStrike,t.longStrike].filter(Boolean).join("/"), unreal:t.unrealizedPnl, pop:(t.pop!=null?t.pop:(a.pop!=null?a.pop:g.pop)), conviction:(t.conviction!=null?t.conviction:(a.conviction!=null?a.conviction:g.conviction)), stopLevel:(t.stopLevel!=null?t.stopLevel:(g&&g.stopLevel!=null?g.stopLevel:null))}; });
   const secCount={}; allOpen.forEach(p=>{const s=getSector(p.ticker); if(s)secCount[s]=(secCount[s]||0)+1;});
   const dupSec=Object.entries(secCount).filter(([s,n])=>n>=2);
   const slPct=Math.round(_stopMult()*100), tpPct=Math.round(((STATE.standingRules||{}).tpPct)||60);
   const totalRisk=Math.round(allOpen.reduce((s,p)=>s+p.credit*_stopMult(),0));
   const posRow=p=>{
     const sl=Math.round(p.credit*_stopMult()), sec=getSector(p.ticker);
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${p.strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${p.strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.credit).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:(p.ticker?` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`:"")}${p.pop!=null?` · <span style="color:var(--accent)">POP ${p.pop}%</span>`:""}${p.unreal!=null?` · <span style="color:${p.unreal>=0?G:R};font-weight:600">${p.unreal>=0?"+":"−"}$${Math.abs(Math.round(p.unreal)).toLocaleString()}</span> now`:""}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><div><div style="font-size:14px;color:${TP};font-weight:600">${escapeHtml(p.ticker||"—")}${p.strikes?` <span style="color:${MU};font-weight:400;font-size:11px">${p.strikes}</span>`:""}</div><div style="font-size:10px;color:${MU};margin-top:2px">$${Math.round(p.credit).toLocaleString()} credit${p.contracts>1?` ×${p.contracts}`:""}${sec?` · <span style="color:var(--text-secondary)">${escapeHtml(sec)}</span>`:(p.ticker?` · <span style="opacity:.55" onclick="mSetPosSector('${escAttr(p.ticker||"")}')">+ sector</span>`:"")}${p.pop!=null?` · <span style="color:var(--accent)">POP ${p.pop}%</span>`:""}${p.stopLevel!=null?` · <span style="color:${R};font-weight:600">🛑 ${p.stopLevel}</span>`:""}${p.unreal!=null?` · <span style="color:${p.unreal>=0?G:R};font-weight:600">${p.unreal>=0?"+":"−"}$${Math.abs(Math.round(p.unreal)).toLocaleString()}</span> now`:""}</div></div><div style="font-size:17px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">−$${sl.toLocaleString()}</div></div>`;
   };
   let perTradeBlock=`<div style="border:1px solid var(--border-visible);border-radius:12px;padding:14px 15px;margin-bottom:10px"><div style="font-size:10px;color:${MU};text-transform:uppercase;letter-spacing:.5px">Per-trade stop (${slPct}%) · open positions</div>`;
   if(allOpen.length){
@@ -14431,9 +14431,10 @@ function renderMTag() {
     const noteStr = (t.note||"").trim() ? ` · <span style="color:var(--accent)">${escapeHtml(t.note)}</span>` : "";
     const popStr = t.pop!=null ? ` · <span style="color:var(--text-muted)">${t.pop}% POP</span>` : "";
     const deltaStr = t.shortDelta!=null ? ` · <span style="color:var(--text-muted)">Δ${Math.abs(t.shortDelta) < 1 ? Math.round(Math.abs(t.shortDelta)*100) : Math.round(t.shortDelta)}</span>` : "";
+    const stopStr = t.stopLevel!=null ? ` · <span style="color:var(--negative)">🛑 ${t.stopLevel}</span>` : "";
     const editing = _mEditId===t.id;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 8px;margin:0 -8px;border-bottom:1px solid var(--border-subtle);font-size:12px${editing?";background:var(--accent-faint,rgba(88,166,255,0.10));border-radius:8px":""}" onclick="mEditTag('${t.id}')">
-      <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}${popStr}${deltaStr}${noteStr}</span>
+      <span style="color:var(--text-secondary)">${tm} · <b style="color:var(--text-primary)">${escapeHtml(t.ticker||"?")}</b> · conv ${t.conviction||"?"} · ${(t.sources||[]).map(escapeHtml).join(", ")||"—"}${popStr}${deltaStr}${stopStr}${noteStr}</span>
       <span style="display:flex;gap:10px;align-items:center;white-space:nowrap"><span style="color:${t.matched?"var(--positive)":"var(--text-muted)"};font-size:10px">${t.matched?"✓":"pending"}</span><span onclick="event.stopPropagation();mDeleteTag('${t.id}')" style="color:var(--text-muted);font-size:16px;line-height:1">✕</span></span></div>`;
   }).join("") || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No tags yet — log your next entry.</div>`;
   const ready = _mDraft.conviction != null && _mDraft.sources.length > 0;
@@ -14463,6 +14464,16 @@ function renderMTag() {
                oninput="_mDraft.shortDelta = this.value==='' ? null : (Math.abs(+this.value) > 1 ? Math.abs(+this.value)/100 : Math.abs(+this.value))"
                style="width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px">
       </div>
+    </div>
+    <div class="m-lbl">🛑 Underlying stop <span style="text-transform:none;color:var(--text-muted)">· the ${escapeHtml(_mTickerRoot(_mDraft.ticker)||"index")} price where the thesis is DEAD</span></div>
+    <div style="position:relative">
+      <input id="m-tag-stop" type="number" inputmode="decimal" step="0.25" placeholder="e.g. /NQ 24180 — a decisive break past the short"
+             value="${_mDraft.stopLevel!=null?_mDraft.stopLevel:""}"
+             oninput="_mDraft.stopLevel=this.value===''?null:+this.value"
+             style="width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px">
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);line-height:1.45;margin-top:6px">
+      Set it <b style="color:var(--text-secondary)">beyond your short strike</b>, not at it. Price <i>testing</i> the short is normal — theta still wins if it just sits there. Your stop is a <b style="color:var(--text-secondary)">decisive break through</b> (last-high / IBL / the level that says you're wrong). Rest the order on the underlying and ignore the −125% mark noise.
     </div>
     <div class="m-lbl">Setup note <span style="text-transform:none;color:var(--text-muted)">· optional</span></div>
     <textarea id="m-tag-note" oninput="_mDraft.note=this.value" placeholder="e.g. 1-min 20EMA reclaim · failed breakdown · held VWAP" rows="3" style="width:100%;box-sizing:border-box;min-height:76px;background:var(--bg-surface);border:1px solid var(--border-visible);border-radius:9px;color:var(--text-primary);font-size:15px;padding:11px;font-family:inherit;line-height:1.45;resize:vertical">${escapeHtml(_mDraft.note||"")}</textarea>
@@ -14499,24 +14510,25 @@ function mLogTag(){
   const note=(_mDraft.note||"").trim();
   const pop = (_mDraft.pop==null||_mDraft.pop==="") ? null : Math.max(0, Math.min(100, +_mDraft.pop));
   const shortDelta = (_mDraft.shortDelta==null||_mDraft.shortDelta==="") ? null : +_mDraft.shortDelta;
+  const stopLevel = (_mDraft.stopLevel==null||_mDraft.stopLevel==="") ? null : +_mDraft.stopLevel;
   let _tagRow=null;
   if(_mEditId){
     const t=STATE.entryTags.find(x=>x.id===_mEditId);
     if(t){
       t.conviction=_mDraft.conviction; t.sources=_mDraft.sources.slice(); t.ticker=_mDraft.ticker||"/NQ"; t.note=note;
-      t.pop = pop; t.shortDelta = shortDelta;
+      t.pop = pop; t.shortDelta = shortDelta; t.stopLevel = stopLevel;
       // if it already merged onto a trade, push the edits through to that trade too
-      if(t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr){ tr.conviction=t.conviction; tr.ideaSources=t.sources.slice(); tr.ideaSource=t.sources[0]||tr.ideaSource; if(note)tr.entryNote=note; if(pop!=null)tr.pop=pop; if(shortDelta!=null)tr.shortDelta=shortDelta; } }
+      if(t.matched){ const tr=(STATE.trades||[]).find(x=>String(x.id)===String(t.matched)); if(tr){ tr.conviction=t.conviction; tr.ideaSources=t.sources.slice(); tr.ideaSource=t.sources[0]||tr.ideaSource; if(note)tr.entryNote=note; if(pop!=null)tr.pop=pop; if(shortDelta!=null)tr.shortDelta=shortDelta; if(stopLevel!=null)tr.stopLevel=stopLevel; } }
       _tagRow=t;
     }
     _mEditId=null;
   } else {
     _tagRow={ id:"tag_"+Date.now(), ts:new Date().toISOString(), ticker:_mDraft.ticker||"/NQ",
               conviction:_mDraft.conviction, sources:_mDraft.sources.slice(), note,
-              pop, shortDelta, matched:null };
+              pop, shortDelta, stopLevel, matched:null };
     STATE.entryTags.push(_tagRow);
   }
-  _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null};
+  _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null,stopLevel:null};
   // Also reset the sizer state — the next trade may be a different instrument /
   // price. Left populated, it silently leaks into the next tag's context.
   STATE._mSizePrice = null; STATE._mSizeInst = "NQ";
@@ -14533,11 +14545,12 @@ function mEditTag(id){
     note: t.note||"",
     pop: t.pop!=null ? t.pop : null,
     shortDelta: t.shortDelta!=null ? t.shortDelta : null,
+    stopLevel: t.stopLevel!=null ? t.stopLevel : null,
   };
   _resetSizerForTicker(t.ticker||"/NQ");   // snap sizer to the edited tag's ticker; fresh price
   renderMobile(); const c=document.getElementById("m-content"); if(c)c.scrollTop=0;
 }
-function mCancelTagEdit(){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null}; renderMobile(); }
+function mCancelTagEdit(){ _mEditId=null; _mDraft={conviction:null,sources:[],ticker:"/NQ",note:"",pop:null,shortDelta:null,stopLevel:null}; renderMobile(); }
 function mDeleteTag(id){
   if(!confirm("Delete this tag?")) return;
   const t=(STATE.entryTags||[]).find(x=>x.id===id);
@@ -14613,6 +14626,7 @@ function reconcileEntryTags(){
     if((tg.note||"").trim() && !tr.entryNote) tr.entryNote = tg.note;
     if(tg.pop!=null && tr.pop==null) tr.pop = tg.pop;
     if(tg.shortDelta!=null && tr.shortDelta==null) tr.shortDelta = tg.shortDelta;
+    if(tg.stopLevel!=null && tr.stopLevel==null) tr.stopLevel = tg.stopLevel;
     tg.matched = tr.id;
     changed = true;
   }
@@ -14652,6 +14666,7 @@ function reconcileEntryTags(){
       if((tag.note||"").trim()) best.entryNote=tag.note;
       if(tag.pop!=null && best.pop==null) best.pop=tag.pop;
       if(tag.shortDelta!=null && best.shortDelta==null) best.shortDelta=tag.shortDelta;
+      if(tag.stopLevel!=null && best.stopLevel==null) best.stopLevel=tag.stopLevel;
       best._taggedBy=tag.id;
       tag.matched=best.id;
       changed=true;
