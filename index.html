@@ -14415,11 +14415,29 @@ function mCalcSize(){
     return;
   }
   const risk=n*rpc, pct=risk/nav*100, tp=n*credit*tpPct/100;
+  // Resting-order PRICES (points) to punch into IBKR — the whole point of "set it and walk away".
+  // TP = buy-to-close at the remaining credit fraction; SL = stop-close at credit + the loss fraction.
+  const tpClose=price*(1-tpPct/100);                 // e.g. 80% TP → close at 0.20 × entry
+  const slStop=price*(1+slPct/100);                  // e.g. 150% SL → stop at 2.50 × entry
   el.innerHTML=conv+`<div style="font-size:24px;font-weight:800;color:${TP};margin-bottom:5px">${n} contract${n>1?'s':''}</div>
     <div style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--text-secondary)">
       <span>risk <b style="color:${R}">−$${Math.round(risk).toLocaleString()}</b> (${pct.toFixed(1)}%)</span>
       <span>TP <b style="color:${G}">+$${Math.round(tp).toLocaleString()}</b></span>
       <span>stop <b style="color:${R}">−$${Math.round(risk).toLocaleString()}</b> @ ${slPct}%</span>
+    </div>
+    <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--border-subtle)">
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">🎯 Resting orders — set BOTH at entry, then walk away</div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1;background:var(--positive-faint,rgba(34,197,94,0.10));border:1px solid ${G};border-radius:8px;padding:8px 9px">
+          <div style="font-size:10px;color:var(--text-muted)">TP · buy-to-close (${tpPct}%)</div>
+          <div style="font-size:19px;font-weight:800;color:${G};font-variant-numeric:tabular-nums">${tpClose.toFixed(2)}</div>
+        </div>
+        <div style="flex:1;background:var(--negative-faint,rgba(239,68,68,0.10));border:1px solid ${R};border-radius:8px;padding:8px 9px">
+          <div style="font-size:10px;color:var(--text-muted)">SL · stop-close (−${slPct}% = −1R)</div>
+          <div style="font-size:19px;font-weight:800;color:${R};font-variant-numeric:tabular-nums">${slStop.toFixed(2)}</div>
+        </div>
+      </div>
+      <div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;line-height:1.4">Sold at <b style="color:var(--text-primary)">${price}</b> → close the winner at <b style="color:${G}">${tpClose.toFixed(2)}</b>, stop the loser at <b style="color:${R}">${slStop.toFixed(2)}</b>. Both in before you tab back to work.</div>
     </div>`;
 }
 function renderMTag() {
