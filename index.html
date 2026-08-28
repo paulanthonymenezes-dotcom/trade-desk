@@ -3027,7 +3027,7 @@ const CONFIRM_TYPES=["Bull Put Spread","Bear Call Spread","Bull Call Spread","Be
 // 1R = slPct% of credit, read live from the standing rule (currently 120%). Change the rule and
 // R re-bases everywhere — no hardcoded stop percentage anywhere.
 function _stopMult(){ const s=+((STATE.standingRules||{}).slPct); return (s>0?s:120)/100; }
-function tradeR(t){ if(!t||t.realizedPnl==null) return null; const cr=+t.premiumCollected||0; if(cr<20) return null; return t.realizedPnl/(_stopMult()*cr); }   // credit floor $20: a sub-$20 "credit" is a debit/scalp/reconstruction artifact, not a real credit spread — its R explodes on a tiny denominator (e.g. the errant QQQ $6 → +8.4R). Excludes it from R stats + Monte Carlo; survives re-syncs since it's in the calc, not the data.
+function tradeR(t){ if(!t||t.realizedPnl==null||t._excludeFromStats) return null; const cr=+t.premiumCollected||0; if(cr<20) return null; return t.realizedPnl/(_stopMult()*cr); }   // credit floor $20: a sub-$20 "credit" is a debit/scalp/reconstruction artifact, not a real credit spread — its R explodes on a tiny denominator (e.g. the errant QQQ $6 → +8.4R). Excludes it from R stats + Monte Carlo; survives re-syncs since it's in the calc, not the data. _excludeFromStats: broker-artifact opt-out (e.g. IBKR forced leg-by-leg exit → slippage loss that isn't a strategy result) — stays in the record + account P&L, drops out of R/avg-R/breach/Monte-Carlo.
 function fmtR(r){ return r==null?"—":(r>=0?"+":"")+r.toFixed(2)+"R"; }
 // Time in trade — hours between entry and exit. Missing times default to 09:30
 // (open) → 16:00 (close) so day trades with no HH:MM still get a sane duration.
