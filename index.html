@@ -611,6 +611,7 @@ table{width:100%;border-collapse:collapse}
     <button class="m-navbtn" data-mv="journal" onclick="mNav('journal')"><span>📓</span>Journal</button>
     <button class="m-navbtn" data-mv="trades" onclick="mNav('trades')"><span>📋</span>Trades</button>
     <button class="m-navbtn" data-mv="seasons" onclick="mNav('seasons')"><span>📅</span>Seasons</button>
+    <button class="m-navbtn" data-mv="network" onclick="mNav('network')"><span>🕸</span>Network</button>
     <button class="m-navbtn" data-mv="eod" onclick="mNav('eod')"><span>🌙</span>EOD</button>
   </nav>
 </div>
@@ -623,6 +624,7 @@ table{width:100%;border-collapse:collapse}
   <div style="height:1px;background:var(--border-subtle);margin:6px 14px"></div>
   <button class="side-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span><span class="side-label">Diary</span></button>
   <button class="side-btn active" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span><span class="side-label">Statistics</span></button>
+  <button class="side-btn" onclick="switchTab('network',this)"><span class="nav-icon">🕸</span><span class="side-label">Network</span></button>
   <button class="side-btn" onclick="switchTab('guardrails',this)"><span class="nav-icon">🛡️</span><span class="side-label">Guardrails</span></button>
   <button class="side-btn" onclick="switchTab('eecharts',this)"><span class="nav-icon">📈</span><span class="side-label">Entry/Exit Charts</span></button>
   <button class="side-btn" onclick="switchTab('nqscreener',this)"><span class="nav-icon">🔭</span><span class="side-label">NQ Screener</span></button>
@@ -736,6 +738,9 @@ table{width:100%;border-collapse:collapse}
   </div>
 
   <!-- STATS TAB -->
+  <div id="tab-network" class="section" style="display:none">
+    <div id="network-content" style="max-width:1400px;margin:0 auto"></div>
+  </div>
   <div id="tab-stats" class="section active" style="display:block">
     <div id="stats-content" style="max-width:1200px;margin:0 auto"></div>
   </div>
@@ -833,6 +838,7 @@ table{width:100%;border-collapse:collapse}
   <button class="nav-btn" onclick="switchTab('market',this)"><span class="nav-icon">◉</span>WATCH</button>
   <button class="nav-btn" onclick="switchTab('diary',this)"><span class="nav-icon">✎</span>DIARY</button>
   <button class="nav-btn active" onclick="switchTab('stats',this)"><span class="nav-icon">◈</span>STATS</button>
+  <button class="nav-btn" onclick="switchTab('network',this)"><span class="nav-icon">🕸</span>NETWORK</button>
   <button class="nav-btn" onclick="switchTab('forecast',this)"><span class="nav-icon">◎</span>CAST</button>
 </nav>
 
@@ -14053,6 +14059,7 @@ function renderMobile() {
   else if (v === "stats") el.innerHTML = renderMStats(closed);
   else if (v === "journal") el.innerHTML = renderMJournal();
   else if (v === "seasons") { el.innerHTML = renderMSeasons(); _mLoadSeasons(); }
+  else if (v === "network") el.innerHTML = renderMNetwork();
   else if (v === "eod") el.innerHTML = renderMEOD();
   else el.innerHTML = renderMTrades();
 }
@@ -14130,6 +14137,568 @@ async function _mLoadSeasons(force){
     _seasonState.loading = false;
     if (STATE._mView === "seasons") renderMobile();
   }
+}
+
+// ═══ NETWORK ═══════════════════════════════════════════════════════════════
+// Who a company buys from, sells to, works with and competes against.
+//
+// Built offline by nq-research/scripts/build_graphs.py and pushed to
+// company_graphs; the phone only ever reads one row. Competitor edges come from
+// industry classification and are the reliable ones. Supplier, customer and
+// partner edges are inferred from how news articles talk about the two
+// companies together, so every row carries a confidence and the headline behind
+// it — read those before acting on an edge.
+//
+// Hover does not exist on a phone, so the desktop tooltip becomes tap-to-expand.
+const NET_ROLES = ["supplier","customer","partner","competitor"];
+const NET_COLOR = { supplier:"#38bdf8", customer:"#22c55e", partner:"#a855f7", competitor:"#ef4444" };
+const NET_SRC = { ibkr:"IBKR curated", filing:"10-K filing", news:"news-inferred" };
+let _netState = { ticker:null, graph:null, loading:false, err:"",
+                  roles:new Set(NET_ROLES), view:"list", open:null,
+                  q:"", results:[], searching:false };
+
+function _netMoney(v){
+  if(!v) return "—";
+  if(v>=1e12) return "$"+(v/1e12).toFixed(2)+"T";
+  if(v>=1e9)  return "$"+(v/1e9).toFixed(1)+"B";
+  if(v>=1e6)  return "$"+(v/1e6).toFixed(0)+"M";
+  return "$"+Math.round(v);
+}
+function _netEsc(s){ return String(s==null?"":s)
+  .replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function _netToggleRole(r){
+  // Never let the last chip switch off — an empty panel reads as a bug.
+  if(_netState.roles.has(r)){ if(_netState.roles.size>1) _netState.roles.delete(r); }
+  else _netState.roles.add(r);
+  renderMobile();
+}
+function _netSetView(v){ _netState.view = v; renderMobile(); }
+function _netOpen(k){ _netState.open = (_netState.open===k ? null : k); renderMobile(); }
+
+async function _mLoadGraph(ticker, force){
+  const t = String(ticker||"").toUpperCase();
+  if(!t) return;
+  if(_netState.loading) return;
+  if(_netState.ticker===t && _netState.graph && !force) return;
+  _netState.ticker = t; _netState.loading = true; _netState.err = "";
+  _netState.graph = null; _netState.open = null;
+  renderMobile();
+  try{
+    const r = await fetch(SUPABASE_URL + "/rest/v1/company_graphs?ticker=eq."
+      + encodeURIComponent(t) + "&select=*&limit=1",
+      { headers:{ apikey:SUPABASE_KEY, Authorization:"Bearer "+SUPABASE_KEY } });
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const rows = await r.json();
+    _netState.graph = (Array.isArray(rows) && rows[0]) ? rows[0] : null;
+    if(!_netState.graph) _netState.err = "No graph built for "+t+" yet.";
+  }catch(e){ _netState.err = String(e && e.message || e); }
+  finally{ _netState.loading = false; if(STATE._mView==="network") renderMobile(); }
+}
+
+async function _netSearch(q){
+  _netState.q = q;
+  if(!q || q.length < 1){ _netState.results = []; renderMobile(); return; }
+  _netState.searching = true;
+  try{
+    const term = q.replace(/[,()]/g," ").trim();
+    const r = await fetch(SUPABASE_URL + "/rest/v1/company_graphs?select=ticker,company,"
+      + "market_cap,n_edges&or=(ticker.ilike." + encodeURIComponent(term+"%")
+      + ",company.ilike." + encodeURIComponent("%"+term+"%")
+      + ")&order=market_cap.desc.nullslast&limit=8",
+      { headers:{ apikey:SUPABASE_KEY, Authorization:"Bearer "+SUPABASE_KEY } });
+    _netState.results = r.ok ? await r.json() : [];
+  }catch(e){ _netState.results = []; }
+  finally{ _netState.searching = false; if(STATE._mView==="network") renderMobile(); }
+}
+function _netPick(t){
+  _netState.q = ""; _netState.results = [];
+  const box = document.getElementById("net-q"); if(box) box.value = "";
+  _mLoadGraph(t, true);
+}
+// Entry point from anywhere else in the desk — a ticker in Seasons, Trades or
+// Stats can open straight into its network.
+function mOpenNetwork(ticker){ STATE._mView = "network"; _mLoadGraph(ticker, false); renderMobile(); }
+
+function _netRows(){
+  const g = _netState.graph; if(!g) return [];
+  return (g.edges||[]).filter(e=>_netState.roles.has(e.role))
+                      .sort((a,b)=>NET_ROLES.indexOf(a.role)-NET_ROLES.indexOf(b.role)
+                                   || (b.weight||0)-(a.weight||0));
+}
+
+function _netFlow(){
+  const rows = _netRows(); if(!rows.length) return "";
+  const left = rows.filter(e=>e.direction==="in"), right = rows.filter(e=>e.direction!=="in");
+  const W = 340, ROW = 22, PAD = 14;
+  const H = Math.max(160, PAD*2 + Math.max(left.length, right.length)*ROW);
+  const barH = Math.min(H-PAD*2, Math.max(70, H*0.5)), cy = H/2;
+  // On a phone a two-sided layout wastes half the width whenever a company has
+  // no suppliers (or no customers) in the graph. Slide the centre bar to the
+  // empty side and give the whole canvas to the side that has rows.
+  const CX = !left.length ? 26 : (!right.length ? W-26 : 168);
+  const NX_IN = !right.length ? W-150 : 108, NX_OUT = !left.length ? 128 : 228;
+  const sum = a => a.reduce((s,e)=>s+Math.max(e.weight||0,.4),0) || 1;
+  let out = "";
+  [[left,"in",NX_IN],[right,"out",NX_OUT]].forEach(([list,dir,nx])=>{
+    const tot = sum(list), avail = H-PAD*2-(list.length-1)*3;
+    let y = PAD, c = cy-barH/2;
+    list.forEach(e=>{
+      const w = Math.max(e.weight||0,.4);
+      const h = Math.max(2, avail*(w/tot)), ch = Math.max(1.5, barH*(w/tot));
+      const y0 = y+h/2, c0 = c+ch/2;
+      const x0 = dir==="in" ? nx+4 : CX+5, x1 = dir==="in" ? CX-5 : nx-4;
+      const m = (x0+x1)/2;
+      out += `<path d="M${x0} ${y0}C${m} ${y0},${m} ${c0},${x1} ${c0}" fill="none"
+        stroke="${NET_COLOR[e.role]}" stroke-width="${Math.max(1.5,Math.min(h,ch,14))}"
+        stroke-opacity=".45"/>`;
+      const nm = (e.name||e.ticker||"").slice(0, (!left.length||!right.length) ? 26 : 16);
+      out += `<text x="${dir==="in"?nx-6:nx+6}" y="${y0+3}" fill="#c8d6e5" font-size="8.5"
+        text-anchor="${dir==="in"?"end":"start"}">${_netEsc(nm)}</text>`;
+      y += h+3; c += ch;
+    });
+  });
+  out += `<rect x="${CX-5}" y="${cy-barH/2}" width="10" height="${barH}" fill="#22c55e" rx="2"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;margin:6px 0">
+    ${out}</svg>`;
+}
+
+function renderMNetwork(){
+  const S = _netState, g = S.graph;
+  const search = `
+    <div style="position:relative;margin-bottom:8px">
+      <input id="net-q" value="${_netEsc(S.q)}" placeholder="Search ticker or company…"
+        oninput="_netSearch(this.value)" autocomplete="off"
+        style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;
+               padding:8px 10px;color:var(--text);font-size:13px;font-family:inherit">
+      ${S.results.length ? `<div style="position:absolute;left:0;right:0;top:38px;z-index:30;
+        background:var(--panel);border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        ${S.results.map(r=>`<div onclick="_netPick('${r.ticker}')"
+          style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);
+                 display:flex;justify-content:space-between;gap:8px;font-size:12px">
+          <span><b>${_netEsc(r.ticker)}</b> <span style="color:var(--text-muted)">
+            ${_netEsc((r.company||"").slice(0,28))}</span></span>
+          <span style="color:var(--text-muted);font-size:10px;white-space:nowrap">
+            ${_netMoney(r.market_cap)} · ${r.n_edges||0}</span></div>`).join("")}
+      </div>` : ""}
+    </div>`;
+
+  if(S.loading) return `<div style="padding:4px 0">${search}
+    <div style="padding:40px 0;text-align:center;color:var(--text-muted);font-size:12px">
+      Loading ${_netEsc(S.ticker||"")}…</div></div>`;
+
+  if(!g) return `<div style="padding:4px 0">${search}
+    <div style="padding:36px 12px;text-align:center;color:var(--text-muted);font-size:12px;line-height:1.6">
+      ${S.err ? _netEsc(S.err) : "Search a company to see its suppliers, customers,<br>partners and competitors."}
+    </div></div>`;
+
+  const counts = g.counts || {};
+  const chips = NET_ROLES.map(r=>{
+    const n = (g.edges||[]).filter(e=>e.role===r).length, on = S.roles.has(r);
+    return `<div onclick="_netToggleRole('${r}')" style="display:flex;align-items:center;gap:5px;
+      cursor:pointer;font-size:10.5px;${on?"":"opacity:.4;text-decoration:line-through"}">
+      <span style="width:7px;height:7px;border-radius:50%;background:${NET_COLOR[r]};
+        display:inline-block"></span>${r.charAt(0).toUpperCase()+r.slice(1)}
+      <b style="color:var(--text-muted);font-weight:400">${n}</b></div>`;
+  }).join("");
+
+  const rows = _netRows();
+  let body = "";
+  if(S.view === "flow"){
+    body = _netFlow();
+  } else {
+    let last = null;
+    body = rows.map(e=>{
+      const k = e.role+"|"+(e.ticker||e.name);
+      const head = e.role!==last ? `<div style="color:${NET_COLOR[e.role]};font-size:9.5px;
+        letter-spacing:.08em;text-transform:uppercase;margin:10px 0 4px">${e.role}s</div>` : "";
+      last = e.role;
+      const conf = Math.round((e.confidence||0)*100);
+      const arrow = e.direction==="in"
+        ? `${_netEsc(e.name||e.ticker)} → ${_netEsc(g.ticker)}`
+        : `${_netEsc(g.ticker)} → ${_netEsc(e.name||e.ticker)}`;
+      const detail = S.open===k ? `
+        <div style="padding:8px 10px 10px;border-top:1px solid var(--border);
+                    background:var(--bg);font-size:11px;line-height:1.7">
+          <div style="color:var(--text-muted)">${arrow}</div>
+          <div><span style="color:var(--text-muted)">Industry</span> ${_netEsc(e.industry||e.sector||"—")}</div>
+          <div><span style="color:var(--text-muted)">Mkt cap</span> ${_netMoney(e.market_cap)}
+            ${e.revenue_ttm?` · <span style="color:var(--text-muted)">Rev</span> ${_netMoney(e.revenue_ttm)}`:""}</div>
+          <div><span style="color:var(--text-muted)">HQ</span> ${_netEsc(e.country||"—")}</div>
+          ${e.articles?`<div><span style="color:var(--text-muted)">Evidence</span>
+            ${e.articles} articles · ${conf}% confidence</div>`:""}
+          ${(e.signals&&e.signals.length)?`<div style="color:var(--text-muted);font-size:10px">
+            ${_netEsc(e.signals.join(" · "))}</div>`:""}
+          ${(e.evidence&&e.evidence[0])?`<div style="margin-top:5px;font-style:italic;
+            color:#8fa3b8;font-size:10.5px">“${_netEsc(e.evidence[0].title)}”</div>`:""}
+          <div style="margin-top:6px"><span style="background:var(--bg-alt,#16202a);
+            color:var(--text-muted);font-size:9px;padding:2px 6px;border-radius:3px;
+            letter-spacing:.05em">${_netEsc(NET_SRC[e.source]||e.source||"news-inferred")}</span></div>
+        </div>` : "";
+      return `${head}<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:5px;
+        overflow:hidden;background:var(--panel)">
+        <div onclick="_netOpen('${k.replace(/'/g,"")}')" style="display:flex;align-items:center;
+             gap:8px;padding:8px 10px;cursor:pointer">
+          <span style="width:6px;height:6px;border-radius:50%;background:${NET_COLOR[e.role]};
+            flex:0 0 auto"></span>
+          <span style="flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;
+            white-space:nowrap">${_netEsc(e.name||e.ticker)}</span>
+          <span style="color:var(--text-muted);font-size:10px;white-space:nowrap">
+            ${_netEsc(e.ticker||"")} ${_netMoney(e.market_cap)}</span>
+          <span style="width:26px;height:3px;background:var(--border);border-radius:2px;flex:0 0 auto">
+            <span style="display:block;height:100%;border-radius:2px;width:${conf}%;
+              background:${NET_COLOR[e.role]}"></span></span>
+        </div>${detail}</div>`;
+    }).join("");
+  }
+
+  return `<div style="padding:4px 0">
+    ${search}
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px">
+      <div style="font-size:15px;font-weight:600">${_netEsc(g.company||g.ticker)}</div>
+      <div style="color:var(--text-muted);font-size:11px">${_netEsc(g.ticker)}</div>
+    </div>
+    <div style="color:var(--text-muted);font-size:10.5px;margin-bottom:8px">
+      ${_netEsc(g.industry||g.sector||"—")} · ${_netMoney(g.market_cap)} ·
+      ${(g.edges||[]).length} relationships from ${(g.articles_scanned||0).toLocaleString()} articles
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">${chips}</div>
+    <div style="display:flex;gap:4px;margin-bottom:6px">
+      ${["list","flow"].map(v=>`<button onclick="_netSetView('${v}')"
+        style="flex:0 0 auto;padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer;
+        font-family:inherit;border:1px solid ${S.view===v?"var(--accent)":"var(--border)"};
+        background:none;color:${S.view===v?"var(--accent)":"var(--text-muted)"}">
+        ${v==="list"?"LIST":"FLOW"}</button>`).join("")}
+      <div style="flex:1"></div>
+      <div onclick="_mLoadGraph('${g.ticker}',true)"
+        style="font-size:9px;color:var(--accent);cursor:pointer;align-self:center">↻ refresh</div>
+    </div>
+    ${body}
+    <div style="color:var(--text-muted);font-size:9.5px;margin-top:10px;line-height:1.6">
+      Competitor edges come from industry classification. Supplier, customer and
+      partner edges are inferred from news language — tap any row for the
+      evidence and confidence behind it.
+    </div>
+  </div>`;
+}
+
+// ── desktop network view ───────────────────────────────────────────────────
+// The phone gets a tap-to-expand list because hover doesn't exist there and
+// 375px can't hold a Sankey with legible labels. On the Studio there is room
+// for the real thing, so desktop gets four views over the same edge list:
+// proportion (Sankey), structure (Nodes), concentration risk (Map) and the
+// numbers (Table). Both surfaces share _mLoadGraph and _netState.
+let _netDeskView = "SANKEY";
+let _worldPaths = null;
+
+function _netDeskSetView(v){ _netDeskView = v; renderNetworkDesktop(); }
+function _netDeskToggle(r){
+  if(_netState.roles.has(r)){ if(_netState.roles.size>1) _netState.roles.delete(r); }
+  else _netState.roles.add(r);
+  renderNetworkDesktop();
+}
+async function _netLoadWorld(){
+  if(_worldPaths) return _worldPaths;
+  try{ const r = await fetch("world_paths.json"); _worldPaths = r.ok ? await r.json() : {}; }
+  catch(e){ _worldPaths = {}; }
+  return _worldPaths;
+}
+async function netDeskSearch(q){
+  await _netSearch(q);
+  renderNetworkDesktop();
+}
+function netDeskPick(t){
+  const box = document.getElementById("netd-q"); if(box) box.value = "";
+  _netState.q=""; _netState.results=[];
+  _mLoadGraph(t, true).then(renderNetworkDesktop);
+}
+
+const _NETD_ALIAS = {"USA":"United States of America","United States":"United States of America",
+  "UK":"United Kingdom","Korea":"South Korea","Republic of Korea":"South Korea",
+  "Czech Republic":"Czechia"};
+
+function _netdTip(e, ed){
+  const tip = document.getElementById("netd-tip"); if(!tip) return;
+  const g = _netState.graph || {};
+  const arrow = ed.direction==="in"
+    ? _netEsc(ed.name)+" → "+_netEsc(g.ticker)
+    : _netEsc(g.ticker)+" → "+_netEsc(ed.name);
+  let h = "<div style='font-size:13px;color:#fff;font-weight:600;margin-bottom:4px'>"
+    + _netEsc(ed.name) + (ed.ticker?" <span style='color:#8b949e;font-weight:400'>"+_netEsc(ed.ticker)+"</span>":"") + "</div>";
+  h += "<div style='color:"+NET_COLOR[ed.role]+";font-size:11px'>"+ed.role.replace(/^./,c=>c.toUpperCase())+"</div>";
+  h += "<div style='color:#8b949e;font-size:11px'>"+arrow+"</div>";
+  if(ed.industry||ed.sector) h += "<div style='font-size:11px'>"+_netEsc(ed.industry||ed.sector)+"</div>";
+  h += "<div style='font-size:11px;color:#8b949e'>Mkt cap <span style='color:#c9d1d9'>"+_netMoney(ed.market_cap)+"</span>"
+     + (ed.revenue_ttm?" · Rev <span style='color:#c9d1d9'>"+_netMoney(ed.revenue_ttm)+"</span>":"")+"</div>";
+  h += "<div style='font-size:11px;color:#8b949e'>HQ <span style='color:#c9d1d9'>"+_netEsc(ed.country||"—")+"</span></div>";
+  if(ed.articles) h += "<div style='font-size:11px;color:#8b949e'>Evidence <span style='color:#c9d1d9'>"
+    + ed.articles + " articles</span>, confidence <span style='color:#c9d1d9'>"+Math.round((ed.confidence||0)*100)+"%</span></div>";
+  if(ed.evidence && ed.evidence[0]) h += "<div style='margin-top:5px;font-style:italic;color:#8b949e;font-size:10.5px'>“"
+    + _netEsc(ed.evidence[0].title)+"”</div>";
+  h += "<div style='margin-top:6px'><span style='background:#16202a;color:#8fa3b8;font-size:9px;padding:2px 6px;border-radius:3px'>"
+    + _netEsc(NET_SRC[ed.source]||ed.source||"news-inferred")+"</span></div>";
+  tip.innerHTML = h; tip.style.opacity = 1;
+  _netdMove(e);
+}
+function _netdMove(e){
+  const tip = document.getElementById("netd-tip"), st = document.getElementById("netd-stage");
+  if(!tip||!st) return;
+  const b = st.getBoundingClientRect();
+  let x = e.clientX-b.left+14, y = e.clientY-b.top+14;
+  if(x+340 > b.width) x = e.clientX-b.left-346;
+  if(y+200 > b.height) y = Math.max(4, e.clientY-b.top-208);
+  tip.style.left = x+"px"; tip.style.top = y+"px";
+}
+function _netdHide(){ const t=document.getElementById("netd-tip"); if(t) t.style.opacity=0; }
+
+function _netdSvg(t,a){ const n=document.createElementNS("http://www.w3.org/2000/svg",t);
+  for(const k in a) n.setAttribute(k,a[k]); return n; }
+function _netdBind(el, ed, root){
+  el.addEventListener("mouseenter", ev=>{ _netdTip(ev,ed);
+    root.querySelectorAll("[data-k]").forEach(n=>{ if(n.dataset.k!==el.dataset.k) n.style.opacity=".12"; }); });
+  el.addEventListener("mousemove", _netdMove);
+  el.addEventListener("mouseleave", ()=>{ _netdHide();
+    root.querySelectorAll("[data-k]").forEach(n=>n.style.opacity=""); });
+}
+
+function _netdSankey(rows){
+  const left = rows.filter(e=>e.direction==="in"), right = rows.filter(e=>e.direction!=="in");
+  const W=1000, PAD=30, LX=250, RX=750, CW=14, MAXBAND=26;
+  const H = Math.max(420, PAD*2 + Math.max(left.length,right.length)*30);
+  const svg = _netdSvg("svg",{viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"xMidYMid meet",
+    style:"width:100%;height:auto;display:block"});
+  const sum = a => a.reduce((s,e)=>s+Math.max(e.weight||0,.4),0)||1;
+  const barH = Math.min(H-PAD*2, Math.max(120,H*0.45)), cy=H/2;
+  [[left,LX,"in"],[right,RX,"out"]].forEach(([list,x,dir])=>{
+    const tot=sum(list), span=H-PAD*2, gap=list.length>1?Math.min(9,span*0.02):0;
+    const avail=span-gap*(list.length-1);
+    let y=PAD, c=cy-barH/2;
+    list.forEach(e=>{
+      const w=Math.max(e.weight||0,.4);
+      const h=Math.max(3,avail*(w/tot)), ch=Math.max(2,barH*(w/tot));
+      const y0=y+h/2, c0=c+ch/2;
+      const x0=dir==="in"?x+8:500+CW/2, x1=dir==="in"?500-CW/2:x-8, m=(x0+x1)/2;
+      const p=_netdSvg("path",{d:"M"+x0+" "+y0+"C"+m+" "+y0+","+m+" "+c0+","+x1+" "+c0,
+        fill:"none",stroke:NET_COLOR[e.role],"stroke-width":Math.max(2,Math.min(h,ch,MAXBAND)),
+        "stroke-opacity":".42",style:"transition:opacity .12s"});
+      p.dataset.k=e.role+"|"+(e.ticker||e.name); _netdBind(p,e,svg); svg.appendChild(p);
+      const g=_netdSvg("g",{style:"transition:opacity .12s"}); g.dataset.k=p.dataset.k;
+      g.appendChild(_netdSvg("rect",{x:dir==="in"?x:x-8,y:y0-4,width:8,height:8,fill:NET_COLOR[e.role]}));
+      const tx=_netdSvg("text",{x:dir==="in"?x-8:x+8,y:y0+4,"text-anchor":dir==="in"?"end":"start",
+        fill:"#c9d1d9","font-size":"11","font-family":"ui-monospace,Menlo,monospace"});
+      tx.textContent=(e.name||"").length>34?(e.name||"").slice(0,33)+"…":(e.name||"");
+      g.appendChild(tx); _netdBind(g,e,svg); svg.appendChild(g);
+      y+=h+gap; c+=ch;
+    });
+  });
+  svg.appendChild(_netdSvg("rect",{x:500-CW/2,y:cy-barH/2,width:CW,height:barH,fill:"#22c55e",rx:2}));
+  const ct=_netdSvg("text",{x:500,y:cy-barH/2-12,"text-anchor":"middle",fill:"#fff",
+    "font-size":"12","font-family":"ui-monospace,Menlo,monospace"});
+  ct.textContent=(_netState.graph.company||_netState.graph.ticker);
+  svg.appendChild(ct);
+  return svg;
+}
+
+function _netdNodes(rows){
+  const cx=500, cy=350, BW=190, BH=42;
+  const svg=_netdSvg("svg",{preserveAspectRatio:"xMidYMid meet",style:"width:100%;height:auto;display:block"});
+  const ext={x0:cx-140,y0:cy-60,x1:cx+140,y1:cy+60};
+  const grow=(x,y,w,h)=>{ext.x0=Math.min(ext.x0,x);ext.y0=Math.min(ext.y0,y);
+    ext.x1=Math.max(ext.x1,x+w);ext.y1=Math.max(ext.y1,y+h);};
+  const L={competitor:{hx:cx,hy:150,dir:"up"},supplier:{hx:250,hy:cy,dir:"left"},
+           customer:{hx:750,hy:cy,dir:"right"},partner:{hx:cx,hy:550,dir:"down"}};
+  NET_ROLES.forEach(role=>{
+    const list=rows.filter(e=>e.role===role); if(!list.length) return;
+    const P=L[role], vert=P.dir==="up"||P.dir==="down", n=list.length;
+    svg.appendChild(_netdSvg("path",{d:"M"+cx+" "+cy+"L"+P.hx+" "+P.hy,stroke:"#2a3542","stroke-width":1,fill:"none"}));
+    svg.appendChild(_netdSvg("rect",{x:P.hx-4,y:P.hy-4,width:8,height:8,fill:"#39434f"}));
+    const cap=_netdSvg("text",{x:P.hx+(vert?14:0),y:P.hy+(vert?4:-12),
+      "text-anchor":vert?"start":"middle",fill:"#8b949e","font-size":"10.5",
+      "font-family":"ui-monospace,Menlo,monospace"});
+    cap.textContent=n+" "+role+(n>1?"s":""); svg.appendChild(cap);
+    list.forEach((e,i)=>{
+      let bx,by;
+      if(vert){
+        const cols=Math.min(n,4), row=Math.floor(i/cols), col=i%cols;
+        const rowN=Math.min(cols,n-row*cols);
+        bx=cx+(col-(rowN-1)/2)*(BW+12)-BW/2;
+        by=P.dir==="up"?P.hy-70-row*(BH+10):P.hy+40+row*(BH+10);
+      }else{
+        const rws=Math.min(n,6), col=Math.floor(i/rws), row=i%rws;
+        const colN=Math.min(rws,n-col*rws);
+        by=P.hy+(row-(colN-1)/2)*(BH+10)-BH/2;
+        bx=P.dir==="left"?P.hx-90-col*(BW+12)-BW:P.hx+70+col*(BW+12);
+      }
+      const ax=P.dir==="left"?bx+BW:(P.dir==="right"?bx:bx+BW/2);
+      const ay=P.dir==="up"?by+BH:(P.dir==="down"?by:by+BH/2);
+      const mx=(ax+P.hx)/2;
+      svg.appendChild(_netdSvg("path",{d:vert
+        ?"M"+ax+" "+ay+"C"+ax+" "+((ay+P.hy)/2)+","+P.hx+" "+((ay+P.hy)/2)+","+P.hx+" "+P.hy
+        :"M"+ax+" "+ay+"C"+mx+" "+ay+","+mx+" "+P.hy+","+P.hx+" "+P.hy,
+        stroke:NET_COLOR[role],"stroke-width":1,"stroke-opacity":".5",fill:"none"}));
+      grow(bx,by,BW,BH);
+      const g=_netdSvg("g",{style:"transition:opacity .12s"}); g.dataset.k=role+"|"+(e.ticker||e.name);
+      g.appendChild(_netdSvg("rect",{x:bx,y:by,width:BW,height:BH,fill:"#0a1017",
+        stroke:NET_COLOR[role],"stroke-width":1,rx:3}));
+      const t1=_netdSvg("text",{x:bx+9,y:by+18,fill:"#e6edf3","font-size":"11",
+        "font-family":"ui-monospace,Menlo,monospace"});
+      t1.textContent=(e.name||"").length>26?(e.name||"").slice(0,25)+"…":(e.name||"");
+      const t2=_netdSvg("text",{x:bx+9,y:by+32,fill:"#8b949e","font-size":"10",
+        "font-family":"ui-monospace,Menlo,monospace"});
+      t2.textContent=(e.sector||"—")+" · "+(e.country||"—");
+      g.appendChild(t1); g.appendChild(t2); _netdBind(g,e,svg); svg.appendChild(g);
+    });
+  });
+  const g=_netState.graph;
+  svg.appendChild(_netdSvg("rect",{x:cx-105,y:cy-28,width:210,height:56,fill:"#07130d",
+    stroke:"#22c55e","stroke-width":1.5,rx:3}));
+  const n1=_netdSvg("text",{x:cx-94,y:cy-8,fill:"#fff","font-size":"11",
+    "font-family":"ui-monospace,Menlo,monospace"});
+  n1.textContent=g.company||g.ticker;
+  const n2=_netdSvg("text",{x:cx-94,y:cy+8,fill:"#8b949e","font-size":"10",
+    "font-family":"ui-monospace,Menlo,monospace"});
+  n2.textContent=(g.industry||g.sector||"")+" · "+_netMoney(g.market_cap);
+  svg.appendChild(n1); svg.appendChild(n2);
+  const P=28;
+  svg.setAttribute("viewBox",(ext.x0-P)+" "+(ext.y0-P)+" "+(ext.x1-ext.x0+P*2)+" "+(ext.y1-ext.y0+P*2));
+  return svg;
+}
+
+function _netdMap(rows){
+  const byC={};
+  rows.forEach(e=>{ const c=_NETD_ALIAS[e.country]||e.country; if(!c) return;
+    (byC[c]=byC[c]||[]).push(e); });
+  const svg=_netdSvg("svg",{viewBox:"0 0 1000 500",preserveAspectRatio:"xMidYMid meet",
+    style:"width:100%;height:auto;display:block"});
+  svg.appendChild(_netdSvg("rect",{x:0,y:0,width:1000,height:500,fill:"#05070a"}));
+  const W=_worldPaths||{};
+  for(const name in W){
+    const hits=byC[name];
+    const p=_netdSvg("path",{d:W[name],stroke:"#141c24","stroke-width":".5"});
+    if(hits&&hits.length){
+      const tally={}; hits.forEach(e=>tally[e.role]=(tally[e.role]||0)+1);
+      const dom=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0];
+      p.setAttribute("fill",NET_COLOR[dom]);
+      p.setAttribute("fill-opacity",Math.min(.95,.45+hits.length*0.09));
+      p.style.cursor="pointer";
+      p.addEventListener("mouseenter",ev=>{
+        const tip=document.getElementById("netd-tip");
+        tip.innerHTML="<div style='font-size:13px;color:#fff;font-weight:600;margin-bottom:4px'>"+_netEsc(name)
+          +"</div><div style='color:#8b949e;font-size:11px'>"+hits.length+" counterpart"
+          +(hits.length>1?"ies":"y")+"</div>"
+          + hits.slice(0,10).map(e=>"<div style='font-size:11px'><span style='color:"
+            +NET_COLOR[e.role]+"'>●</span> "+_netEsc(e.name)+"</div>").join("")
+          + (hits.length>10?"<div style='font-size:11px;color:#8b949e'>+"+(hits.length-10)+" more</div>":"");
+        tip.style.opacity=1; _netdMove(ev);
+      });
+      p.addEventListener("mousemove",_netdMove);
+      p.addEventListener("mouseleave",_netdHide);
+    } else p.setAttribute("fill","#0d141b");
+    svg.appendChild(p);
+  }
+  return svg;
+}
+
+function _netdTable(rows){
+  const d=document.createElement("div");
+  d.style.cssText="max-height:600px;overflow:auto";
+  d.innerHTML = "<table style='width:100%;border-collapse:collapse;font-size:12px'><thead><tr>"
+    + ["Role","Company","Ticker","Industry","HQ","Mkt cap","Articles","Confidence","Source"]
+      .map((h,i)=>"<th style='text-align:"+(i>=5&&i<=6?"right":"left")
+        +";color:#8b949e;font-weight:500;padding:6px 9px;border-bottom:1px solid #21262d;position:sticky;top:0;background:#161b22'>"
+        +h+"</th>").join("")
+    + "</tr></thead><tbody>"
+    + rows.map(e=>{ const c=Math.round((e.confidence||0)*100);
+      return "<tr><td style='padding:5px 9px;border-bottom:1px solid #161b22;color:"+NET_COLOR[e.role]+"'>"+e.role
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22'>"+_netEsc(e.name)
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22;color:#8b949e'>"+_netEsc(e.ticker||"—")
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22'>"+_netEsc(e.industry||e.sector||"—")
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22'>"+_netEsc(e.country||"—")
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22;text-align:right'>"+_netMoney(e.market_cap)
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22;text-align:right'>"+(e.articles||0)
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22'><span style='display:inline-block;width:34px;height:4px;background:#21262d;border-radius:2px;vertical-align:middle'><span style='display:block;height:100%;border-radius:2px;width:"
+        +c+"%;background:"+NET_COLOR[e.role]+"'></span></span> "+c+"%"
+        +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22;color:#8b949e'>"
+        +_netEsc(NET_SRC[e.source]||e.source||"news")+"</td></tr>"; }).join("")
+    + "</tbody></table>";
+  return d;
+}
+
+function renderNetworkDesktop(){
+  const host = document.getElementById("network-content");
+  if(!host) return;
+  const S=_netState, g=S.graph;
+  const results = S.results.length ? `<div style="position:absolute;left:0;top:34px;width:340px;z-index:40;
+      background:#161b22;border:1px solid #21262d;border-radius:6px;overflow:hidden">
+      ${S.results.map(r=>`<div onclick="netDeskPick('${r.ticker}')" style="padding:7px 10px;cursor:pointer;
+        border-bottom:1px solid #21262d;display:flex;justify-content:space-between;gap:10px;font-size:12px">
+        <span><b>${_netEsc(r.ticker)}</b> <span style="color:#8b949e">${_netEsc((r.company||"").slice(0,30))}</span></span>
+        <span style="color:#8b949e;font-size:10px;white-space:nowrap">${_netMoney(r.market_cap)} · ${r.n_edges||0}</span>
+      </div>`).join("")}</div>` : "";
+
+  const header = `<div style="position:relative;display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+      <input id="netd-q" value="${_netEsc(S.q)}" placeholder="Search ticker or company…"
+        oninput="netDeskSearch(this.value)" autocomplete="off"
+        style="width:340px;background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:7px 10px;
+               color:#c9d1d9;font-size:13px;font-family:inherit">
+      ${results}
+    </div>`;
+
+  if(S.loading){ host.innerHTML = header +
+    `<div style="padding:60px;text-align:center;color:#8b949e">Loading ${_netEsc(S.ticker||"")}…</div>`; return; }
+  if(!g){ host.innerHTML = header +
+    `<div style="padding:60px;text-align:center;color:#8b949e;line-height:1.7">
+      ${S.err?_netEsc(S.err):"Search a company to see its suppliers, customers, partners and competitors."}
+     </div>`; return; }
+
+  const rows = _netRows();
+  const chips = NET_ROLES.map(r=>{
+    const n=(g.edges||[]).filter(e=>e.role===r).length, on=S.roles.has(r);
+    return `<div onclick="_netDeskToggle('${r}')" style="display:flex;align-items:center;gap:6px;cursor:pointer;
+      font-size:11.5px;user-select:none;${on?"":"opacity:.4;text-decoration:line-through"}">
+      <span style="width:8px;height:8px;border-radius:50%;background:${NET_COLOR[r]};display:inline-block"></span>
+      ${r.charAt(0).toUpperCase()+r.slice(1)} <b style="color:#8b949e;font-weight:400">${n}</b></div>`;
+  }).join("");
+
+  host.innerHTML = header + `
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px">
+      <div style="font-size:19px;font-weight:600;color:#fff">${_netEsc(g.company||g.ticker)}</div>
+      <div style="color:#8b949e;font-size:13px">${_netEsc(g.ticker)}</div>
+    </div>
+    <div style="color:#8b949e;font-size:12px;margin-bottom:12px">
+      ${_netEsc(g.industry||g.sector||"—")} · ${_netMoney(g.market_cap)}${g.revenue_ttm?" · Rev "+_netMoney(g.revenue_ttm):""}
+      · ${(g.edges||[]).length} relationships from ${(g.articles_scanned||0).toLocaleString()} articles
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 12px;border:1px solid #21262d;
+                border-bottom:none;border-radius:6px 6px 0 0;background:#161b22">
+      <div style="display:flex;gap:4px">
+        ${["SANKEY","NODES","MAP","TABLE"].map(v=>`<button onclick="_netDeskSetView('${v}')"
+          style="padding:3px 10px;border-radius:3px;font-size:11px;cursor:pointer;font-family:inherit;
+          letter-spacing:.06em;border:1px solid ${_netDeskView===v?"#2b5c3a":"#21262d"};background:none;
+          color:${_netDeskView===v?"#7ee787":"#8b949e"}">${v}</button>`).join("")}
+      </div>
+      <div style="display:flex;gap:14px;margin-left:auto;flex-wrap:wrap">${chips}</div>
+    </div>
+    <div id="netd-stage" style="position:relative;border:1px solid #21262d;border-radius:0 0 6px 6px;
+         background:#05070a;min-height:420px;padding:4px">
+      <div id="netd-tip" style="position:absolute;pointer-events:none;opacity:0;transition:opacity .08s;
+        background:#0d1319;border:1px solid #2b3742;border-radius:4px;padding:8px 10px;max-width:330px;
+        z-index:20;box-shadow:0 6px 24px #000a;font-family:ui-monospace,Menlo,monospace"></div>
+      <div id="netd-canvas"></div>
+    </div>
+    <div style="color:#8b949e;font-size:11px;margin-top:8px;line-height:1.6">
+      Competitor edges come from industry classification. Supplier, customer and partner edges are
+      inferred from news language — hover any element for the evidence and confidence behind it.
+    </div>`;
+
+  const canvas = document.getElementById("netd-canvas");
+  if(!rows.length){ canvas.innerHTML =
+    "<div style='padding:60px;text-align:center;color:#8b949e'>No relationships for the selected roles.</div>"; return; }
+  if(_netDeskView==="SANKEY") canvas.replaceChildren(_netdSankey(rows));
+  else if(_netDeskView==="NODES") canvas.replaceChildren(_netdNodes(rows));
+  else if(_netDeskView==="TABLE") canvas.replaceChildren(_netdTable(rows));
+  else { _netLoadWorld().then(()=>{ const c=document.getElementById("netd-canvas");
+    if(c && _netDeskView==="MAP") c.replaceChildren(_netdMap(rows)); }); }
 }
 
 function renderMSeasons(){
@@ -19076,7 +19645,8 @@ async function _btRun() {
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'montecarlo', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'backtester', 'resources', 'calendar'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'montecarlo', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'backtester', 'resources', 'calendar', 'network'].includes(tab);
+  if (tab === 'network') setTimeout(renderNetworkDesktop, 0);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
