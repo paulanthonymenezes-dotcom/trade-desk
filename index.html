@@ -3040,14 +3040,17 @@ function _tradeDTE(t){
   return (isFinite(e)&&isFinite(x)) ? Math.round((x-e)/86400000) : null;
 }
 function _isCoreTrade(t){
-  if(!t || t._excludeFromStats) return false;
+  // His book is ~all 0DTE index credit spreads. BOTH the DTE field (IBKR evening-session
+  // TradeDate bug) AND the tradeType labels (reconstructor mislabels his spreads as
+  // "Iron Condor" / "Short Put" / "Multi-leg") are unreliable — so classifying by them mis-buckets
+  // his real trades. Flip it: CORE by default, and exclude only (a) explicitly-flagged off-strategy
+  // trades (_offStrategy — e.g. the NVDA/CSCO calendars) and (b) unambiguous non-spread types
+  // (calendar/diagonal/covered/stock/butterfly). Artifacts (_excludeFromStats, e.g. the 882 glitch)
+  // stay out of everything.
+  if(!t || t._excludeFromStats || t._offStrategy) return false;
   const tt=String(t.tradeType||"").toLowerCase();
-  if(/calendar|iron\s*condor|strangle|straddle|covered|stock|butterfly/.test(tt)) return false;   // never core, even at 0-1 DTE
-  const namedVertical=/(bull|bear)\s+(put|call)\s+spread|vertical|credit spread|debit spread/.test(tt);
-  // catch mislabeled verticals: 2 legs, SHORT & LONG at DIFFERENT strikes (a calendar shares a strike; an IC/strangle isn't a 2-strike vertical)
-  const twoLegVertical = (+t.legs===2) && t.shortStrike && t.longStrike && (+t.shortStrike !== +t.longStrike);
-  const dte=_tradeDTE(t);
-  return (namedVertical || twoLegVertical) && dte!=null && dte<=1;
+  if(/calendar|diagonal|covered|butterfly|\bstock\b/.test(tt)) return false;
+  return true;
 }
 function _isOffStrategy(t){ return !!(t && t.realizedPnl!=null && !t._excludeFromStats && !_isCoreTrade(t)); }
 function tradeR(t){ if(!t||t.realizedPnl==null||t._excludeFromStats) return null; if(!(STATE&&STATE._statsIncludeOff) && !_isCoreTrade(t)) return null; const cr=+t.premiumCollected||0; if(cr<20) return null; return t.realizedPnl/(_stopMult()*cr); }   // credit floor $20: a sub-$20 "credit" is a debit/scalp/reconstruction artifact, not a real credit spread — its R explodes on a tiny denominator (e.g. the errant QQQ $6 → +8.4R). Excludes it from R stats + Monte Carlo; survives re-syncs since it's in the calc, not the data. _excludeFromStats: broker-artifact opt-out (e.g. IBKR forced leg-by-leg exit → slippage loss that isn't a strategy result) — stays in the record + account P&L, drops out of R/avg-R/breach/Monte-Carlo.
@@ -6692,7 +6695,7 @@ function renderStatsMonteCarlo(closedAllTime){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div>
           <div style="font-size:11px;color:${_offPnl<0?C.neg:C.text};font-weight:700">OFF-STRATEGY · not your edge, but real \$</div>
-          <div style="font-size:10.5px;color:${C.text};margin-top:2px">${_offTr.length} trades · ${_offW}-${_offTr.length-_offW} record · <b style="color:${_offPnl>=0?C.pos:C.neg}">${_offPnl>=0?'+':'−'}\$${Math.abs(Math.round(_offPnl)).toLocaleString()}</b> — weeklies (&gt;1 DTE), calendars, long options &amp; everything that isn't a 0-1 DTE spread.</div>
+          <div style="font-size:10.5px;color:${C.text};margin-top:2px">${_offTr.length} trades · ${_offW}-${_offTr.length-_offW} record · <b style="color:${_offPnl>=0?C.pos:C.neg}">${_offPnl>=0?'+':'−'}\$${Math.abs(Math.round(_offPnl)).toLocaleString()}</b> — calendars, long options, covered calls, iron condors &amp; other non-spread plays.</div>
         </div>
         <button onclick="_setStatsIncludeOff(${!_incOff})" class="btn btn-g" style="padding:6px 11px;font-size:11px;white-space:nowrap;${_incOff?`background:${C.warn};color:#000;font-weight:700`:''}">${_incOff?'▣ folded into metrics':'▢ excluded from metrics'}</button>
       </div>
