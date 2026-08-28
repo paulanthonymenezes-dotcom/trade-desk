@@ -3027,7 +3027,30 @@ const CONFIRM_TYPES=["Bull Put Spread","Bear Call Spread","Bull Call Spread","Be
 // 1R = slPct% of credit, read live from the standing rule (currently 120%). Change the rule and
 // R re-bases everywhere — no hardcoded stop percentage anywhere.
 function _stopMult(){ const s=+((STATE.standingRules||{}).slPct); return (s>0?s:120)/100; }
-function tradeR(t){ if(!t||t.realizedPnl==null||t._excludeFromStats) return null; const cr=+t.premiumCollected||0; if(cr<20) return null; return t.realizedPnl/(_stopMult()*cr); }   // credit floor $20: a sub-$20 "credit" is a debit/scalp/reconstruction artifact, not a real credit spread — its R explodes on a tiny denominator (e.g. the errant QQQ $6 → +8.4R). Excludes it from R stats + Monte Carlo; survives re-syncs since it's in the calc, not the data. _excludeFromStats: broker-artifact opt-out (e.g. IBKR forced leg-by-leg exit → slippage loss that isn't a strategy result) — stays in the record + account P&L, drops out of R/avg-R/breach/Monte-Carlo.
+// ── Strategy classification ──────────────────────────────────────────────────
+// CORE = his actual edge: bull/bear VERTICAL spreads (credit or debit), 0-1 DTE.
+// Everything else (calendars — which reconstruct as single legs — long options,
+// covered calls, naked, longer-dated) = OFF-STRATEGY: real money, but not the edge.
+// Off-strategy drops OUT of R/avg-R/breach/Monte-Carlo (so the edge number is clean)
+// but is surfaced in its own scoreboard + stays in account P&L. Toggle STATE._statsIncludeOff
+// folds it back in for an "everything" view.
+function _tradeDTE(t){
+  if(t && t.dteAtEntry!=null && t.dteAtEntry!=="") return +t.dteAtEntry;
+  const e=Date.parse(((t&&t.entryDate)||"")+"T00:00:00"), x=Date.parse(((t&&t.expiry)||"")+"T00:00:00");
+  return (isFinite(e)&&isFinite(x)) ? Math.round((x-e)/86400000) : null;
+}
+function _isCoreTrade(t){
+  if(!t || t._excludeFromStats) return false;
+  const tt=String(t.tradeType||"").toLowerCase();
+  if(/calendar|iron\s*condor|strangle|straddle|covered|stock|butterfly/.test(tt)) return false;   // never core, even at 0-1 DTE
+  const namedVertical=/(bull|bear)\s+(put|call)\s+spread|vertical|credit spread|debit spread/.test(tt);
+  // catch mislabeled verticals: 2 legs, SHORT & LONG at DIFFERENT strikes (a calendar shares a strike; an IC/strangle isn't a 2-strike vertical)
+  const twoLegVertical = (+t.legs===2) && t.shortStrike && t.longStrike && (+t.shortStrike !== +t.longStrike);
+  const dte=_tradeDTE(t);
+  return (namedVertical || twoLegVertical) && dte!=null && dte<=1;
+}
+function _isOffStrategy(t){ return !!(t && t.realizedPnl!=null && !t._excludeFromStats && !_isCoreTrade(t)); }
+function tradeR(t){ if(!t||t.realizedPnl==null||t._excludeFromStats) return null; if(!(STATE&&STATE._statsIncludeOff) && !_isCoreTrade(t)) return null; const cr=+t.premiumCollected||0; if(cr<20) return null; return t.realizedPnl/(_stopMult()*cr); }   // credit floor $20: a sub-$20 "credit" is a debit/scalp/reconstruction artifact, not a real credit spread — its R explodes on a tiny denominator (e.g. the errant QQQ $6 → +8.4R). Excludes it from R stats + Monte Carlo; survives re-syncs since it's in the calc, not the data. _excludeFromStats: broker-artifact opt-out (e.g. IBKR forced leg-by-leg exit → slippage loss that isn't a strategy result) — stays in the record + account P&L, drops out of R/avg-R/breach/Monte-Carlo.
 function fmtR(r){ return r==null?"—":(r>=0?"+":"")+r.toFixed(2)+"R"; }
 // Time in trade — hours between entry and exit. Missing times default to 09:30
 // (open) → 16:00 (close) so day trades with no HH:MM still get a sane duration.
@@ -6625,6 +6648,7 @@ function _rerenderMC(){
   }
 }
 function _setMCMode(m){ STATE._mcMode = m; save(); _rerenderMC(); }
+function _setStatsIncludeOff(v){ STATE._statsIncludeOff = !!v; save(); _rerenderMC(); }
 function _setMCWindow(w){ STATE._mcWindow = w; save(); _rerenderMC(); }
 function _setMCYears(y){ STATE._mcYears = +y; save(); _rerenderMC(); }
 function _setMCOneR(v){ STATE._mcOneR = +v||0; save(); _rerenderMC(); }
@@ -6659,6 +6683,21 @@ function renderStatsMonteCarlo(closedAllTime){
     : `<div class="card" style="padding:10px 12px;margin-bottom:10px;background:${C.bg};border-left:3px solid ${C.textSec}">
         <div style="font-size:10.5px;color:${C.textSec};line-height:1.5"><b style="color:${C.text}">Real — your actual results, uncapped.</b> Includes breaches (losses worse than −1R) exactly as they closed. This is the truth of what happened; the tail it carries is real. Flip to <b style="color:${C.pos}">If rules followed</b> to see the same trades with the −1R stop enforced.</div>
       </div>`;
+  // Off-strategy scoreboard — real money, but NOT the core edge (calendars, long options, covered calls, longer-dated). Always visible so the bleed is never hidden.
+  const _offTr = (closedAllTime||[]).filter(_isOffStrategy);
+  const _offPnl = _offTr.reduce((s,t)=>s+(+t.realizedPnl||0),0);
+  const _offW = _offTr.filter(t=>+t.realizedPnl>0).length;
+  const _incOff = !!STATE._statsIncludeOff;
+  const offCard = _offTr.length ? `<div class="card" style="padding:10px 12px;margin-bottom:10px;background:${_offPnl<0?C.neg:C.textSec}12;border-left:3px solid ${_offPnl<0?C.neg:C.textSec}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;color:${_offPnl<0?C.neg:C.text};font-weight:700">OFF-STRATEGY · not your edge, but real \$</div>
+          <div style="font-size:10.5px;color:${C.text};margin-top:2px">${_offTr.length} trades · ${_offW}-${_offTr.length-_offW} record · <b style="color:${_offPnl>=0?C.pos:C.neg}">${_offPnl>=0?'+':'−'}\$${Math.abs(Math.round(_offPnl)).toLocaleString()}</b> — weeklies (&gt;1 DTE), calendars, long options &amp; everything that isn't a 0-1 DTE spread.</div>
+        </div>
+        <button onclick="_setStatsIncludeOff(${!_incOff})" class="btn btn-g" style="padding:6px 11px;font-size:11px;white-space:nowrap;${_incOff?`background:${C.warn};color:#000;font-weight:700`:''}">${_incOff?'▣ folded into metrics':'▢ excluded from metrics'}</button>
+      </div>
+      ${_incOff?`<div style="font-size:10px;color:${C.warn};margin-top:6px">Currently COUNTED in your R / avg-R / Monte Carlo — your edge number is diluted by off-strategy plays. Toggle off for the clean edge.</div>`:``}
+    </div>` : ``;
   const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months","mtd":"Month-to-date","ytd":"Year-to-date"})[win] || "Last 30 days";
   const winDays = _windowDays(win);
   const tradesPerYear = rSamples.length ? Math.round(rSamples.length*(365/winDays)) : 0;
@@ -6695,7 +6734,7 @@ function renderStatsMonteCarlo(closedAllTime){
   </div>`;
 
   if(rSamples.length < 8){
-    return modeTabs + controls + `<div class="card" style="padding:14px;background:${C.warn}15;border-left:3px solid ${C.warn}">
+    return modeTabs + offCard + controls + `<div class="card" style="padding:14px;background:${C.warn}15;border-left:3px solid ${C.warn}">
       <div style="font-size:12px;color:${C.warn};font-weight:700;margin-bottom:4px">TOO FEW TRADES IN ${winLabel.toUpperCase()}</div>
       <div style="font-size:11px;color:${C.text}">Only ${rSamples.length} R-scored trade${rSamples.length===1?'':'s'} in this window. Need at least 8 for a projection worth looking at. Pick a longer window.</div>
     </div>`;
@@ -6865,7 +6904,7 @@ function renderStatsMonteCarlo(closedAllTime){
       : `<b style="color:${C.text}">Fixed \$/R</b> — 1R stays at today's \$${oneR.toLocaleString()} the whole way (linear, conservative). A real book that sizes up as NAV grows compounds faster than this early on — flip <b>Sizing &rarr; Compound %</b> to see it (mind the capacity caveat).`}
   </div>`;
 
-  return modeTabs + modeBanner + controls + inputSummary + projCards + fan + mileTable + caveat;
+  return modeTabs + modeBanner + offCard + controls + inputSummary + projCards + fan + mileTable + caveat;
 }
 
 // ── 3. R:R ──────────────────────────────────────────────────────────────────
