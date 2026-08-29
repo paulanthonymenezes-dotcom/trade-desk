@@ -1897,6 +1897,7 @@ async function _authHeaders() {
 
 async function save() {
   let _freshRev = 0;   // current cloud version, captured during the pre-save re-read below
+  let _mergedFresh = false;   // did the pre-save re-read actually merge? guards the write
   // ── RACE CONDITION FIX ──
   // Re-read fresh state from Supabase before saving.
   // The dashboard is authoritative for most fields, but the alerter may have
@@ -1910,6 +1911,7 @@ async function save() {
       const rows = await fr.json();
       _freshRev = +((rows?.[0]?.data)?._rev) || 0;   // capture cloud version even if the trade-merge below is skipped
       if (rows?.[0]?.data?.trades) {
+        _mergedFresh = true;
         const fresh = rows[0].data;
 
         // 1. APPEND-ONLY: Import ALL trades from fresh not in STATE (never lose trades)
@@ -1985,7 +1987,33 @@ async function save() {
         }
       }
     }
-  } catch(e) { /* proceed without merge — better to save than lose in-memory changes */ }
+  } catch(e) { _mergedFresh = false; /* read failed — see the shrink guard below */ }
+
+  // ── SHRINK GUARD ──
+  // The merge above is what protects trades: it pulls back anything the server
+  // has that this device lacks. When the pre-save read fails, that protection
+  // is gone — and if this device is running on a stale localStorage copy, the
+  // write would put 13 trades over the server's 485 and destroy the rest.
+  // "Better to save than lose in-memory changes" holds only when the in-memory
+  // copy is at least as complete as the server's. Refuse otherwise: the local
+  // copy is kept, nothing is lost, and the banner tells him to reload.
+  const _myTrades = (STATE.trades || []).length;
+  const _known = +localStorage.getItem("desk_last_server_trades") || 0;
+  if (!_mergedFresh && _known && _myTrades < _known * 0.9) {
+    dbg("SAVE BLOCKED: " + _myTrades + " local trades vs " + _known
+        + " last seen on the server, and the pre-save read failed. "
+        + "Refusing to overwrite. Reload to get your data back.", "error");
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(err) {}
+    _loadFailure = _loadFailure || { reason: "save blocked to protect server data",
+                                     cachedThrough: "", trades: _myTrades };
+    try { _renderLoadFailureBanner(); } catch(err) {}
+    return;
+  }
+  if (_mergedFresh) {
+    // High-water mark of what the server is known to hold, so a later
+    // disconnected device can tell "I am stale" from "I deleted things".
+    try { localStorage.setItem("desk_last_server_trades", String(_myTrades)); } catch(err) {}
+  }
 
   // Optimistic-concurrency version: write strictly newer than the cloud we just re-read, so
   // the DB trigger rejects stale writes from a zombie/stale device. Service-key writes (VPS
@@ -2019,30 +2047,80 @@ async function save() {
 // view keys off this so it never flashes the built-in IBKR_SEED before real data
 // arrives (that caused open positions to "appear then disappear" on the AM tab).
 let _dataLoaded = false;
+// Loading state is not a detail — a silent fallback to a local copy is how the
+// desk spent months showing February's 13 trades as if they were the whole book.
+// Every number downstream (win rate, R, breaches, Monte Carlo) inherits it, and
+// nothing looks broken: the figures are internally consistent, just old.
+let _loadFailure = null;   // {reason, cachedThrough, attempts} when serving cache
+
 async function load() {
-  try {
-    const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
-      headers: await _authHeaders(),
-      cache: "no-store"   // always pull the latest state (candles change server-side)
-    });
-    if (!r.ok) throw new Error("load failed");
-    const rows = await r.json();
-    if (rows && rows[0] && rows[0].data && rows[0].data.trades) {
-      const d = rows[0].data;
-      STATE = {...STATE, ...d, quotes:{}, candles:{}};
-      _migrateDeposits();
-      await _loadTagRows();   // re-merge any durable tag rows the main blob is missing
-      _dataLoaded = true;
-      return;
-    }
-  } catch(e) {}
-  // Fallback to localStorage
+  let lastErr = "";
+  // The state row is several megabytes and shares a ten-connection pool, so a
+  // single timeout is normal and must not strand the desk on stale data.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt) await new Promise(r => setTimeout(r, 1500 * attempt));
+      const r = await fetch(SUPABASE_URL + "/rest/v1/state?id=eq.main&select=data", {
+        headers: await _authHeaders(),
+        cache: "no-store"   // always pull the latest state (candles change server-side)
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const rows = await r.json();
+      if (rows && rows[0] && rows[0].data && rows[0].data.trades) {
+        const d = rows[0].data;
+        STATE = {...STATE, ...d, quotes:{}, candles:{}};
+        _migrateDeposits();
+        await _loadTagRows();   // re-merge any durable tag rows the main blob is missing
+        _loadFailure = null;
+        _dataLoaded = true;
+        return;
+      }
+      // Reached the server but it had no usable row — retrying will not help,
+      // and overwriting a good local copy with nothing would lose data.
+      lastErr = rows && rows.length ? "server returned no trades" : "no state row for this account";
+      break;
+    } catch(e) { lastErr = String(e && e.message || e); }
+  }
+
+  // Fallback to localStorage — allowed, but never silently.
+  let cachedThrough = "";
   try {
     const s = localStorage.getItem(STORAGE_KEY);
-    if (s) { const d = JSON.parse(s); STATE = {...STATE, ...d, quotes:{}, candles:{}}; }
+    if (s) {
+      const d = JSON.parse(s);
+      STATE = {...STATE, ...d, quotes:{}, candles:{}};
+      const ds = (d.trades||[]).map(t=>t.exitDate).filter(Boolean).sort();
+      cachedThrough = ds.length ? ds[ds.length-1] : "";
+    }
   } catch(e) {}
+  _loadFailure = { reason: lastErr || "unknown", cachedThrough,
+                   trades: (STATE.trades||[]).length };
   _migrateDeposits();
   _dataLoaded = true;
+  try { _renderLoadFailureBanner(); } catch(e) {}
+}
+
+// A banner the desk cannot be used without noticing. Stale data that looks live
+// is worse than no data: every figure stays internally consistent while being
+// months out of date.
+function _renderLoadFailureBanner() {
+  const old = document.getElementById("load-failure-banner");
+  if (old) old.remove();
+  if (!_loadFailure) return;
+  const b = document.createElement("div");
+  b.id = "load-failure-banner";
+  b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99998;background:#7f1d1d;"
+    + "color:#fff;font:12px/1.5 'Inter',system-ui,sans-serif;padding:9px 14px;display:flex;"
+    + "gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;box-shadow:0 2px 12px #0008";
+  b.innerHTML = "<b>⚠ OFFLINE COPY — not your live data.</b>"
+    + "<span>Couldn't reach the server (" + _loadFailure.reason + "). Showing a cached copy"
+    + (_loadFailure.cachedThrough ? " with trades only through <b>" + _loadFailure.cachedThrough + "</b>" : "")
+    + " — " + _loadFailure.trades + " trades. Every stat on this screen is from that copy.</span>"
+    + "<button onclick=\"location.reload()\" style=\"background:#fff;color:#7f1d1d;border:none;"
+    + "border-radius:4px;padding:4px 12px;font-weight:700;cursor:pointer;font-size:12px\">Retry</button>";
+  document.body.appendChild(b);
+  const tb = document.getElementById("topbar");
+  if (tb) tb.style.marginTop = b.offsetHeight + "px";
 }
 
 // One-time migration: the legacy single ytdDeposits field becomes a row in
