@@ -14419,12 +14419,43 @@ function _netPick(t){
 // Stats can open straight into its network.
 function mOpenNetwork(ticker){ STATE._mView = "network"; _mLoadGraph(ticker, false); renderMobile(); }
 
+// Recalibrated edge confidence — the stored `confidence` was ~0.45+language and
+// ignored the two strongest real signals (article volume + relationship weight),
+// so everything pinned at 0.45-0.50. Re-root it in the actual evidence:
+//   structural base (competitor = industry-classified, chain = supply-chain vouched)
+//   + article volume (log-scaled) + relationship weight + explicit news language.
+// Strong, well-documented edges now reach 0.8-0.97; thin co-mentions fall below the
+// filter and drop out.
+const _NET_MIN_CONF = 0.55;
+function _netEdgeConf(e){
+  if(!e) return 0;
+  const art=+e.articles||0, wt=+e.weight||0, sec=!!e.secondary, role=e.role;
+  const sigs=e.signals||[];
+  const chain=sigs.some(s=>String(s).includes("chain"));
+  let lang=0; sigs.forEach(s=>{ const m=/language x(\d+)/.exec(String(s)); if(m) lang+=+m[1];
+                                const m2=/(\d+) language mention/.exec(String(s)); if(m2) lang+=+m2[1]; });
+  let base = role==="competitor" ? 0.72 : (chain ? 0.55 : 0.40);
+  const artc = art>0 ? Math.min(0.22, Math.log10(art+1)/Math.log10(300)*0.22) : 0;
+  const wtc  = Math.min(0.13, wt/150*0.13);
+  const langc= Math.min(0.18, lang/3*0.18);
+  let c = base + artc + wtc + langc;
+  if(sec) c = Math.min(c*0.88, 0.72);
+  return Math.min(0.97, c);
+}
 function _netRows(){
   const g = _netState.graph; if(!g) return [];
-  return (g.edges||[]).filter(e=>_netState.roles.has(e.role))
-                      .sort((a,b)=>NET_ROLES.indexOf(a.role)-NET_ROLES.indexOf(b.role)
-                                   || (b.weight||0)-(a.weight||0));
+  let rows = (g.edges||[]).filter(e=>_netState.roles.has(e.role));
+  // Hide the weak/co-occurrence noise — but never gut a company to nothing: if the
+  // filter leaves too few, fall back to its strongest handful so the panel isn't empty.
+  if(!_netState.showWeak){
+    const strong = rows.filter(e=>_netEdgeConf(e) >= _NET_MIN_CONF);
+    rows = strong.length >= 5 ? strong
+         : rows.slice().sort((a,b)=>_netEdgeConf(b)-_netEdgeConf(a)).slice(0, 8);
+  }
+  return rows.sort((a,b)=>NET_ROLES.indexOf(a.role)-NET_ROLES.indexOf(b.role)
+                          || _netEdgeConf(b)-_netEdgeConf(a));
 }
+function _netToggleWeak(){ _netState.showWeak = !_netState.showWeak; renderMobile(); if(document.getElementById("network-content")) renderNetworkDesktop(); }
 
 function _netFlow(){
   const rows = _netRows(); if(!rows.length) return "";
@@ -14512,7 +14543,7 @@ function renderMNetwork(){
       const head = e.role!==last ? `<div style="color:${NET_COLOR[e.role]};font-size:9.5px;
         letter-spacing:.08em;text-transform:uppercase;margin:10px 0 4px">${e.role}s</div>` : "";
       last = e.role;
-      const conf = Math.round((e.confidence||0)*100);
+      const conf = Math.round(_netEdgeConf(e)*100);
       const arrow = e.direction==="in"
         ? `${_netEsc(e.name||e.ticker)} → ${_netEsc(g.ticker)}`
         : `${_netEsc(g.ticker)} → ${_netEsc(e.name||e.ticker)}`;
@@ -14631,7 +14662,7 @@ function _netdTip(e, ed){
      + (ed.revenue_ttm?" · Rev <span style='color:#c9d1d9'>"+_netMoney(ed.revenue_ttm)+"</span>":"")+"</div>";
   h += "<div style='font-size:11px;color:#8b949e'>HQ <span style='color:#c9d1d9'>"+_netEsc(ed.country||"—")+"</span></div>";
   if(ed.articles) h += "<div style='font-size:11px;color:#8b949e'>Evidence <span style='color:#c9d1d9'>"
-    + ed.articles + " articles</span>, confidence <span style='color:#c9d1d9'>"+Math.round((ed.confidence||0)*100)+"%</span></div>";
+    + ed.articles + " articles</span>, confidence <span style='color:#c9d1d9'>"+Math.round(_netEdgeConf(ed)*100)+"%</span></div>";
   if(ed.evidence && ed.evidence[0]) h += "<div style='margin-top:5px;font-style:italic;color:#8b949e;font-size:10.5px'>“"
     + _netEsc(ed.evidence[0].title)+"”</div>";
   h += "<div style='margin-top:6px'><span style='background:#16202a;color:#8fa3b8;font-size:9px;padding:2px 6px;border-radius:3px'>"
@@ -14807,7 +14838,7 @@ function _netdTable(rows){
         +";color:#8b949e;font-weight:500;padding:6px 9px;border-bottom:1px solid #21262d;position:sticky;top:0;background:#161b22'>"
         +h+"</th>").join("")
     + "</tr></thead><tbody>"
-    + rows.map(e=>{ const c=Math.round((e.confidence||0)*100);
+    + rows.map(e=>{ const c=Math.round(_netEdgeConf(e)*100);
       return "<tr><td style='padding:5px 9px;border-bottom:1px solid #161b22;color:"+NET_COLOR[e.role]+"'>"+e.role
         +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22'>"+_netEsc(e.name)
         +"</td><td style='padding:5px 9px;border-bottom:1px solid #161b22;color:#8b949e'>"+_netEsc(e.ticker||"—")
@@ -14887,7 +14918,9 @@ function renderNetworkDesktop(){
     </div>
     <div style="color:#8b949e;font-size:11px;margin-top:8px;line-height:1.6">
       Competitor edges come from industry classification. Supplier, customer and partner edges are
-      inferred from news language — hover any element for the evidence and confidence behind it.
+      inferred from news — confidence is scored from article volume, relationship weight and news language;
+      edges under ${Math.round(_NET_MIN_CONF*100)}% are hidden.
+      <span onclick="_netToggleWeak()" style="cursor:pointer;color:#58a6ff;user-select:none">${_netState.showWeak?"· hide weak":"· show weak edges"}</span>
     </div>`;
 
   const canvas = document.getElementById("netd-canvas");
