@@ -6463,6 +6463,14 @@ function _windowDays(win){
   const now = new Date();
   if(win==="mtd") return now.getDate();
   if(win==="ytd"){ const s = new Date(now.getFullYear(),0,1); return Math.ceil((now-s)/86400000)+1; }
+  if(win==="all"){
+    // Span from the first closed trade to now, so trades-per-year is honest
+    // rather than divided by a default 30-day window.
+    const ds = (STATE.trades||[]).map(t=>t.exitDate).filter(Boolean).sort();
+    if(ds.length){ const first = new Date(ds[0]); const d = Math.ceil((now-first)/86400000);
+                   if(d > 0) return d; }
+    return 365;
+  }
   return ({"1w":7,"1m":30,"3m":90,"1y":365})[win] || 30;
 }
 function _rSamplesFor(closed, win){
@@ -6679,7 +6687,22 @@ function renderStatsMonteCarlo(closedAllTime){
   const compound = !!STATE._mcCompound;   // when on, 1R is sized off the GROWING account each trade (snowball)
 
   const mcMode = STATE._mcMode === "disc" ? "disc" : "real";
-  const rSamples = mcMode === "disc" ? _rSamplesForDisc(closedAllTime, win) : _rSamplesFor(closedAllTime, win);
+  const _pick = w => mcMode === "disc" ? _rSamplesForDisc(closedAllTime, w)
+                                       : _rSamplesFor(closedAllTime, w);
+  // A saved window can go stale: pick "Last 7d", stop trading for a week, and
+  // every later visit shows "too few trades" while hundreds sit one click away.
+  // So widen automatically to the narrowest window that can actually support a
+  // projection, and say so. The chosen window stays selected — this only
+  // decides what gets sampled, never silently overwrites the preference.
+  const MC_LADDER = ["1w","mtd","1m","3m","ytd","1y","all"];
+  let effWin = win, rSamples = _pick(win), autoWidened = false;
+  if(rSamples.length < 8){
+    const start = MC_LADDER.indexOf(win);
+    for(const w of MC_LADDER.slice(start < 0 ? 0 : start + 1)){
+      const s2 = _pick(w);
+      if(s2.length >= 8){ effWin = w; rSamples = s2; autoWidened = true; break; }
+    }
+  }
   const modeTabs = `<div style="display:flex;gap:6px;margin-bottom:10px">
     <button onclick="_setMCMode('real')" class="btn btn-g" style="padding:7px 13px;font-size:11px;${mcMode==='real'?`background:${C.text};color:${C.bg};font-weight:700`:''}">📓 Real &middot; as traded</button>
     <button onclick="_setMCMode('disc')" class="btn btn-g" style="padding:7px 13px;font-size:11px;${mcMode==='disc'?`background:${C.pos};color:#08210f;font-weight:700`:''}">🛡️ If rules followed &middot; −1R cap</button>
@@ -6707,8 +6730,12 @@ function renderStatsMonteCarlo(closedAllTime){
       </div>
       ${_incOff?`<div style="font-size:10px;color:${C.warn};margin-top:6px">Currently COUNTED in your R / avg-R / Monte Carlo — your edge number is diluted by off-strategy plays. Toggle off for the clean edge.</div>`:``}
     </div>` : ``;
-  const winLabel = ({"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months","1y":"Last 12 months","mtd":"Month-to-date","ytd":"Year-to-date"})[win] || "Last 30 days";
-  const winDays = _windowDays(win);
+  const MC_LABEL = {"1w":"Last 7 days","1m":"Last 30 days","3m":"Last 3 months",
+                    "1y":"Last 12 months","mtd":"Month-to-date","ytd":"Year-to-date",
+                    "all":"All time"};
+  const winLabel = MC_LABEL[effWin] || "Last 30 days";
+  const pickedLabel = MC_LABEL[win] || "Last 30 days";
+  const winDays = _windowDays(effWin);
   const tradesPerYear = rSamples.length ? Math.round(rSamples.length*(365/winDays)) : 0;
 
   const pillBtn = (key,label,active) => `<button onclick="_setMCWindow('${key}')" class="btn btn-g" style="padding:5px 11px;font-size:11px;${active?`background:${C.pos};color:#08210f;font-weight:700`:''}">${label}</button>`;
@@ -6719,7 +6746,7 @@ function renderStatsMonteCarlo(closedAllTime){
     <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">SAMPLE FROM</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       ${pillBtn("1w","Last 7d",win==="1w")}${pillBtn("mtd","MTD",win==="mtd")}${pillBtn("1m","Last 30d",win==="1m")}
-      ${pillBtn("3m","Last 3mo",win==="3m")}${pillBtn("ytd","YTD",win==="ytd")}${pillBtn("1y","Last 12mo",win==="1y")}
+      ${pillBtn("3m","Last 3mo",win==="3m")}${pillBtn("ytd","YTD",win==="ytd")}${pillBtn("1y","Last 12mo",win==="1y")}${pillBtn("all","All time",win==="all")}
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:${C.textSec}">
       <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">Project forward:
@@ -6743,11 +6770,63 @@ function renderStatsMonteCarlo(closedAllTime){
   </div>`;
 
   if(rSamples.length < 8){
+    // Never a bare "too few trades". Every trade that fails R-scoring fails for
+    // exactly one reason, so count the reasons and show them — the panel then
+    // explains its own emptiness instead of sending you window-hunting.
+    const why = {closed:0, artifact:0, offFlag:0, nonSpread:0, noCredit:0,
+                 smallCredit:0, noPnl:0, ok:0};
+    (closedAllTime||[]).forEach(t => {
+      why.closed++;
+      if(t.realizedPnl == null){ why.noPnl++; return; }
+      if(t._excludeFromStats){ why.artifact++; return; }
+      if(t._offStrategy){ why.offFlag++; return; }
+      const tt = String(t.tradeType||"").toLowerCase();
+      if(/calendar|diagonal|covered|butterfly|\bstock\b/.test(tt)){ why.nonSpread++; return; }
+      const cr = +t.premiumCollected||0;
+      if(!cr){ why.noCredit++; return; }
+      if(cr < 20){ why.smallCredit++; return; }
+      why.ok++;
+      // Window membership is a separate gate from R-scoring, and it fails
+      // silently: the filter is a string compare on exitDate, so a missing or
+      // reshaped date drops a trade from EVERY window including all-time.
+      // Counting it here is what tells a stale pill apart from broken data.
+      const ed = String(t.exitDate||"");
+      if(!/^\d{4}-\d{2}-\d{2}/.test(ed)) why.badDate = (why.badDate||0) + 1;
+      else { why.dated = (why.dated||0) + 1;
+             if(!why.newest || ed > why.newest) why.newest = ed.slice(0,10); }
+    });
+    const line = (n, label, hint) => n ? `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:11px">
+        <span style="color:${C.text}">${label}</span>
+        <span style="color:${C.textSec};white-space:nowrap">${n}${hint?` · ${hint}`:''}</span></div>` : '';
     return modeTabs + offCard + controls + `<div class="card" style="padding:14px;background:${C.warn}15;border-left:3px solid ${C.warn}">
-      <div style="font-size:12px;color:${C.warn};font-weight:700;margin-bottom:4px">TOO FEW TRADES IN ${winLabel.toUpperCase()}</div>
-      <div style="font-size:11px;color:${C.text}">Only ${rSamples.length} R-scored trade${rSamples.length===1?'':'s'} in this window. Need at least 8 for a projection worth looking at. Pick a longer window.</div>
+      <div style="font-size:12px;color:${C.warn};font-weight:700;margin-bottom:6px">NOT ENOUGH R-SCORED TRADES</div>
+      <div style="font-size:11px;color:${C.text};margin-bottom:8px">A projection needs 8. Here is where every closed trade went:</div>
+      <div style="border-top:1px solid ${C.border};padding-top:6px">
+        ${line(why.closed, "<b>Closed trades the tab received</b>", "")}
+        ${line(why.ok, "&nbsp;&nbsp;✓ R-scored", "usable")}
+        ${line(why.noPnl, "&nbsp;&nbsp;× no realized P&L", "not settled")}
+        ${line(why.artifact, "&nbsp;&nbsp;× flagged broker artifact", "_excludeFromStats")}
+        ${line(why.offFlag, "&nbsp;&nbsp;× flagged off-strategy", "_offStrategy")}
+        ${line(why.nonSpread, "&nbsp;&nbsp;× calendar / covered / stock", "not a spread")}
+        ${line(why.noCredit, "&nbsp;&nbsp;× <b>no premiumCollected</b>", "credit missing")}
+        ${line(why.smallCredit, "&nbsp;&nbsp;× credit under $20", "denominator too small")}
+      </div>
+      <div style="border-top:1px solid ${C.border};margin-top:6px;padding-top:6px">
+        ${line(why.dated||0, "R-scored <b>with a usable exitDate</b>", why.newest ? `newest ${why.newest}` : "")}
+        ${line(why.badDate||0, "R-scored but <b>exitDate missing/unparseable</b>", "invisible to every window")}
+      </div>
+      ${(why.badDate||0) > (why.dated||0)
+        ? `<div style="font-size:11px;color:${C.warn};margin-top:8px"><b>${why.badDate} R-scored trades have no usable exitDate.</b> Every window filters on that date as text, so those trades are invisible in all of them — including All time. This is a data problem from a sync, not a window you picked wrong.</div>`
+        : why.closed === 0
+        ? `<div style="font-size:11px;color:${C.warn};margin-top:8px">The tab received <b>zero</b> closed trades. That is a data problem upstream of Monte Carlo — check that the desk has synced.</div>`
+        : why.noCredit > why.ok
+          ? `<div style="font-size:11px;color:${C.warn};margin-top:8px"><b>${why.noCredit} trades have no premiumCollected.</b> R is P&L ÷ (stop% × credit), so a missing credit means no R. This usually means a sync rebuilt the trades without their credit — that is the thing to fix, not the window.</div>`
+          : `<div style="font-size:11px;color:${C.text};margin-top:8px">R needs a closed spread with a credit of $20 or more. Everything else still counts in your P&L — just not in R.</div>`}
     </div>`;
   }
+  const widenNote = autoWidened ? `<div class="card" style="padding:9px 12px;margin-bottom:10px;background:${C.textSec}15;border-left:3px solid ${C.textSec}">
+      <div style="font-size:11px;color:${C.text}"><b>Sampling ${winLabel.toLowerCase()}</b> — ${pickedLabel.toLowerCase()} holds ${_pick(win).length} R-scored trade${_pick(win).length===1?'':'s'}, short of the 8 a projection needs. Your last closed trade was ${((STATE.trades||[]).map(t=>t.exitDate).filter(Boolean).sort().pop()||"—")}.</div>
+    </div>` : ``;
 
   const meanR = rSamples.reduce((s,r)=>s+r,0)/rSamples.length;
   const stdR = Math.sqrt(rSamples.reduce((s,r)=>s+(r-meanR)*(r-meanR),0)/rSamples.length);
