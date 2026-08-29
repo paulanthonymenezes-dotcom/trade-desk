@@ -20140,8 +20140,10 @@ function switchTab(tab, btn) {
 /* ── Lots of Charts (Koyfin-style 6-at-a-time TradingView grid) ──────────── */
 (function(){
   const GROUPS=[["SP500","S&P 500","S"],["NDX","Nasdaq 100","N"],["DOW","Dow 30","D"]];
-  const TFS=[["5","5m"],["30","30m"],["60","1H"],["D","1D"],["W","1W"]];
-  window._chartsState={group:"SP500",flag:"S",sector:"all",tf:"D",page:0,per:6};
+  // [interval, label, range]
+  const TFS=[["5","5m",""],["30","30m",""],["60","1H",""],["240","4H",""],["D","1D","6m"],["W","1W","60m"],["D","1M","1m"],["D","3M","3m"],["D","6M","6m"],["D","12M","12m"]];
+  const INDS=[["ma","200-MA"],["ppo","PPO"],["dmi","ADX/DMI"],["rsi","RSI"]];
+  window._chartsState={group:"SP500",flag:"S",sector:"all",tf:4,page:0,per:6,ind:new Set(["ma"])};
   function U(){return window.CHART_UNIVERSE||[];}
   function filt(){const S=_chartsState;let l=U().filter(u=>u.idx.includes(S.flag));
     if(S.sector!=="all")l=l.filter(u=>u.sec===S.sector);return l.sort((a,b)=>a.s<b.s?-1:1);}
@@ -20159,8 +20161,12 @@ function switchTab(tab, btn) {
           <button id="ch-prev" onclick="_chPage(-1)">← Prev</button>
           <button id="ch-next" onclick="_chPage(1)">Next →</button></div>
       </div>
+      <div class="ch-ctl" style="margin-top:-4px">
+        <span style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em">Indicators</span>
+        <div class="ch-seg" id="ch-ind"></div>
+      </div>
       <div id="charts-grid"></div>
-      <div class="ch-hint">6 charts per page · ← / → keys to flip · candles + 200-day MA + volume · scroll a chart to zoom</div>`;
+      <div class="ch-hint">6 charts per page · ← / → keys to flip · candles + volume + your indicators · scroll a chart to zoom</div>`;
     _chControls();_chGrid();
   };
   function _chControls(){
@@ -20169,10 +20175,20 @@ function switchTab(tab, btn) {
     const sec=document.getElementById("ch-sec");
     sec.innerHTML=`<option value="all">All sectors</option>`+sectors().map(s=>`<option value="${s}" ${S.sector===s?"selected":""}>${s}</option>`).join("");
     sec.onchange=e=>{_chartsState.sector=e.target.value;_chartsState.page=0;_chGrid();};
-    document.getElementById("ch-tf").innerHTML=TFS.map(t=>`<button class="${S.tf===t[0]?"on":""}" onclick="_chSetTf('${t[0]}')">${t[1]}</button>`).join("");
+    document.getElementById("ch-tf").innerHTML=TFS.map((t,i)=>`<button class="${S.tf===i?"on":""}" onclick="_chSetTf(${i})">${t[1]}</button>`).join("");
+    const ind=document.getElementById("ch-ind");
+    if(ind) ind.innerHTML=INDS.map(k=>`<button class="${S.ind.has(k[0])?"on":""}" onclick="_chToggleInd('${k[0]}')">${k[1]}</button>`).join("");
   }
   window._chSetGroup=function(g,flag){const S=_chartsState;S.group=g;S.flag=flag;S.sector="all";S.page=0;_chControls();_chGrid();};
-  window._chSetTf=function(tf){_chartsState.tf=tf;_chControls();_chGrid();};
+  window._chSetTf=function(i){_chartsState.tf=i;_chControls();_chGrid();};
+  window._chToggleInd=function(k){const S=_chartsState;S.ind.has(k)?S.ind.delete(k):S.ind.add(k);_chControls();_chGrid();};
+  function _chStudies(){const S=_chartsState,s=[];
+    if(S.ind.has("ma"))s.push({id:"MASimple@tv-basicstudies",inputs:{length:200}});
+    if(S.ind.has("ppo"))s.push({id:"PriceOsc@tv-basicstudies",inputs:{shortlen:9,longlen:21}});
+    if(S.ind.has("dmi"))s.push("DMI@tv-basicstudies");
+    if(S.ind.has("rsi"))s.push("RSI@tv-basicstudies");
+    return s;}
+  function _chOsc(){const S=_chartsState;return ["ppo","dmi","rsi"].filter(k=>S.ind.has(k)).length;}
   window._chPage=function(d){const S=_chartsState,l=filt(),max=Math.max(0,Math.ceil(l.length/S.per)-1);
     S.page=Math.min(max,Math.max(0,S.page+d));_chGrid();};
   function _chGrid(){
@@ -20183,9 +20199,11 @@ function switchTab(tab, btn) {
     const pv=document.getElementById("ch-prev"),nx=document.getElementById("ch-next");
     if(pv)pv.disabled=S.page<=0;if(nx)nx.disabled=S.page>=pages-1;
     const grid=document.getElementById("charts-grid");if(!grid)return;
-    grid.innerHTML=slice.map((u,i)=>`<div class="ch-cell"><div class="ch-cap"><b>${u.s}</b><span>${u.n}</span><span class="ch-tag">${u.sec}</span></div><div class="ch-tv" id="ch-tv-${i}"></div></div>`).join("");
+    const H=300+_chOsc()*95;
+    grid.innerHTML=slice.map((u,i)=>`<div class="ch-cell"><div class="ch-cap"><b>${u.s}</b><span>${u.n}</span><span class="ch-tag">${u.sec}</span></div><div class="ch-tv" id="ch-tv-${i}" style="height:${H}px"></div></div>`).join("");
     if(typeof TradingView==="undefined"){setTimeout(_chGrid,600);return;}
-    slice.forEach((u,i)=>{try{new TradingView.widget({container_id:"ch-tv-"+i,autosize:true,symbol:u.s,interval:S.tf,timezone:"America/New_York",theme:"dark",style:"1",locale:"en",hide_top_toolbar:true,hide_legend:false,hide_side_toolbar:true,allow_symbol_change:false,save_image:false,calendar:false,withdateranges:false,studies:[{id:"MASimple@tv-basicstudies",inputs:{length:200}}],overrides:{"paneProperties.background":"#0d1117","paneProperties.backgroundType":"solid","paneProperties.vertGridProperties.color":"#141a22","paneProperties.horzGridProperties.color":"#141a22","scalesProperties.textColor":"#6b7280","scalesProperties.lineColor":"#1a2029"}});}catch(e){}});
+    const tf=TFS[S.tf],iv=tf[0],rng=tf[2],studies=_chStudies();
+    slice.forEach((u,i)=>{try{new TradingView.widget({container_id:"ch-tv-"+i,autosize:true,symbol:u.s,interval:iv,...(rng?{range:rng}:{}),timezone:"America/New_York",theme:"dark",style:"1",locale:"en",hide_top_toolbar:true,hide_legend:false,hide_side_toolbar:true,allow_symbol_change:false,save_image:false,calendar:false,withdateranges:false,studies:studies,overrides:{"paneProperties.background":"#0d1117","paneProperties.backgroundType":"solid","paneProperties.vertGridProperties.color":"#141a22","paneProperties.horzGridProperties.color":"#141a22","scalesProperties.textColor":"#6b7280","scalesProperties.lineColor":"#1a2029"}});}catch(e){}});
   }
   document.addEventListener("keydown",e=>{
     const t=document.getElementById("tab-charts");
