@@ -6694,6 +6694,28 @@ function renderStatsMonteCarlo(closedAllTime){
   // So widen automatically to the narrowest window that can actually support a
   // projection, and say so. The chosen window stays selected — this only
   // decides what gets sampled, never silently overwrites the preference.
+  // Why each closed trade is or is not R-scored. Computed unconditionally so
+  // the panel can show its coverage even when it has enough to run — a
+  // projection built on 13 of 476 trades is not obviously wrong from the
+  // outside, and that is exactly when you want to see the funnel.
+  const mcWhy = {closed:0, noPnl:0, artifact:0, offFlag:0, nonSpread:0,
+                 noCredit:0, smallCredit:0, ok:0, dated:0, badDate:0, newest:""};
+  (closedAllTime||[]).forEach(t => {
+    mcWhy.closed++;
+    if(t.realizedPnl == null){ mcWhy.noPnl++; return; }
+    if(t._excludeFromStats){ mcWhy.artifact++; return; }
+    if(t._offStrategy){ mcWhy.offFlag++; return; }
+    const tt = String(t.tradeType||"").toLowerCase();
+    if(/calendar|diagonal|covered|butterfly|\bstock\b/.test(tt)){ mcWhy.nonSpread++; return; }
+    const cr = +t.premiumCollected||0;
+    if(!cr){ mcWhy.noCredit++; return; }
+    if(cr < 20){ mcWhy.smallCredit++; return; }
+    mcWhy.ok++;
+    const ed = String(t.exitDate||"");
+    if(!/^\d{4}-\d{2}-\d{2}/.test(ed)) mcWhy.badDate++;
+    else { mcWhy.dated++; if(ed > mcWhy.newest) mcWhy.newest = ed.slice(0,10); }
+  });
+
   const MC_LADDER = ["1w","mtd","1m","3m","ytd","1y","all"];
   let effWin = win, rSamples = _pick(win), autoWidened = false;
   if(rSamples.length < 8){
@@ -6773,28 +6795,7 @@ function renderStatsMonteCarlo(closedAllTime){
     // Never a bare "too few trades". Every trade that fails R-scoring fails for
     // exactly one reason, so count the reasons and show them — the panel then
     // explains its own emptiness instead of sending you window-hunting.
-    const why = {closed:0, artifact:0, offFlag:0, nonSpread:0, noCredit:0,
-                 smallCredit:0, noPnl:0, ok:0};
-    (closedAllTime||[]).forEach(t => {
-      why.closed++;
-      if(t.realizedPnl == null){ why.noPnl++; return; }
-      if(t._excludeFromStats){ why.artifact++; return; }
-      if(t._offStrategy){ why.offFlag++; return; }
-      const tt = String(t.tradeType||"").toLowerCase();
-      if(/calendar|diagonal|covered|butterfly|\bstock\b/.test(tt)){ why.nonSpread++; return; }
-      const cr = +t.premiumCollected||0;
-      if(!cr){ why.noCredit++; return; }
-      if(cr < 20){ why.smallCredit++; return; }
-      why.ok++;
-      // Window membership is a separate gate from R-scoring, and it fails
-      // silently: the filter is a string compare on exitDate, so a missing or
-      // reshaped date drops a trade from EVERY window including all-time.
-      // Counting it here is what tells a stale pill apart from broken data.
-      const ed = String(t.exitDate||"");
-      if(!/^\d{4}-\d{2}-\d{2}/.test(ed)) why.badDate = (why.badDate||0) + 1;
-      else { why.dated = (why.dated||0) + 1;
-             if(!why.newest || ed > why.newest) why.newest = ed.slice(0,10); }
-    });
+    const why = mcWhy;
     const line = (n, label, hint) => n ? `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:11px">
         <span style="color:${C.text}">${label}</span>
         <span style="color:${C.textSec};white-space:nowrap">${n}${hint?` · ${hint}`:''}</span></div>` : '';
@@ -6872,7 +6873,25 @@ function renderStatsMonteCarlo(closedAllTime){
   const mileRows = sim.stats.filter(s => s.kind==='mile' || s.kind==='both');
 
   const inputSummary = `<div class="card" style="padding:12px;margin-bottom:10px">
-    <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600;margin-bottom:8px">INPUT DISTRIBUTION · ${winLabel}</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px">
+      <div style="font-size:10px;color:${C.textSec};letter-spacing:0.02em;font-weight:600">INPUT DISTRIBUTION · ${winLabel}</div>
+      <div style="font-size:10px;color:${mcWhy.ok && rSamples.length < mcWhy.ok*0.5 ? C.warn : C.textSec};cursor:pointer"
+           onclick="STATE._mcShowFunnel=!STATE._mcShowFunnel;_rerenderMC()"
+           title="Where every closed trade went. A projection built on a small slice of your book is not obviously wrong from the outside.">
+        sampling <b>${rSamples.length}</b> of ${mcWhy.ok} R-scored · ${mcWhy.closed} closed ${STATE._mcShowFunnel?"▾":"▸"}</div>
+    </div>
+    ${STATE._mcShowFunnel ? `<div style="background:${C.bg};border:1px solid ${C.border};border-radius:6px;padding:9px 11px;margin-bottom:9px;font-size:11px;line-height:1.7">
+      <div style="color:${C.textSec}">Of ${mcWhy.closed} closed trades this tab received:</div>
+      <div>✓ <b>${mcWhy.ok}</b> R-scored${mcWhy.newest?` · newest exit ${mcWhy.newest}`:""}</div>
+      ${mcWhy.noPnl?`<div style="color:${C.textSec}">× ${mcWhy.noPnl} no realized P&L</div>`:""}
+      ${mcWhy.artifact?`<div style="color:${C.textSec}">× ${mcWhy.artifact} flagged broker artifact</div>`:""}
+      ${mcWhy.offFlag?`<div style="color:${C.textSec}">× ${mcWhy.offFlag} flagged off-strategy</div>`:""}
+      ${mcWhy.nonSpread?`<div style="color:${C.textSec}">× ${mcWhy.nonSpread} calendar / covered / stock</div>`:""}
+      ${mcWhy.noCredit?`<div style="color:${C.warn}">× ${mcWhy.noCredit} <b>no premiumCollected</b> — R needs a credit</div>`:""}
+      ${mcWhy.smallCredit?`<div style="color:${C.textSec}">× ${mcWhy.smallCredit} credit under $20</div>`:""}
+      ${mcWhy.badDate?`<div style="color:${C.warn}">⚠ ${mcWhy.badDate} R-scored but exitDate missing — invisible to every window</div>`:""}
+      <div style="color:${C.textSec};margin-top:4px">${winLabel} holds <b style="color:${C.text}">${rSamples.length}</b> of those ${mcWhy.ok}.</div>
+    </div>` : ""}
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
       ${kpiCard("Trades", String(rSamples.length), C.text, null, "How many of your real closed trades fed this projection (from the sample window you picked above). More trades = a more reliable projection.")}
       ${kpiCard("Win Rate", (wr*100).toFixed(0)+"%", wr>=0.6?C.pos:wr>=0.5?C.warn:C.neg, null, "Share of those trades that made money. High win rate feels good but isn't the whole story — a few big losses can still sink a high win rate (that's what Mean R captures).")}
@@ -6992,7 +7011,7 @@ function renderStatsMonteCarlo(closedAllTime){
       : `<b style="color:${C.text}">Fixed \$/R</b> — 1R stays at today's \$${oneR.toLocaleString()} the whole way (linear, conservative). A real book that sizes up as NAV grows compounds faster than this early on — flip <b>Sizing &rarr; Compound %</b> to see it (mind the capacity caveat).`}
   </div>`;
 
-  return modeTabs + modeBanner + offCard + controls + inputSummary + projCards + fan + mileTable + caveat;
+  return modeTabs + modeBanner + offCard + controls + widenNote + inputSummary + projCards + fan + mileTable + caveat;
 }
 
 // ── 3. R:R ──────────────────────────────────────────────────────────────────
