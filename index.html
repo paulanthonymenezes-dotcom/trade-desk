@@ -819,63 +819,74 @@ table{width:100%;border-collapse:collapse}
     <div id="heatmap-content" style="max-width:1880px;margin:0 auto;padding:6px"></div>
   </div>
   <style>
-    #optionstrat-content .osl-grid{max-width:none;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px}
-    @media(max-width:1000px){#optionstrat-content .osl-grid{grid-template-columns:1fr}}
-    #optionstrat-content .osl-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px;margin-bottom:14px}
-    #optionstrat-content .osl-h{font-size:15px;font-weight:600;margin:0 0 10px}
-    #optionstrat-content .osl-lab{color:var(--text-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:3px}
+    #optionstrat-content .osl-top{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px}
+    @media(max-width:1000px){#optionstrat-content .osl-top{grid-template-columns:1fr}}
+    #optionstrat-content .osl-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:13px;margin-bottom:14px}
+    #optionstrat-content .osl-h{font-size:14px;font-weight:600;margin:0 0 10px}
+    #optionstrat-content .osl-lab{color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:3px}
     #optionstrat-content input,#optionstrat-content select{background:var(--bg-hover);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:6px 8px;font:inherit;font-size:12px;width:100%}
-    #optionstrat-content .osl-row{display:flex;gap:8px;flex-wrap:wrap}
-    #optionstrat-content .osl-row>div{flex:1;min-width:70px}
+    #optionstrat-content .osl-row{display:flex;gap:8px;flex-wrap:wrap}#optionstrat-content .osl-row>div{flex:1;min-width:64px}
     #optionstrat-content .osl-seg{display:inline-flex;gap:3px;background:var(--bg-hover);border:1px solid var(--border-subtle);border-radius:7px;padding:3px;flex-wrap:wrap}
-    #optionstrat-content .osl-seg button{background:none;border:none;color:var(--text-muted);font:inherit;font-size:11.5px;padding:5px 9px;border-radius:5px;cursor:pointer;width:auto}
+    #optionstrat-content .osl-seg button{background:none;border:none;color:var(--text-muted);font:inherit;font-size:11.5px;padding:5px 10px;border-radius:5px;cursor:pointer;width:auto}
     #optionstrat-content .osl-seg button.on{background:var(--accent);color:#fff;font-weight:600}
-    #optionstrat-content table{width:100%;border-collapse:collapse;font-size:12px}
-    #optionstrat-content th{color:var(--text-muted);font-weight:500;text-align:left;padding:5px 6px;font-size:10px;text-transform:uppercase;letter-spacing:.03em}
-    #optionstrat-content td{padding:3px 4px}
-    #optionstrat-content td input,#optionstrat-content td select{padding:5px 6px}
+    #optionstrat-content table.osl-legs{width:100%;border-collapse:collapse;font-size:12px}
+    #optionstrat-content table.osl-legs th{color:var(--text-muted);text-align:left;padding:4px 5px;font-size:9.5px;text-transform:uppercase}
+    #optionstrat-content table.osl-legs td{padding:2px 3px}
+    #optionstrat-content table.osl-legs td input,#optionstrat-content table.osl-legs td select{padding:4px 6px}
     #optionstrat-content .osl-btn{background:var(--bg-hover);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:6px 12px;cursor:pointer;font:inherit;font-size:12px;width:auto}
-    #optionstrat-content .osl-x{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:15px;width:auto;line-height:1}
-    #optionstrat-content .osl-metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    #optionstrat-content .osl-metric{background:var(--bg-hover);border:1px solid var(--border-subtle);border-radius:8px;padding:9px 11px}
-    #optionstrat-content .osl-metric .k{color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.03em}
-    #optionstrat-content .osl-metric .v{font-size:17px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
-    #optionstrat-content .osl-greeks{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px}
-    #optionstrat-content .osl-g{background:var(--bg-hover);border:1px solid var(--border-subtle);border-radius:7px;padding:7px;text-align:center}
-    #optionstrat-content .osl-g .k{color:var(--text-muted);font-size:10px}
-    #optionstrat-content .osl-g .v{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
-    #optionstrat-content .osl-pos{color:var(--positive,#3fb950)}
-    #optionstrat-content .osl-neg{color:var(--negative,#f85149)}
+    #optionstrat-content .osl-xbtn{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:15px;width:auto}
+    #optionstrat-content .osl-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    #optionstrat-content .osl-metric{background:var(--bg-hover);border:1px solid var(--border-subtle);border-radius:8px;padding:8px 10px}
+    #optionstrat-content .osl-metric .k{color:var(--text-muted);font-size:9.5px;text-transform:uppercase}
+    #optionstrat-content .osl-metric .v{font-size:16px;font-weight:600;margin-top:1px;font-variant-numeric:tabular-nums}
+    #optionstrat-content .osl-greeks{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+    #optionstrat-content .osl-g{background:var(--bg-hover);border:1px solid var(--border-subtle);border-radius:6px;padding:6px;text-align:center}
+    #optionstrat-content .osl-g .k{color:var(--text-muted);font-size:9px}#optionstrat-content .osl-g .v{font-size:13px;font-weight:600}
+    #optionstrat-content .osl-pos{color:var(--positive,#3fb950)}#optionstrat-content .osl-neg{color:var(--negative,#f85149)}
+    #optionstrat-content .osl-viewhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+    #optionstrat-content .osl-hm-wrap{overflow-x:auto}
+    #optionstrat-content table.osl-hm{border-collapse:collapse;font-size:10.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+    #optionstrat-content table.osl-hm th{color:var(--text-muted);font-weight:500;padding:3px 5px;font-size:9.5px}
+    #optionstrat-content table.osl-hm td{padding:3px 6px;text-align:right;border:1px solid #0a0e14}
+    #optionstrat-content table.osl-hm td.osl-price{color:var(--text-secondary);font-weight:600;background:var(--bg-hover);position:sticky;left:0}
+    #optionstrat-content table.osl-hm tr.osl-spotrow td.osl-price{color:var(--accent)}
+    #optionstrat-content .osl-ivrow{display:flex;align-items:center;gap:10px;margin-top:8px}
+    #optionstrat-content .osl-ivrow input[type=range]{flex:1;width:auto}
   </style>
   <div id="tab-optionstrat" class="section" style="display:none">
     <div id="optionstrat-content" style="padding:6px">
-      <div class="osl-grid">
+      <div class="osl-top">
         <div>
           <div class="osl-card">
             <div class="osl-h">Position</div>
-            <div class="osl-row" style="margin-bottom:10px">
+            <div class="osl-row" style="margin-bottom:9px">
               <div style="flex:1.4"><label class="osl-lab">Underlying</label><input id="osl-sym" value="NQ" oninput="_oslRender()"></div>
               <div><label class="osl-lab">Spot</label><input id="osl-spot" type="number" value="23000" oninput="_oslRender()"></div>
-              <div><label class="osl-lab">Days exp</label><input id="osl-dte" type="number" value="1" step="0.25" oninput="_oslRender()"></div>
-              <div><label class="osl-lab">IV %</label><input id="osl-iv" type="number" value="25" oninput="_oslRender()"></div>
+              <div><label class="osl-lab">Days to exp</label><input id="osl-dte" type="number" value="5" step="1" oninput="_oslRender()"></div>
+              <div><label class="osl-lab">IV %</label><input id="osl-iv" type="number" value="22" oninput="_oslRender()"></div>
               <div><label class="osl-lab">Mult $/pt</label><input id="osl-mult" type="number" value="20" oninput="_oslRender()"></div>
             </div>
-            <div style="margin-bottom:10px"><label class="osl-lab">Presets</label><div class="osl-seg" id="osl-presets"></div></div>
-            <table id="osl-legs"><thead><tr><th></th><th>Side</th><th>Type</th><th>Strike</th><th>Qty</th><th>Premium</th><th></th></tr></thead><tbody></tbody></table>
-            <button class="osl-btn" style="margin-top:8px" onclick="_oslAddLeg()">+ Add leg</button>
+            <div style="margin-bottom:8px"><label class="osl-lab">Presets</label><div class="osl-seg" id="osl-presets"></div></div>
+            <table class="osl-legs" id="osl-legs"><thead><tr><th></th><th>Side</th><th>Type</th><th>Strike</th><th>Qty</th><th>Premium</th><th></th></tr></thead><tbody></tbody></table>
+            <button class="osl-btn" style="margin-top:7px" onclick="_oslAddLeg()">+ Add leg</button>
           </div>
-          <div class="osl-card"><div class="osl-h">Payoff at expiration</div><div id="osl-chart"></div></div>
         </div>
         <div>
           <div class="osl-card"><div class="osl-h">Analytics</div>
             <div class="osl-metrics" id="osl-metrics"></div>
-            <div style="margin-top:12px"><label class="osl-lab">Position Greeks (net)</label><div class="osl-greeks" id="osl-greeks"></div></div>
-            <div class="osl-lab" style="margin-top:12px;text-transform:none;font-size:10.5px;line-height:1.5;color:var(--text-muted)">
-              Premiums auto-price via Black-Scholes from spot/DTE/IV — <b>override with your actual fills.</b>
-              Multiplier: NQ 20 · ES 50 · equity 100. POP = lognormal terminal probability of finishing profitable.
-            </div>
+            <div style="margin-top:10px"><label class="osl-lab">Position Greeks (net)</label><div class="osl-greeks" id="osl-greeks"></div></div>
           </div>
         </div>
+      </div>
+      <div class="osl-card">
+        <div class="osl-viewhead">
+          <div class="osl-seg" id="osl-viewtoggle"></div>
+          <div class="osl-seg" id="osl-unittoggle"></div>
+          <div style="margin-left:auto;color:var(--text-muted);font-size:11px">rows = underlying price · columns = date (theta decay) · green = profit, red = loss · premiums auto-price via Black-Scholes — override with your fills</div>
+        </div>
+        <div id="osl-view"></div>
+        <div class="osl-ivrow"><label class="osl-lab" style="margin:0">IV <b id="osl-ivval" style="color:var(--text-secondary)">22%</b></label>
+          <input type="range" id="osl-ivslider" min="5" max="80" value="22" step="1" oninput="_oslSetIV(this.value)"></div>
       </div>
     </div>
   </div>
@@ -20214,109 +20225,107 @@ function switchTab(tab, btn) {
 })();
 
 /* ── Heatmap (Path A: TradingView Stock Heatmap widget) ──────────────────── */
-/* ── Options Lab (OptionStrat-style builder: payoff + Greeks + POP) ───────── */
+/* ── Options Lab v2 (OptionStrat parity: P&L heatmap + multi-date graph) ──── */
 (function(){
-  function ncdf(x){const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);
-    let p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;}
+  function ncdf(x){const t=1/(1+0.2316419*Math.abs(x)),d=0.3989423*Math.exp(-x*x/2);let p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;}
   function npdf(x){return 0.3989422804014327*Math.exp(-x*x/2);}
   function bs(type,S,K,T,r,sig){
-    if(T<=0||sig<=0){const iv=type==="call"?Math.max(0,S-K):Math.max(0,K-S);
-      return {price:iv,delta:type==="call"?(S>K?1:0):(S<K?-1:0),gamma:0,theta:0,vega:0};}
+    if(T<=1e-9||sig<=0){const iv=type==="call"?Math.max(0,S-K):Math.max(0,K-S);return {price:iv,delta:type==="call"?(S>K?1:0):(S<K?-1:0),gamma:0,theta:0,vega:0};}
     const d1=(Math.log(S/K)+(r+sig*sig/2)*T)/(sig*Math.sqrt(T)),d2=d1-sig*Math.sqrt(T);
     let price,delta,theta;
-    if(type==="call"){price=S*ncdf(d1)-K*Math.exp(-r*T)*ncdf(d2);delta=ncdf(d1);
-      theta=(-S*npdf(d1)*sig/(2*Math.sqrt(T))-r*K*Math.exp(-r*T)*ncdf(d2))/365;}
-    else{price=K*Math.exp(-r*T)*ncdf(-d2)-S*ncdf(-d1);delta=ncdf(d1)-1;
-      theta=(-S*npdf(d1)*sig/(2*Math.sqrt(T))+r*K*Math.exp(-r*T)*ncdf(-d2))/365;}
+    if(type==="call"){price=S*ncdf(d1)-K*Math.exp(-r*T)*ncdf(d2);delta=ncdf(d1);theta=(-S*npdf(d1)*sig/(2*Math.sqrt(T))-r*K*Math.exp(-r*T)*ncdf(d2))/365;}
+    else{price=K*Math.exp(-r*T)*ncdf(-d2)-S*ncdf(-d1);delta=ncdf(d1)-1;theta=(-S*npdf(d1)*sig/(2*Math.sqrt(T))+r*K*Math.exp(-r*T)*ncdf(-d2))/365;}
     return {price,delta,gamma:npdf(d1)/(S*sig*Math.sqrt(T)),theta,vega:S*npdf(d1)*Math.sqrt(T)/100};
   }
-  function invPhi(p){
-    const a=[-39.6968302866538,220.946098424521,-275.928510446969,138.357751867269,-30.6647980661472,2.50662827745924];
-    const b=[-54.4760987982241,161.585836858041,-155.698979859887,66.8013118877197,-13.2806815528857];
-    const c=[-0.00778489400243029,-0.322396458041136,-2.40075827716184,-2.54973253934373,4.37466414146497,2.93816398269878];
-    const d=[0.00778469570904146,0.32246712907004,2.445134137143,3.75440866190742],pl=0.02425;
-    if(p<pl){const q=Math.sqrt(-2*Math.log(p));return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
-    if(p>1-pl){const q=Math.sqrt(-2*Math.log(1-p));return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
-    const q=p-0.5,r=q*q;return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
-  }
-  let legs=[];
+  function invPhi(p){const a=[-39.6968302866538,220.946098424521,-275.928510446969,138.357751867269,-30.6647980661472,2.50662827745924],b=[-54.4760987982241,161.585836858041,-155.698979859887,66.8013118877197,-13.2806815528857],c=[-0.00778489400243029,-0.322396458041136,-2.40075827716184,-2.54973253934373,4.37466414146497,2.93816398269878],d=[0.00778469570904146,0.32246712907004,2.445134137143,3.75440866190742],pl=0.02425;
+    if(p<pl){const q=Math.sqrt(-2*Math.log(p));return(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
+    if(p>1-pl){const q=Math.sqrt(-2*Math.log(1-p));return-(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
+    const q=p-0.5,r=q*q;return(((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);}
+  let legs=[], view="table", unit="$";
   const PRE={
     "Bull Put":s=>[{side:"sell",type:"put",K:Math.round(s*0.98),qty:1},{side:"buy",type:"put",K:Math.round(s*0.955),qty:1}],
     "Bear Call":s=>[{side:"sell",type:"call",K:Math.round(s*1.02),qty:1},{side:"buy",type:"call",K:Math.round(s*1.045),qty:1}],
     "Iron Condor":s=>[{side:"sell",type:"put",K:Math.round(s*0.98),qty:1},{side:"buy",type:"put",K:Math.round(s*0.955),qty:1},{side:"sell",type:"call",K:Math.round(s*1.02),qty:1},{side:"buy",type:"call",K:Math.round(s*1.045),qty:1}],
     "Long Call":s=>[{side:"buy",type:"call",K:Math.round(s),qty:1}],
-    "Long Put":s=>[{side:"buy",type:"put",K:Math.round(s),qty:1}],
   };
   const g=id=>document.getElementById(id);
-  const spot=()=>+((g("osl-spot")||{}).value)||0, ivv=()=>(+((g("osl-iv")||{}).value)||0)/100,
-        Tv=()=>Math.max(0,(+((g("osl-dte")||{}).value)||0)/365), mult=()=>+((g("osl-mult")||{}).value)||1;
-  const theo=l=>bs(l.type,spot(),l.K,Tv(),0.045,ivv()).price;
-  window._oslPreset=function(n){legs=PRE[n](spot()).map(l=>({...l,prem:+theo(l).toFixed(2)}));_oslRender();};
-  window._oslAddLeg=function(){const K=Math.round(spot()*0.98);legs.push({side:"sell",type:"put",K,qty:1,prem:+theo({type:"put",K}).toFixed(2)});_oslRender();};
-  window._oslDel=function(i){legs.splice(i,1);_oslRender();};
-  window._oslEdit=function(i,f,v){legs[i][f]=(f==="side"||f==="type")?v:+v;if(f==="K"||f==="type")legs[i].prem=+theo(legs[i]).toFixed(2);_oslRender();};
-  function pnlAt(S){const m=mult();return legs.reduce((sum,l)=>{const sign=l.side==="buy"?1:-1;
-    const intr=l.type==="call"?Math.max(0,S-l.K):Math.max(0,l.K-S);return sum+sign*l.qty*(intr-l.prem)*m;},0);}
+  const spot=()=>+(g("osl-spot")||{}).value||0, iv=()=>(+(g("osl-iv")||{}).value||0)/100, DTE=()=>+(g("osl-dte")||{}).value||0, mult=()=>+(g("osl-mult")||{}).value||1;
+  const theo=l=>bs(l.type,spot(),l.K,Math.max(0,DTE())/365,0.045,iv()).price;
+  function preset(n){legs=PRE[n](spot()).map(l=>({...l,prem:+theo(l).toFixed(2)}));R();}
+  function addLeg(){const K=Math.round(spot()*0.98);legs.push({side:"sell",type:"put",K,qty:1,prem:+theo({type:"put",K}).toFixed(2)});R();}
+  function del(i){legs.splice(i,1);R();}
+  function edit(i,f,v){legs[i][f]=(f==="side"||f==="type")?v:+v;if(f==="K"||f==="type")legs[i].prem=+theo(legs[i]).toFixed(2);R();}
+  function setIV(v){g("osl-iv").value=v;if(g("osl-ivslider"))g("osl-ivslider").value=v;if(g("osl-ivval"))g("osl-ivval").textContent=v+"%";R();}
+  window._oslPreset=preset;window._oslAddLeg=addLeg;window._oslDel=del;window._oslEdit=edit;window._oslSetIV=setIV;
+  window._oslSetView=v=>{view=v;R();};window._oslSetUnit=u=>{unit=u;R();};window._oslRender=R;
+  window._oslInit=function(){if(!legs.length)preset("Bull Put");else R();};
+  function pnl(S,elapsed){const Trem=Math.max(0,(DTE()-elapsed))/365,m=mult(),sig=iv();
+    return legs.reduce((sum,l)=>{const sign=l.side==="buy"?1:-1;const pr=bs(l.type,S,l.K,Trem,0.045,sig).price;return sum+sign*l.qty*(pr-l.prem)*m;},0);}
   function netCredit(){const m=mult();return legs.reduce((s,l)=>s+(l.side==="sell"?1:-1)*l.prem*l.qty*m,0);}
+  function priceRange(){const sp=spot();let lo=sp,hi=sp;legs.forEach(l=>{lo=Math.min(lo,l.K);hi=Math.max(hi,l.K);});const pad=Math.max((hi-lo)*0.6,sp*0.03);return[lo-pad,hi+pad];}
   const fmt=n=>(n<0?"-$":"$")+Math.abs(n).toLocaleString(undefined,{maximumFractionDigits:0});
-  function renderLegs(){const tb=document.querySelector("#osl-legs tbody");if(!tb)return;
-    tb.innerHTML=legs.map((l,i)=>`<tr>
-      <td class="${l.side==='buy'?'osl-pos':'osl-neg'}">●</td>
-      <td><select onchange="_oslEdit(${i},'side',this.value)"><option ${l.side==='buy'?'selected':''} value="buy">Buy</option><option ${l.side==='sell'?'selected':''} value="sell">Sell</option></select></td>
-      <td><select onchange="_oslEdit(${i},'type',this.value)"><option ${l.type==='call'?'selected':''} value="call">Call</option><option ${l.type==='put'?'selected':''} value="put">Put</option></select></td>
-      <td><input type="number" value="${l.K}" onchange="_oslEdit(${i},'K',this.value)"></td>
-      <td><input type="number" value="${l.qty}" onchange="_oslEdit(${i},'qty',this.value)" style="width:52px"></td>
-      <td><input type="number" step="0.01" value="${l.prem}" onchange="_oslEdit(${i},'prem',this.value)"></td>
-      <td><button class="osl-x" onclick="_oslDel(${i})">×</button></td></tr>`).join("");
-  }
-  function metrics(){const sp=spot(),lo=sp*0.85,hi=sp*1.15,steps=600;
-    let maxP=-1e18,maxL=1e18,prev=null,bes=[];
-    for(let i=0;i<=steps;i++){const S=lo+(hi-lo)*i/steps,p=pnlAt(S);maxP=Math.max(maxP,p);maxL=Math.min(maxL,p);
-      if(prev!==null&&((prev.p<0&&p>=0)||(prev.p>0&&p<=0))){const S0=prev.S+(S-prev.S)*(0-prev.p)/(p-prev.p);bes.push(S0);}prev={S,p};}
-    const credit=netCredit(),T=Tv(),sig=ivv();let pop=null;
-    if(T>0&&sig>0){const mu=Math.log(sp)+(0-sig*sig/2)*T,sd=sig*Math.sqrt(T);let win=0,N=2000;
-      for(let i=1;i<N;i++){const S=Math.exp(mu+sd*invPhi(i/N));if(pnlAt(S)>0)win++;}pop=win/(N-1);}
-    const rr=(maxL<0&&maxP>0)?(maxP/Math.abs(maxL)):null;
-    const el=g("osl-metrics");if(el)el.innerHTML=`
+  function renderLegs(){const tb=g("osl-legs").querySelector("tbody");tb.innerHTML=legs.map((l,i)=>`<tr>
+    <td class="${l.side==='buy'?'osl-pos':'osl-neg'}">●</td>
+    <td><select onchange="_oslEdit(${i},'side',this.value)"><option ${l.side==='buy'?'selected':''} value="buy">Buy</option><option ${l.side==='sell'?'selected':''} value="sell">Sell</option></select></td>
+    <td><select onchange="_oslEdit(${i},'type',this.value)"><option ${l.type==='call'?'selected':''} value="call">Call</option><option ${l.type==='put'?'selected':''} value="put">Put</option></select></td>
+    <td><input type="number" value="${l.K}" onchange="_oslEdit(${i},'K',this.value)"></td>
+    <td><input type="number" value="${l.qty}" onchange="_oslEdit(${i},'qty',this.value)" style="width:48px"></td>
+    <td><input type="number" step="0.01" value="${l.prem}" onchange="_oslEdit(${i},'prem',this.value)"></td>
+    <td><button class="osl-xbtn" onclick="_oslDel(${i})">×</button></td></tr>`).join("");}
+  function metrics(){const sp=spot(),[lo,hi]=priceRange();let maxP=-1e18,maxL=1e18,prev=null,bes=[];
+    for(let i=0;i<=600;i++){const S=lo+(hi-lo)*i/600,p=pnl(S,DTE());maxP=Math.max(maxP,p);maxL=Math.min(maxL,p);
+      if(prev&&((prev.p<0&&p>=0)||(prev.p>0&&p<=0)))bes.push(prev.S+(S-prev.S)*(0-prev.p)/(p-prev.p));prev={S,p};}
+    const credit=netCredit(),T=DTE()/365,sig=iv();let pop=null;
+    if(T>0&&sig>0){const mu=Math.log(sp)+(0-sig*sig/2)*T,sd=sig*Math.sqrt(T);let w=0,N=2000;for(let i=1;i<N;i++){if(pnl(Math.exp(mu+sd*invPhi(i/N)),DTE())>0)w++;}pop=w/(N-1);}
+    const rr=(maxL<0&&maxP>0)?maxP/Math.abs(maxL):null;
+    g("osl-metrics").innerHTML=`
       <div class="osl-metric"><div class="k">Net ${credit>=0?'credit':'debit'}</div><div class="v ${credit>=0?'osl-pos':'osl-neg'}">${fmt(credit)}</div></div>
       <div class="osl-metric"><div class="k">Max profit</div><div class="v osl-pos">${maxP>1e17?'∞':fmt(maxP)}</div></div>
       <div class="osl-metric"><div class="k">Max loss</div><div class="v osl-neg">${maxL<-1e17?'-∞':fmt(maxL)}</div></div>
-      <div class="osl-metric"><div class="k">Reward : Risk</div><div class="v">${rr?rr.toFixed(2)+' : 1':'—'}</div></div>
-      <div class="osl-metric"><div class="k">Breakeven${bes.length>1?'s':''}</div><div class="v" style="font-size:14px">${bes.length?bes.map(b=>b.toFixed(0)).join(' / '):'—'}</div></div>
-      <div class="osl-metric"><div class="k">Prob. of profit</div><div class="v">${pop!=null?(pop*100).toFixed(0)+'%':'—'}</div></div>`;
-    return {lo,hi,spot:sp,bes};
-  }
-  function greeks(){const S=spot(),T=Tv(),sig=ivv(),m=mult();let d=0,gg=0,t=0,v=0;
-    legs.forEach(l=>{const k=bs(l.type,S,l.K,T,0.045,sig),sign=l.side==="buy"?1:-1;
-      d+=sign*l.qty*k.delta*m;gg+=sign*l.qty*k.gamma*m;t+=sign*l.qty*k.theta*m;v+=sign*l.qty*k.vega*m;});
+      <div class="osl-metric"><div class="k">Reward:Risk</div><div class="v">${rr?rr.toFixed(2):'—'}</div></div>
+      <div class="osl-metric"><div class="k">Breakeven</div><div class="v" style="font-size:13px">${bes.length?bes.map(b=>b.toFixed(0)).join(' / '):'—'}</div></div>
+      <div class="osl-metric"><div class="k">Prob of profit</div><div class="v">${pop!=null?(pop*100).toFixed(0)+'%':'—'}</div></div>`;
+    return {lo,hi,maxL,maxP};}
+  function greeks(){const S=spot(),T=DTE()/365,sig=iv(),m=mult();let d=0,gg2=0,t=0,v=0;
+    legs.forEach(l=>{const k=bs(l.type,S,l.K,T,0.045,sig),sign=l.side==="buy"?1:-1;d+=sign*l.qty*k.delta*m;gg2+=sign*l.qty*k.gamma*m;t+=sign*l.qty*k.theta*m;v+=sign*l.qty*k.vega*m;});
     const cell=(k,val,dec)=>`<div class="osl-g"><div class="k">${k}</div><div class="v ${val>=0?'osl-pos':'osl-neg'}">${val>=0?'':'-'}${Math.abs(val).toFixed(dec)}</div></div>`;
-    const el=g("osl-greeks");if(el)el.innerHTML=cell("Delta",d,1)+cell("Gamma",gg,3)+cell("Theta/day",t,0)+cell("Vega",v,0);
+    g("osl-greeks").innerHTML=cell("Delta",d,1)+cell("Gamma",gg2,3)+cell("Theta/day",t,0)+cell("Vega",v,0);}
+  function heatColor(p,maxAbs){if(Math.abs(p)<1e-6||maxAbs<1e-6)return "transparent";const a=Math.min(1,Math.abs(p)/maxAbs)*0.85+0.05;return p>0?`rgba(63,185,80,${a})`:`rgba(248,81,73,${a})`;}
+  function renderTable(meta){const {lo,hi,maxL,maxP}=meta,sp=spot(),dte=DTE();
+    const ROWS=21,COLS=Math.min(14,Math.max(6,Math.ceil(dte)+1));
+    const prices=[];for(let r=0;r<ROWS;r++)prices.push(hi-(hi-lo)*r/(ROWS-1));
+    const cols=[];for(let c=0;c<COLS;c++)cols.push(dte*c/(COLS-1));
+    const now=new Date(),maxAbs=Math.max(Math.abs(maxL),Math.abs(maxP))||1,denom=unit==="%"?(Math.abs(maxL)||1):1;
+    let h='<div class="osl-hm-wrap"><table class="osl-hm"><thead><tr><th>Price</th>';
+    cols.forEach(cd=>{const dt=new Date(now.getTime()+cd*86400000);h+=`<th style="text-align:center">${cd>=dte-1e-6?'EXP':(dt.getMonth()+1)+'/'+dt.getDate()}</th>`;});
+    h+='</tr></thead><tbody>';
+    prices.forEach(P=>{const near=Math.abs(P-sp)<(hi-lo)/(ROWS-1)/2;
+      h+=`<tr class="${near?'osl-spotrow':''}"><td class="osl-price">${P.toFixed(0)}${near?' ◄':''}</td>`;
+      cols.forEach(cd=>{const p=pnl(P,cd);const disp=unit==="%"?(p/denom*100).toFixed(0)+'%':(p>=0?'':'-')+'$'+Math.abs(p).toLocaleString(undefined,{maximumFractionDigits:0});
+        h+=`<td style="background:${heatColor(p,maxAbs)}">${disp}</td>`;});
+      h+='</tr>';});
+    h+='</tbody></table></div>';g("osl-view").innerHTML=h;}
+  function renderGraph(meta){const {lo,hi}=meta,sp=spot(),dte=DTE(),W=1000,H=340,PAD=40;
+    const X=S=>PAD+(S-lo)/(hi-lo)*(W-2*PAD);
+    const dates=[[0,'today','#2f81f7'],[dte/2,'halfway','#8b949e'],[dte,'expiry','#c9d1d9']];
+    let ymin=1e18,ymax=-1e18;const series=dates.map(([e])=>{const pts=[];for(let i=0;i<=240;i++){const S=lo+(hi-lo)*i/240,p=pnl(S,e);pts.push([S,p]);ymin=Math.min(ymin,p);ymax=Math.max(ymax,p);}return pts;});
+    const pad=(ymax-ymin)*0.1||100;ymin-=pad;ymax+=pad;const Y=p=>H-PAD-(p-ymin)/(ymax-ymin)*(H-2*PAD),zeroY=Y(0);
+    let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto"><line x1="${PAD}" y1="${zeroY}" x2="${W-PAD}" y2="${zeroY}" stroke="#30363d"/>`;
+    const spX=X(sp);svg+=`<line x1="${spX}" y1="${PAD}" x2="${spX}" y2="${H-PAD}" stroke="#2f81f7" stroke-dasharray="2 2"/><text x="${spX}" y="${PAD-4}" fill="#2f81f7" font-size="10" text-anchor="middle">spot ${sp.toFixed(0)}</text>`;
+    series.forEach((pts,si)=>{let d="";pts.forEach(([S,p],i)=>{d+=(i?"L":"M")+X(S).toFixed(1)+" "+Y(p).toFixed(1)+" ";});
+      svg+=`<path d="${d}" fill="none" stroke="${dates[si][2]}" stroke-width="${si===2?2:1.3}" ${si<2?'stroke-dasharray="4 3"':''}/>`;});
+    svg+=`<text x="${PAD}" y="${Y(ymax)+10}" fill="#3fb950" font-size="10">${fmt(ymax)}</text><text x="${PAD}" y="${Y(ymin)-3}" fill="#f85149" font-size="10">${fmt(ymin)}</text>`;
+    svg+=`<text x="${W-PAD}" y="${PAD+2}" fill="#8b949e" font-size="10" text-anchor="end">— expiry · - - today/halfway</text></svg>`;
+    g("osl-view").innerHTML=svg;}
+  function R(){
+    if(!g("osl-presets"))return;
+    g("osl-presets").innerHTML=Object.keys(PRE).map(n=>`<button onclick="_oslPreset('${n}')">${n}</button>`).join("");
+    g("osl-viewtoggle").innerHTML=[["table","Table"],["graph","Graph"]].map(v=>`<button class="${view===v[0]?'on':''}" onclick="_oslSetView('${v[0]}')">${v[1]}</button>`).join("");
+    g("osl-unittoggle").innerHTML=[["$","P&L $"],["%","P&L %"]].map(u=>`<button class="${unit===u[0]?'on':''}" onclick="_oslSetUnit('${u[0]}')">${u[1]}</button>`).join("");
+    if(g("osl-ivval"))g("osl-ivval").textContent=g("osl-iv").value+"%";if(g("osl-ivslider"))g("osl-ivslider").value=g("osl-iv").value;
+    renderLegs();const meta=metrics();greeks();
+    view==="table"?renderTable(meta):renderGraph(meta);
   }
-  function chart(meta){const {lo,hi,spot:sp,bes}=meta,W=760,H=300,PAD=34,steps=240;
-    const xs=[],ys=[];let ymin=1e18,ymax=-1e18;
-    for(let i=0;i<=steps;i++){const S=lo+(hi-lo)*i/steps,p=pnlAt(S);xs.push(S);ys.push(p);ymin=Math.min(ymin,p);ymax=Math.max(ymax,p);}
-    const pad=(ymax-ymin)*0.12||100;ymin-=pad;ymax+=pad;
-    const X=S=>PAD+(S-lo)/(hi-lo)*(W-2*PAD),Y=p=>H-PAD-(p-ymin)/(ymax-ymin)*(H-2*PAD),zeroY=Y(0);
-    let path="",segs="";
-    xs.forEach((S,i)=>{path+=(i?"L":"M")+X(S).toFixed(1)+" "+Y(ys[i]).toFixed(1)+" ";});
-    for(let i=0;i<xs.length-1;i++){const x0=X(xs[i]),x1=X(xs[i+1]),y0=Y(ys[i]),y1=Y(ys[i+1]);
-      const col=(ys[i]+ys[i+1])/2>=0?"rgba(63,185,80,.16)":"rgba(248,81,73,.16)";
-      segs+=`<path d="M${x0} ${zeroY}L${x0} ${y0}L${x1} ${y1}L${x1} ${zeroY}Z" fill="${col}"/>`;}
-    const be=bes.map(b=>`<line x1="${X(b)}" y1="${PAD}" x2="${X(b)}" y2="${H-PAD}" stroke="#8b949e" stroke-dasharray="3 3"/><text x="${X(b)}" y="${H-PAD+13}" fill="#8b949e" font-size="10" text-anchor="middle">${b.toFixed(0)}</text>`).join("");
-    const spX=X(sp),el=g("osl-chart");if(el)el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
-      ${segs}<line x1="${PAD}" y1="${zeroY}" x2="${W-PAD}" y2="${zeroY}" stroke="#30363d"/>
-      <line x1="${spX}" y1="${PAD}" x2="${spX}" y2="${H-PAD}" stroke="#2f81f7" stroke-dasharray="2 2"/>
-      <text x="${spX}" y="${PAD-4}" fill="#2f81f7" font-size="10" text-anchor="middle">spot ${sp.toFixed(0)}</text>
-      <path d="${path}" fill="none" stroke="#c9d1d9" stroke-width="1.8"/>${be}
-      <text x="${PAD}" y="${Y(ymax)+10}" fill="#3fb950" font-size="10">${fmt(ymax)}</text>
-      <text x="${PAD}" y="${Y(ymin)-3}" fill="#f85149" font-size="10">${fmt(ymin)}</text></svg>`;
-  }
-  window._oslRender=function(){renderLegs();const m=metrics();greeks();chart(m);};
-  window._oslInit=function(){
-    const pre=g("osl-presets");if(pre&&!pre.dataset.done){pre.dataset.done="1";
-      pre.innerHTML=Object.keys(PRE).map(n=>`<button onclick="_oslPreset('${n}')">${n}</button>`).join("");}
-    if(!legs.length)_oslPreset("Bull Put");else _oslRender();
-  };
 })();
 
 window.renderHeatmapTab=function(){
