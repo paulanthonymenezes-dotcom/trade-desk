@@ -739,7 +739,7 @@ table{width:100%;border-collapse:collapse}
 
   <!-- STATS TAB -->
   <div id="tab-network" class="section" style="display:none">
-    <div id="network-content" style="max-width:1400px;margin:0 auto"></div>
+    <div id="network-content" style="max-width:1880px;margin:0 auto"></div>
   </div>
   <div id="tab-stats" class="section active" style="display:block">
     <div id="stats-content" style="max-width:1200px;margin:0 auto"></div>
@@ -14634,8 +14634,13 @@ async function _netLoadWorld(){
   return _worldPaths;
 }
 async function netDeskSearch(q){
+  _netState.q = q;
   await _netSearch(q);
-  renderNetworkDesktop();
+  // Update ONLY the results dropdown — never rebuild the whole panel (that
+  // recreated the <input> and stole focus on every keystroke).
+  const box = document.getElementById("netd-results");
+  if(box) box.innerHTML = _netdResultsHTML();
+  else renderNetworkDesktop();
 }
 function netDeskPick(t){
   const box = document.getElementById("netd-q"); if(box) box.value = "";
@@ -14663,8 +14668,10 @@ function _netdTip(e, ed){
   h += "<div style='font-size:11px;color:#8b949e'>HQ <span style='color:#c9d1d9'>"+_netEsc(ed.country||"—")+"</span></div>";
   if(ed.articles) h += "<div style='font-size:11px;color:#8b949e'>Evidence <span style='color:#c9d1d9'>"
     + ed.articles + " articles</span>, confidence <span style='color:#c9d1d9'>"+Math.round(_netEdgeConf(ed)*100)+"%</span></div>";
-  if(ed.evidence && ed.evidence[0]) h += "<div style='margin-top:5px;font-style:italic;color:#8b949e;font-size:10.5px'>“"
+  if(ed.evidence && ed.evidence[0]){ h += "<div style='margin-top:5px;font-style:italic;color:#8b949e;font-size:10.5px'>“"
     + _netEsc(ed.evidence[0].title)+"”</div>";
+    if(ed.evidence[0].url) h += "<div style='margin-top:4px;color:#58a6ff;font-size:10px'>↗ click to open source</div>";
+  }
   h += "<div style='margin-top:6px'><span style='background:#16202a;color:#8fa3b8;font-size:9px;padding:2px 6px;border-radius:3px'>"
     + _netEsc(NET_SRC[ed.source]||ed.source||"news-inferred")+"</span></div>";
   tip.innerHTML = h; tip.style.opacity = 1;
@@ -14689,12 +14696,16 @@ function _netdBind(el, ed, root){
   el.addEventListener("mousemove", _netdMove);
   el.addEventListener("mouseleave", ()=>{ _netdHide();
     root.querySelectorAll("[data-k]").forEach(n=>n.style.opacity=""); });
+  // Click an edge/node to open its source article (SEC filing / news) in a new tab.
+  const _src = ed.evidence && ed.evidence[0] && ed.evidence[0].url;
+  if(_src){ el.style.cursor="pointer";
+    el.addEventListener("click", ()=>window.open(_src,"_blank","noopener")); }
 }
 
 function _netdSankey(rows){
   const left = rows.filter(e=>e.direction==="in"), right = rows.filter(e=>e.direction!=="in");
   const W=1000, PAD=30, LX=250, RX=750, CW=14, MAXBAND=26;
-  const H = Math.max(420, PAD*2 + Math.max(left.length,right.length)*30);
+  const H = Math.max(460, PAD*2 + Math.max(left.length,right.length)*34);
   const svg = _netdSvg("svg",{viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"xMidYMid meet",
     style:"width:100%;height:auto;display:block"});
   const sum = a => a.reduce((s,e)=>s+Math.max(e.weight||0,.4),0)||1;
@@ -14715,15 +14726,15 @@ function _netdSankey(rows){
       const g=_netdSvg("g",{style:"transition:opacity .12s"}); g.dataset.k=p.dataset.k;
       g.appendChild(_netdSvg("rect",{x:dir==="in"?x:x-8,y:y0-4,width:8,height:8,fill:NET_COLOR[e.role]}));
       const tx=_netdSvg("text",{x:dir==="in"?x-8:x+8,y:y0+4,"text-anchor":dir==="in"?"end":"start",
-        fill:"#c9d1d9","font-size":"11","font-family":"ui-monospace,Menlo,monospace"});
-      tx.textContent=(e.name||"").length>34?(e.name||"").slice(0,33)+"…":(e.name||"");
+        fill:"#c9d1d9","font-size":"13","font-family":"ui-monospace,Menlo,monospace"});
+      tx.textContent=(e.name||"").length>40?(e.name||"").slice(0,39)+"…":(e.name||"");
       g.appendChild(tx); _netdBind(g,e,svg); svg.appendChild(g);
       y+=h+gap; c+=ch;
     });
   });
   svg.appendChild(_netdSvg("rect",{x:500-CW/2,y:cy-barH/2,width:CW,height:barH,fill:"#22c55e",rx:2}));
   const ct=_netdSvg("text",{x:500,y:cy-barH/2-12,"text-anchor":"middle",fill:"#fff",
-    "font-size":"12","font-family":"ui-monospace,Menlo,monospace"});
+    "font-size":"15","font-family":"ui-monospace,Menlo,monospace"});
   ct.textContent=(_netState.graph.company||_netState.graph.ticker);
   svg.appendChild(ct);
   return svg;
@@ -14854,17 +14865,23 @@ function _netdTable(rows){
   return d;
 }
 
-function renderNetworkDesktop(){
-  const host = document.getElementById("network-content");
-  if(!host) return;
-  const S=_netState, g=S.graph;
-  const results = S.results.length ? `<div style="position:absolute;left:0;top:34px;width:340px;z-index:40;
+function _netdResultsHTML(){
+  const S=_netState;
+  if(!S.results.length) return "";
+  return `<div style="position:absolute;left:0;top:34px;width:340px;z-index:40;
       background:#161b22;border:1px solid #21262d;border-radius:6px;overflow:hidden">
       ${S.results.map(r=>`<div onclick="netDeskPick('${r.ticker}')" style="padding:7px 10px;cursor:pointer;
         border-bottom:1px solid #21262d;display:flex;justify-content:space-between;gap:10px;font-size:12px">
         <span><b>${_netEsc(r.ticker)}</b> <span style="color:#8b949e">${_netEsc((r.company||"").slice(0,30))}</span></span>
         <span style="color:#8b949e;font-size:10px;white-space:nowrap">${_netMoney(r.market_cap)} · ${r.n_edges||0}</span>
-      </div>`).join("")}</div>` : "";
+      </div>`).join("")}</div>`;
+}
+
+function renderNetworkDesktop(){
+  const host = document.getElementById("network-content");
+  if(!host) return;
+  const S=_netState, g=S.graph;
+  const results = `<div id="netd-results">${_netdResultsHTML()}</div>`;
 
   const header = `<div style="position:relative;display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
       <input id="netd-q" value="${_netEsc(S.q)}" placeholder="Search ticker or company…"
