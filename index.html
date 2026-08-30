@@ -919,11 +919,15 @@ table{width:100%;border-collapse:collapse}
           <div class="osl-card">
             <div class="osl-h">Position</div>
             <div class="osl-row" style="margin-bottom:9px">
-              <div style="flex:1.4"><label class="osl-lab">Underlying</label><input id="osl-sym" value="NQ" oninput="_oslRender()"></div>
+              <div style="flex:1.4"><label class="osl-lab">Underlying</label><input id="osl-sym" value="NQ" oninput="_oslRender()" onchange="_oslQuoteFetch()"></div>
               <div><label class="osl-lab">Spot</label><input id="osl-spot" type="number" value="23000" oninput="_oslRender()"></div>
               <div><label class="osl-lab">Days to exp</label><input id="osl-dte" type="number" value="5" step="1" oninput="_oslRender()"></div>
               <div><label class="osl-lab">IV %</label><input id="osl-iv" type="number" value="22" oninput="_oslRender()"></div>
               <div><label class="osl-lab">Mult $/pt</label><input id="osl-mult" type="number" value="20" oninput="_oslRender()"></div>
+            </div>
+            <div style="margin-bottom:9px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <button class="osl-btn" onclick="_oslQuoteFetch()">↻ Load live quote</button>
+              <div id="osl-quote" style="font-size:13.5px;font-variant-numeric:tabular-nums;color:var(--text-muted)">enter a ticker → live price, $ change &amp; % change</div>
             </div>
             <div style="margin-bottom:8px"><label class="osl-lab">Presets</label><div class="osl-seg" id="osl-presets"></div></div>
             <table class="osl-legs" id="osl-legs"><thead><tr><th></th><th>Side</th><th>Type</th><th>Strike</th><th>Qty</th><th>Premium</th><th></th></tr></thead><tbody></tbody></table>
@@ -20342,7 +20346,7 @@ function switchTab(tab, btn) {
   function setIV(v){g("osl-iv").value=v;if(g("osl-ivslider"))g("osl-ivslider").value=v;if(g("osl-ivval"))g("osl-ivval").textContent=v+"%";R();}
   window._oslPreset=preset;window._oslAddLeg=addLeg;window._oslDel=del;window._oslEdit=edit;window._oslSetIV=setIV;
   window._oslSetView=v=>{view=v;R();};window._oslSetUnit=u=>{unit=u;R();};window._oslRender=R;
-  window._oslInit=function(){if(!legs.length)preset("Bull Put");else R();};
+  window._oslInit=function(){if(!legs.length)preset("Bull Put");else R(); try{ if(window._oslQuoteFetch) _oslQuoteFetch(); }catch(e){} };
   function pnl(S,elapsed){const Trem=Math.max(0,(DTE()-elapsed))/365,m=mult(),sig=iv();
     return legs.reduce((sum,l)=>{const sign=l.side==="buy"?1:-1;const pr=bs(l.type,S,l.K,Trem,0.045,sig).price;return sum+sign*l.qty*(pr-l.prem)*m;},0);}
   function netCredit(){const m=mult();return legs.reduce((s,l)=>s+(l.side==="sell"?1:-1)*l.prem*l.qty*m,0);}
@@ -20411,6 +20415,31 @@ function switchTab(tab, btn) {
     view==="table"?renderTable(meta):renderGraph(meta);
   }
 })();
+
+/* ── Options Lab: live underlying quote (price + $ change + % change) ────── */
+window._oslQuoteFetch = async function(){
+  const symEl=document.getElementById("osl-sym"), out=document.getElementById("osl-quote");
+  if(!symEl||!out) return;
+  const sym=(symEl.value||"").trim().toUpperCase(); if(!sym){ out.textContent=""; return; }
+  const ALIAS={NQ:"NQ=F","/NQ":"NQ=F",ES:"ES=F","/ES":"ES=F",MNQ:"MNQ=F",MES:"MES=F",RTY:"RTY=F",YM:"YM=F",CL:"CL=F",GC:"GC=F",SPX:"^GSPC",VIX:"^VIX"};
+  const ySym=ALIAS[sym]||sym;
+  out.innerHTML=`<span style="color:var(--text-muted)">loading ${sym}…</span>`;
+  try{
+    const q=(typeof fetchQuote==="function")?await fetchQuote(ySym):null;
+    if(q && q.price!=null){
+      const chg=+q.change, pct=+q.changePct, up=(pct>=0);
+      const col=up?"var(--positive)":"var(--negative)";
+      out.innerHTML=`<b style="color:var(--text-primary)">${sym}</b> `
+        +`<b style="color:var(--text-primary)">$${(+q.price).toLocaleString(undefined,{maximumFractionDigits:2})}</b> `
+        +`<span style="color:${col};font-weight:600">${up?"▲":"▼"} ${chg>=0?"+":""}${chg.toFixed(2)} (${pct>=0?"+":""}${pct.toFixed(2)}%)</span>`
+        +`<span style="color:var(--text-tertiary);font-size:10px;margin-left:6px">→ Spot updated</span>`;
+      const sp=document.getElementById("osl-spot");
+      if(sp){ sp.value=(+q.price).toFixed(2); if(typeof _oslRender==="function") _oslRender(); }
+    } else {
+      out.innerHTML=`<span style="color:var(--text-muted)">no live quote for ${sym} — enter Spot manually</span>`;
+    }
+  }catch(e){ out.innerHTML=`<span style="color:var(--text-muted)">quote unavailable — enter Spot manually</span>`; }
+};
 
 /* ── Seasonality screener (desktop; reads seasonality_scans table) ────────── */
 const _SEAS = { win:80, delta:0.15, tier:"options", active:true, sort:"max_safe_delta.desc", rows:[], loading:false };
