@@ -405,6 +405,10 @@ table{width:100%;border-collapse:collapse}
 #main.dashboard-mode #tab-charts.active,
 #main.dashboard-mode #tab-heatmap.active,
 #main.dashboard-mode #tab-optionstrat.active,
+#main.dashboard-mode #tab-backtester.active,
+#main.dashboard-mode #tab-montecarlo.active,
+#main.dashboard-mode #tab-macro.active,
+#main.dashboard-mode #tab-seasonality.active,
 #main.dashboard-mode #tab-forecast.active{display:block;grid-column:1/-1}
 @media(max-width:900px){
   #main.dashboard-mode{grid-template-columns:1fr;padding:8px 8px 80px}
@@ -17372,6 +17376,9 @@ async function bootApp() {
     if (STATE.theme !== 'original') document.documentElement.dataset.theme = STATE.theme;
   }
   renderAll();
+  // Stats is the default active tab, but on a cold login its content can paint before the
+  // boot fully settles (shows empty until you switch away and back). Force one re-render.
+  setTimeout(() => { try { const st=document.getElementById('tab-stats'); if (st && st.style.display !== 'none' && typeof renderStats === 'function') renderStats(); } catch(e){} }, 300);
   maybeShowReviewModal();   // critical: surface unconfirmed trades on login so they're never forgotten
   _showChartPanel(false);
   refreshAll();
