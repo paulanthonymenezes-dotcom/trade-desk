@@ -655,6 +655,7 @@ table{width:100%;border-collapse:collapse}
   <button class="side-btn" onclick="switchTab('charts',this)"><span class="nav-icon">▦</span><span class="side-label">Lots of Charts</span></button>
   <button class="side-btn" onclick="switchTab('heatmap',this)"><span class="nav-icon">🗺️</span><span class="side-label">Heatmap</span></button>
   <button class="side-btn" onclick="switchTab('optionstrat',this)"><span class="nav-icon">⚗️</span><span class="side-label">Options Lab</span></button>
+  <button class="side-btn" onclick="switchTab('macro',this)"><span class="nav-icon">🌐</span><span class="side-label">Macro</span></button>
   <button class="side-btn" onclick="switchTab('nqscreener',this)"><span class="nav-icon">🔭</span><span class="side-label">NQ Screener</span></button>
   <button class="side-btn" onclick="switchTab('nqsessions',this)"><span class="nav-icon">📊</span><span class="side-label">NQ Sessions</span></button>
   <button class="side-btn" onclick="switchTab('backtester',this)"><span class="nav-icon">🧪</span><span class="side-label">NQ Backtester</span></button>
@@ -837,6 +838,22 @@ table{width:100%;border-collapse:collapse}
   </div>
   <div id="tab-heatmap" class="section" style="display:none">
     <div id="heatmap-content" style="max-width:1880px;margin:0 auto;padding:6px"></div>
+  </div>
+  <style>
+    #macro-content .mac-head{margin-bottom:16px}
+    #macro-content .mac-title{font-size:18px;font-weight:600}
+    #macro-content .mac-sub{color:var(--text-muted);font-size:11.5px;margin-top:2px}
+    #macro-content .mac-country{margin-bottom:18px}
+    #macro-content .mac-cname{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
+    #macro-content .mac-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px}
+    #macro-content .mac-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;padding:11px 13px}
+    #macro-content .mac-lab{color:var(--text-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em}
+    #macro-content .mac-val{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:3px;color:var(--text-primary)}
+    #macro-content .mac-as{font-size:9.5px;color:var(--text-tertiary);margin-top:3px}
+    #macro-content .mac-as.mac-stale{color:var(--warning)}
+  </style>
+  <div id="tab-macro" class="section" style="display:none">
+    <div id="macro-content" style="max-width:1400px;margin:0 auto;padding:6px"></div>
   </div>
   <style>
     #optionstrat-content .osl-top{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px}
@@ -20043,11 +20060,12 @@ async function _btRun() {
 function switchTab(tab, btn) {
   const main = document.getElementById('main');
   const appLayout = document.getElementById('app-layout');
-  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'montecarlo', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'backtester', 'resources', 'calendar', 'network', 'charts', 'heatmap', 'optionstrat'].includes(tab);
+  const isDashboardTab = ['premarket', 'diary', 'stats', 'forecast', 'montecarlo', 'forward', 'eecharts', 'guardrails', 'nqscreener', 'nqsessions', 'backtester', 'resources', 'calendar', 'network', 'charts', 'heatmap', 'optionstrat', 'macro'].includes(tab);
   if (tab === 'network') setTimeout(renderNetworkDesktop, 0);
   if (tab === 'charts') setTimeout(()=>{ try{ renderChartsTab(); }catch(e){} }, 0);
   if (tab === 'heatmap') setTimeout(()=>{ try{ renderHeatmapTab(); }catch(e){} }, 0);
   if (tab === 'optionstrat') setTimeout(()=>{ try{ _oslInit(); }catch(e){} }, 0);
+  if (tab === 'macro') setTimeout(()=>{ try{ renderMacroTab(); }catch(e){} }, 0);
   const isChartTab = CHART_TABS.includes(tab); // positions, market (watchlist)
 
   // Hide all sections
@@ -20370,6 +20388,34 @@ function switchTab(tab, btn) {
     view==="table"?renderTable(meta):renderGraph(meta);
   }
 })();
+
+/* ── Macro (global inflation / rates / employment via FRED proxy) ────────── */
+window.renderMacroTab=async function(){
+  const host=document.getElementById("macro-content");if(!host)return;
+  host.innerHTML=`<div class="mac-head"><div class="mac-title">🌐 Global Macro</div>
+    <div class="mac-sub">Inflation · rates · employment · sentiment — US &amp; Eurozone are current; Canada/UK/China CPI lag on free feeds (dated).</div></div>
+    <div id="mac-body" style="color:var(--text-muted);padding:26px 4px">Loading…</div>`;
+  try{
+    const r=await fetch("/api/macro"); const d=await r.json();
+    const body=document.getElementById("mac-body"); if(!body)return;
+    if(d.s!=="ok"||!Array.isArray(d.groups)){ body.textContent="Couldn't load macro data"+(d.errmsg?": "+d.errmsg:""); return; }
+    const now=Date.now();
+    const fmt=s=>{ if(!s)return ""; const dt=new Date(s+"T00:00:00"); return dt.toLocaleDateString("en-US",{month:"short",year:"numeric"}); };
+    body.innerHTML=d.groups.map(g=>`
+      <div class="mac-country">
+        <div class="mac-cname">${g.flag} ${g.c}</div>
+        <div class="mac-cards">
+          ${(g.items||[]).map(it=>{
+            const age=it.asOf?Math.round((now-new Date(it.asOf+"T00:00:00"))/86400000):null;
+            const stale=age!=null&&age>150;
+            const val=it.value!=null?it.value.toFixed(it.unit==="%"?2:1)+it.unit:"—";
+            return `<div class="mac-card"><div class="mac-lab">${it.label}</div><div class="mac-val">${val}</div>
+              <div class="mac-as ${stale?'mac-stale':''}">${it.asOf?(stale?'⚠ as of ':'as of ')+fmt(it.asOf):''}</div></div>`;
+          }).join("")}
+        </div>
+      </div>`).join("") + (d.fetchedAt?`<div style="color:var(--text-tertiary);font-size:10px;margin-top:6px">refreshed ${new Date(d.fetchedAt).toLocaleString()}</div>`:"");
+  }catch(e){ const b=document.getElementById("mac-body"); if(b)b.textContent="Macro fetch error: "+(e&&e.message||e); }
+};
 
 window.renderHeatmapTab=function(){
   const host=document.getElementById("heatmap-content");if(!host)return;
