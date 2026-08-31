@@ -15075,6 +15075,22 @@ function _netdResultsHTML(){
       </div>`).join("")}</div>`;
 }
 
+async function _netLoadSuggested(){
+  const el=document.getElementById("net-suggested"); if(!el) return;
+  const head=`<div style="color:#586273;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px">Suggested — largest companies (click to explore)</div>`;
+  el.innerHTML=head+`<div style="color:#586273">loading…</div>`;
+  try{
+    const q="select=ticker,company,market_cap,sector,n_edges&order=market_cap.desc&limit=30";
+    const r=await fetch(SUPABASE_URL+"/rest/v1/company_graphs?"+q,{headers:{apikey:SUPABASE_KEY,Authorization:"Bearer "+SUPABASE_KEY}});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const rows=await r.json();
+    el.innerHTML=head+`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:8px">
+      ${(rows||[]).map(c=>`<div onclick="netDeskPick('${c.ticker}')" style="background:#161b22;border:1px solid #21262d;border-radius:8px;padding:9px 11px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="min-width:0"><b style="color:#e6edf3">${c.ticker}</b> <span style="color:#8b949e;font-size:11px">${_netEsc((c.company||'').slice(0,18))}</span><div style="color:#586273;font-size:10px">${_netEsc(c.sector||'')}</div></div>
+        <div style="text-align:right;white-space:nowrap"><div style="color:#c9d1d9;font-size:12px">${_netMoney(c.market_cap)}</div><div style="color:#586273;font-size:10px">${c.n_edges||0} edges</div></div>
+      </div>`).join("")}</div>`;
+  }catch(e){ el.innerHTML=head+`<div style="color:#586273">Couldn't load suggestions: ${e&&e.message||e}</div>`; }
+}
 function renderNetworkDesktop(){
   const host = document.getElementById("network-content");
   if(!host) return;
@@ -15092,9 +15108,11 @@ function renderNetworkDesktop(){
   if(S.loading){ host.innerHTML = header +
     `<div style="padding:60px;text-align:center;color:#8b949e">Loading ${_netEsc(S.ticker||"")}…</div>`; return; }
   if(!g){ host.innerHTML = header +
-    `<div style="padding:60px;text-align:center;color:#8b949e;line-height:1.7">
+    `<div style="padding:34px 10px 18px;text-align:center;color:#8b949e;line-height:1.7">
       ${S.err?_netEsc(S.err):"Search a company to see its suppliers, customers, partners and competitors."}
-     </div>`; return; }
+     </div>
+     <div id="net-suggested" style="max-width:1200px;margin:0 auto"></div>`;
+    _netLoadSuggested(); return; }
 
   const rows = _netRows();
   const chips = NET_ROLES.map(r=>{
