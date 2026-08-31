@@ -17,18 +17,31 @@ const SB_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 const SB_HEADERS = { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY };
 
 // kind: "yoy" = index series → year-over-year %; "level" = show latest as-is.
+// src:  "fred" (default) or "boc" (Bank of Canada Valet API — fresh Canadian
+//       yields/CPI/mortgage rates that FRED's discontinued OECD feeds no longer carry).
 const SERIES = [
   { c: "United States", flag: "🇺🇸", label: "CPI (YoY)",        id: "CPIAUCSL",           kind: "yoy",   unit: "%" },
   { c: "United States", flag: "🇺🇸", label: "Core CPI (YoY)",   id: "CPILFESL",           kind: "yoy",   unit: "%" },
   { c: "United States", flag: "🇺🇸", label: "PPI (YoY)",        id: "PPIFIS",             kind: "yoy",   unit: "%" },
   { c: "United States", flag: "🇺🇸", label: "Fed Funds Rate",   id: "FEDFUNDS",           kind: "level", unit: "%" },
+  { c: "United States", flag: "🇺🇸", label: "2Y Treasury",      id: "DGS2",               kind: "level", unit: "%" },
   { c: "United States", flag: "🇺🇸", label: "10Y Treasury",     id: "DGS10",              kind: "level", unit: "%" },
+  { c: "United States", flag: "🇺🇸", label: "20Y Treasury",     id: "DGS20",              kind: "level", unit: "%" },
+  { c: "United States", flag: "🇺🇸", label: "30Y Treasury",     id: "DGS30",              kind: "level", unit: "%" },
   { c: "United States", flag: "🇺🇸", label: "UMich Sentiment",  id: "UMCSENT",            kind: "level", unit: ""  },
   { c: "United States", flag: "🇺🇸", label: "Unemployment",     id: "UNRATE",             kind: "level", unit: "%" },
   { c: "Eurozone",      flag: "🇪🇺", label: "CPI (YoY)",        id: "CP0000EZ19M086NEST", kind: "yoy",   unit: "%" },
   { c: "Eurozone",      flag: "🇪🇺", label: "ECB Deposit Rate", id: "ECBDFR",             kind: "level", unit: "%" },
-  { c: "Canada",        flag: "🇨🇦", label: "CPI (YoY)",        id: "CANCPIALLMINMEI",    kind: "yoy",   unit: "%" },
-  { c: "Canada",        flag: "🇨🇦", label: "Policy Rate (3M)", id: "IR3TIB01CAM156N",    kind: "level", unit: "%" },
+  // Canada — Bank of Canada Valet (daily, fresh). 5Y bond drives fixed-mortgage renewals;
+  // overnight target drives variable/HELOC. Posted 5Y conventional shown for reference.
+  { c: "Canada",        flag: "🇨🇦", label: "CPI (YoY)",        id: "STATIC_TOTALCPICHANGE", src: "boc", kind: "level", unit: "%" },
+  { c: "Canada",        flag: "🇨🇦", label: "Core CPI (trim)",  id: "CPI_TRIM",              src: "boc", kind: "level", unit: "%" },
+  { c: "Canada",        flag: "🇨🇦", label: "Overnight Rate",   id: "V39079",                src: "boc", kind: "level", unit: "%" },
+  { c: "Canada",        flag: "🇨🇦", label: "2Y Gov Bond",      id: "BD.CDN.2YR.DQ.YLD",     src: "boc", kind: "level", unit: "%" },
+  { c: "Canada",        flag: "🇨🇦", label: "5Y Gov Bond",      id: "BD.CDN.5YR.DQ.YLD",     src: "boc", kind: "level", unit: "%" },
+  { c: "Canada",        flag: "🇨🇦", label: "10Y Gov Bond",     id: "BD.CDN.10YR.DQ.YLD",    src: "boc", kind: "level", unit: "%" },
+  { c: "Canada",        flag: "🇨🇦", label: "30Y Gov Bond",     id: "BD.CDN.LONG.DQ.YLD",    src: "boc", kind: "level", unit: "%" },
+  { c: "Canada",        flag: "🇨🇦", label: "5Y Fixed Mortgage",id: "V80691311",             src: "boc", kind: "level", unit: "%" },
   { c: "Canada",        flag: "🇨🇦", label: "Unemployment",     id: "LRHUTTTTCAM156S",    kind: "level", unit: "%" },
   { c: "United Kingdom",flag: "🇬🇧", label: "CPI (YoY)",        id: "CPALTT01GBM659N",    kind: "level", unit: "%" },
   { c: "United Kingdom",flag: "🇬🇧", label: "Overnight Rate",   id: "IUDSOIA",            kind: "level", unit: "%" },
@@ -57,6 +70,20 @@ async function writeCache(obj) {
     });
   } catch (e) {}
 }
+// Bank of Canada Valet API — no key, ascending observations. Returns [{d, v}] asc.
+async function bocObs(series, startDate) {
+  const u = `https://www.bankofcanada.ca/valet/observations/${series}/json?start_date=${startDate}`;
+  const r = await fetch(u);
+  if (!r.ok) throw new Error("BoC " + r.status);
+  const d = await r.json();
+  const out = [];
+  for (const o of (d.observations || [])) {
+    const k = Object.keys(o).find(x => x !== "d");
+    const v = o[k] && o[k].v;
+    if (v != null && v !== "") out.push({ d: o.d, v: +v });
+  }
+  return out;
+}
 async function fredObs(id, key, limit = 14, freq = "") {
   let u = `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${key}&file_type=json&sort_order=desc&limit=${limit}`;
   if (freq) u += `&frequency=${freq}&aggregation_method=avg`;
@@ -77,13 +104,19 @@ export default async function handler(req, res) {
       return;
     }
     const key = process.env.FRED_API_KEY || "988b4dae25983b38e3f62a3e24c772af";
+    const bocStart = new Date(Date.now() - 25 * 365 * 86400000).toISOString().slice(0, 10);  // ~25y of history
     const byCountry = {};
     for (const s of SERIES) {
       let value = null, asOf = null, hist = [];
       try {
-        // Monthly history, up to ~54 years, so each metric shows its trend (not a bare number).
-        const obs = await fredObs(s.id, key, 650, "m");
-        const asc = obs.slice().reverse().map(o => ({ d: o.date, v: +o.value }));   // oldest → newest
+        // oldest → newest. FRED monthly (up to ~54y); BoC Valet (daily, ~25y) for Canada.
+        let asc;
+        if (s.src === "boc") {
+          asc = await bocObs(s.id, bocStart);
+        } else {
+          const obs = await fredObs(s.id, key, 650, "m");
+          asc = obs.slice().reverse().map(o => ({ d: o.date, v: +o.value }));
+        }
         let series;
         if (s.kind === "yoy") {
           series = [];
