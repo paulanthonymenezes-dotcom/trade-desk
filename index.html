@@ -20664,6 +20664,56 @@ function _macChart(hist){
     <text x="${W-PAD}" y="10" fill="var(--text-tertiary)" font-size="9" text-anchor="end">${mx.toFixed(1)}</text>
     <text x="${W-PAD}" y="${H-4}" fill="var(--text-tertiary)" font-size="9" text-anchor="end">${mn.toFixed(1)}</text></svg>`;
 }
+window._macExpand=function(country, idx){
+  const g=(window._macGroups||[]).find(x=>x.c===country); if(!g) return;
+  const it=g.items[idx]; if(!it||!it.hist||it.hist.length<2) return;
+  let m=document.getElementById("mac-modal");
+  if(!m){ m=document.createElement("div"); m.id="mac-modal"; document.body.appendChild(m); }
+  m.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px";
+  m.innerHTML=`<div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:18px;max-width:960px;width:100%">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div><b style="font-size:16px">${g.flag} ${g.c} — ${it.label}</b>
+        <span style="color:var(--text-muted);font-size:12px;margin-left:6px">latest ${it.value}${it.unit} · ${it.hist[0].d.slice(0,4)}–${it.hist[it.hist.length-1].d.slice(0,4)}</span></div>
+      <button onclick="document.getElementById('mac-modal').remove()" style="background:none;border:none;color:var(--text-secondary);font-size:24px;cursor:pointer;line-height:1">×</button>
+    </div>
+    <div id="mac-bigchart"></div></div>`;
+  m.onclick=e=>{ if(e.target===m) m.remove(); };
+  document.onkeydown=e=>{ if(e.key==="Escape"){const mm=document.getElementById("mac-modal");if(mm)mm.remove();} };
+  _macBigChart(it);
+};
+function _macBigChart(it){
+  const el=document.getElementById("mac-bigchart"); if(!el) return;
+  const hist=it.hist, W=900,H=430,ML=56,MR=18,MT=16,MB=36;
+  const vs=hist.map(p=>p.v), mn=Math.min(...vs),mx=Math.max(...vs), pad=(mx-mn)*0.08||1, y0=mn-pad,y1=mx+pad;
+  const t0=new Date(hist[0].d).getTime(), t1=new Date(hist[hist.length-1].d).getTime();
+  const X=t=>ML+(t-t0)/((t1-t0)||1)*(W-ML-MR), Y=v=>H-MB-(v-y0)/((y1-y0)||1)*(H-MT-MB);
+  const pts=hist.map(p=>({x:X(new Date(p.d).getTime()),y:Y(p.v),d:p.d,v:p.v}));
+  let line=""; pts.forEach((p,i)=>{line+=(i?"L":"M")+p.x.toFixed(1)+" "+p.y.toFixed(1)+" ";});
+  let yt=""; for(let i=0;i<=5;i++){const v=y0+(y1-y0)*i/5,y=Y(v);yt+=`<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W-MR}" y2="${y.toFixed(1)}" stroke="var(--border-subtle)"/><text x="${ML-7}" y="${(y+3).toFixed(1)}" fill="var(--text-tertiary)" font-size="10.5" text-anchor="end">${v.toFixed(1)}${it.unit}</text>`;}
+  let xt=""; const yr0=new Date(hist[0].d).getFullYear(),yr1=new Date(hist[hist.length-1].d).getFullYear(),stepY=Math.max(1,Math.ceil((yr1-yr0)/9));
+  for(let y=Math.ceil(yr0/stepY)*stepY;y<=yr1;y+=stepY){const x=X(new Date(y+"-01-01T00:00:00Z").getTime());if(x>=ML&&x<=W-MR)xt+=`<line x1="${x.toFixed(1)}" y1="${MT}" x2="${x.toFixed(1)}" y2="${H-MB}" stroke="var(--border-subtle)" opacity=".55"/><text x="${x.toFixed(1)}" y="${H-MB+15}" fill="var(--text-tertiary)" font-size="10.5" text-anchor="middle">${y}</text>`;}
+  const up=vs[vs.length-1]>=vs[0], col=up?"var(--positive)":"var(--negative)";
+  const zero=(y0<0&&y1>0)?`<line x1="${ML}" y1="${Y(0).toFixed(1)}" x2="${W-MR}" y2="${Y(0).toFixed(1)}" stroke="var(--border-visible)"/>`:"";
+  const area=line+`L${pts[pts.length-1].x.toFixed(1)} ${H-MB} L${pts[0].x.toFixed(1)} ${H-MB} Z`;
+  el.innerHTML=`<svg id="mac-svg" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;cursor:crosshair">
+    ${yt}${xt}${zero}
+    <path d="${area}" fill="${up?'rgba(38,192,133,.08)':'rgba(240,97,109,.08)'}"/>
+    <path d="${line}" fill="none" stroke="${col}" stroke-width="1.7"/>
+    <g id="mac-cross" style="display:none"><line id="mac-cx" y1="${MT}" y2="${H-MB}" stroke="var(--accent)" stroke-dasharray="3 3"/><circle id="mac-cdot" r="4" fill="var(--accent)"/></g>
+  </svg>
+  <div id="mac-tip" style="text-align:center;color:var(--text-secondary);font-size:13px;margin-top:8px;height:18px">hover the chart to read any month's exact value</div>`;
+  const svg=document.getElementById("mac-svg");
+  svg.addEventListener("mousemove",ev=>{
+    const r=svg.getBoundingClientRect(), sx=(ev.clientX-r.left)/r.width*W;
+    let best=pts[0],bd=1e9; for(const p of pts){const dd=Math.abs(p.x-sx);if(dd<bd){bd=dd;best=p;}}
+    const cr=document.getElementById("mac-cross"); if(!cr)return; cr.style.display="";
+    document.getElementById("mac-cx").setAttribute("x1",best.x); document.getElementById("mac-cx").setAttribute("x2",best.x);
+    const cd=document.getElementById("mac-cdot"); cd.setAttribute("cx",best.x); cd.setAttribute("cy",best.y);
+    const lbl=new Date(best.d+"T00:00:00").toLocaleDateString("en-US",{month:"short",year:"numeric"});
+    document.getElementById("mac-tip").innerHTML=`<b style="color:var(--text-primary)">${lbl}</b> &nbsp; <b style="color:${col}">${best.v.toFixed(2)}${it.unit}</b>`;
+  });
+  svg.addEventListener("mouseleave",()=>{const c=document.getElementById("mac-cross");if(c)c.style.display="none";});
+}
 window.renderMacroTab=async function(){
   const host=document.getElementById("macro-content");if(!host)return;
   host.innerHTML=`<div class="mac-head"><div class="mac-title">🌐 Global Macro</div>
@@ -20675,18 +20725,20 @@ window.renderMacroTab=async function(){
     if(d.s!=="ok"||!Array.isArray(d.groups)){ body.textContent="Couldn't load macro data"+(d.errmsg?": "+d.errmsg:""); return; }
     const now=Date.now();
     const fmt=s=>{ if(!s)return ""; const dt=new Date(s+"T00:00:00"); return dt.toLocaleDateString("en-US",{month:"short",year:"numeric"}); };
+    window._macGroups=d.groups;
     body.innerHTML=d.groups.map(g=>`
       <div class="mac-country">
         <div class="mac-cname">${g.flag} ${g.c}</div>
         <div class="mac-cards">
-          ${(g.items||[]).map(it=>{
+          ${(g.items||[]).map((it,ii)=>{
             const age=it.asOf?Math.round((now-new Date(it.asOf+"T00:00:00"))/86400000):null;
             const stale=age!=null&&age>150;
             const val=it.value!=null?it.value.toFixed(it.unit==="%"?2:1)+it.unit:"—";
             const since=it.hist&&it.hist.length?it.hist[0].d.slice(0,4):null;
-            return `<div class="mac-card"><div class="mac-lab">${it.label}</div><div class="mac-val">${val}</div>
+            const clk=it.hist&&it.hist.length>1?`onclick="_macExpand('${g.c}',${ii})" style="cursor:pointer"`:"";
+            return `<div class="mac-card" ${clk}><div class="mac-lab">${it.label}</div><div class="mac-val">${val}</div>
               ${_macChart(it.hist)}
-              <div class="mac-as ${stale?'mac-stale':''}">${it.asOf?(stale?'⚠ as of ':'as of ')+fmt(it.asOf):''}${since?' · since '+since:''}</div></div>`;
+              <div class="mac-as ${stale?'mac-stale':''}">${it.asOf?(stale?'⚠ as of ':'as of ')+fmt(it.asOf):''}${since?' · since '+since:''}${it.hist&&it.hist.length>1?' · click to expand ⤢':''}</div></div>`;
           }).join("")}
         </div>
       </div>`).join("") + (d.fetchedAt?`<div style="color:var(--text-tertiary);font-size:10px;margin-top:6px">refreshed ${new Date(d.fetchedAt).toLocaleString()}</div>`:"");
