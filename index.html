@@ -850,7 +850,7 @@ table{width:100%;border-collapse:collapse}
     #macro-content .mac-sub{color:var(--text-muted);font-size:11.5px;margin-top:2px}
     #macro-content .mac-country{margin-bottom:18px}
     #macro-content .mac-cname{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
-    #macro-content .mac-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px}
+    #macro-content .mac-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
     #macro-content .mac-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;padding:11px 13px}
     #macro-content .mac-lab{color:var(--text-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em}
     #macro-content .mac-val{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:3px;color:var(--text-primary)}
@@ -20632,6 +20632,20 @@ window._szxAnalyze=async function(){
 };
 
 /* ── Macro (global inflation / rates / employment via FRED proxy) ────────── */
+function _macChart(hist){
+  if(!hist||hist.length<2) return "";
+  const vs=hist.map(p=>p.v), mn=Math.min(...vs), mx=Math.max(...vs), W=250,H=58,PAD=3;
+  const X=i=>PAD+i/(hist.length-1)*(W-2*PAD), Y=v=>H-PAD-((v-mn)/((mx-mn)||1))*(H-2*PAD);
+  let d="";hist.forEach((p,i)=>{d+=(i?"L":"M")+X(i).toFixed(1)+" "+Y(p.v).toFixed(1)+" ";});
+  const up=vs[vs.length-1]>=vs[0], col=up?"var(--positive)":"var(--negative)";
+  let zero=""; if(mn<0&&mx>0){const zy=Y(0);zero=`<line x1="${PAD}" y1="${zy.toFixed(1)}" x2="${W-PAD}" y2="${zy.toFixed(1)}" stroke="var(--border-visible)" stroke-dasharray="2 2"/>`;}
+  const area=d+`L${X(hist.length-1).toFixed(1)} ${H-PAD} L${X(0).toFixed(1)} ${H-PAD} Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:56px;margin-top:8px;display:block">
+    ${zero}<path d="${area}" fill="${up?'rgba(38,192,133,.10)':'rgba(240,97,109,.10)'}"/>
+    <path d="${d}" fill="none" stroke="${col}" stroke-width="1.4"/>
+    <text x="${W-PAD}" y="10" fill="var(--text-tertiary)" font-size="9" text-anchor="end">${mx.toFixed(1)}</text>
+    <text x="${W-PAD}" y="${H-4}" fill="var(--text-tertiary)" font-size="9" text-anchor="end">${mn.toFixed(1)}</text></svg>`;
+}
 window.renderMacroTab=async function(){
   const host=document.getElementById("macro-content");if(!host)return;
   host.innerHTML=`<div class="mac-head"><div class="mac-title">🌐 Global Macro</div>
@@ -20651,8 +20665,10 @@ window.renderMacroTab=async function(){
             const age=it.asOf?Math.round((now-new Date(it.asOf+"T00:00:00"))/86400000):null;
             const stale=age!=null&&age>150;
             const val=it.value!=null?it.value.toFixed(it.unit==="%"?2:1)+it.unit:"—";
+            const since=it.hist&&it.hist.length?it.hist[0].d.slice(0,4):null;
             return `<div class="mac-card"><div class="mac-lab">${it.label}</div><div class="mac-val">${val}</div>
-              <div class="mac-as ${stale?'mac-stale':''}">${it.asOf?(stale?'⚠ as of ':'as of ')+fmt(it.asOf):''}</div></div>`;
+              ${_macChart(it.hist)}
+              <div class="mac-as ${stale?'mac-stale':''}">${it.asOf?(stale?'⚠ as of ':'as of ')+fmt(it.asOf):''}${since?' · since '+since:''}</div></div>`;
           }).join("")}
         </div>
       </div>`).join("") + (d.fetchedAt?`<div style="color:var(--text-tertiary);font-size:10px;margin-top:6px">refreshed ${new Date(d.fetchedAt).toLocaleString()}</div>`:"");

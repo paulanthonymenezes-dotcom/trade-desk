@@ -57,8 +57,9 @@ async function writeCache(obj) {
     });
   } catch (e) {}
 }
-async function fredObs(id, key) {
-  const u = `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${key}&file_type=json&sort_order=desc&limit=14`;
+async function fredObs(id, key, limit = 14, freq = "") {
+  let u = `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${key}&file_type=json&sort_order=desc&limit=${limit}`;
+  if (freq) u += `&frequency=${freq}&aggregation_method=avg`;
   const r = await fetch(u);
   if (!r.ok) throw new Error("FRED " + r.status);
   const d = await r.json();
@@ -78,22 +79,30 @@ export default async function handler(req, res) {
     const key = process.env.FRED_API_KEY || "988b4dae25983b38e3f62a3e24c772af";
     const byCountry = {};
     for (const s of SERIES) {
-      let value = null, asOf = null;
+      let value = null, asOf = null, hist = [];
       try {
-        const obs = await fredObs(s.id, key);
-        if (obs.length) {
-          asOf = obs[0].date;
-          if (s.kind === "yoy") {
-            const latest = +obs[0].value;
-            const ya = obs[12] || obs[obs.length - 1];   // ~12 monthly obs back
-            if (ya && +ya.value) value = (latest / (+ya.value) - 1) * 100;
-          } else {
-            value = +obs[0].value;
+        // Monthly history, up to ~54 years, so each metric shows its trend (not a bare number).
+        const obs = await fredObs(s.id, key, 650, "m");
+        const asc = obs.slice().reverse().map(o => ({ d: o.date, v: +o.value }));   // oldest → newest
+        let series;
+        if (s.kind === "yoy") {
+          series = [];
+          for (let i = 12; i < asc.length; i++) {
+            if (asc[i - 12].v) series.push({ d: asc[i].d, v: (asc[i].v / asc[i - 12].v - 1) * 100 });
           }
+        } else {
+          series = asc;
+        }
+        if (series.length) {
+          value = series[series.length - 1].v;
+          asOf = series[series.length - 1].d;
+          const step = Math.max(1, Math.ceil(series.length / 150));   // downsample to ~150 pts
+          hist = series.filter((_, i) => i % step === 0 || i === series.length - 1)
+                       .map(p => ({ d: p.d, v: +p.v.toFixed(2) }));
         }
       } catch (e) {}
       (byCountry[s.c] = byCountry[s.c] || { c: s.c, flag: s.flag, items: [] })
-        .items.push({ label: s.label, value: value != null ? +value.toFixed(2) : null, unit: s.unit, asOf });
+        .items.push({ label: s.label, value: value != null ? +value.toFixed(2) : null, unit: s.unit, asOf, hist });
     }
     const groups = ORDER.filter(c => byCountry[c]).map(c => byCountry[c]);
     await writeCache({ date: todayET, groups, fetchedAt: new Date().toISOString() });
