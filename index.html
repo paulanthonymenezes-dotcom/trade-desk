@@ -461,7 +461,6 @@ table{width:100%;border-collapse:collapse}
   <a href="https://www.financialjuice.com" target="_blank" rel="noopener" class="btn btn-g" style="padding:3px 6px;font-size:9px;text-decoration:none;margin-right:4px;letter-spacing:0;display:inline-flex;align-items:center;gap:3px"><img src="https://www.google.com/s2/favicons?domain=financialjuice.com&sz=16" width="14" height="14" style="border-radius:2px"> FJ</a>
   <a href="https://www.fxstreet.com/economic-calendar" target="_blank" rel="noopener" class="btn btn-g" style="padding:3px 6px;font-size:9px;text-decoration:none;margin-right:4px;letter-spacing:0;display:inline-flex;align-items:center;gap:3px"><img src="https://www.google.com/s2/favicons?domain=fxstreet.com&sz=16" width="14" height="14" style="border-radius:2px"> FX</a>
   <a href="https://www.earningswhispers.com/calendar" target="_blank" rel="noopener" class="btn btn-g" style="padding:3px 6px;font-size:9px;text-decoration:none;margin-right:6px;letter-spacing:0;display:inline-flex;align-items:center;gap:3px"><img src="https://www.google.com/s2/favicons?domain=earningswhispers.com&sz=16" width="14" height="14" style="border-radius:2px"> EW</a>
-  <button class="btn btn-p" onclick="quickSync()" id="quick-sync-btn" style="padding:6px 14px;font-size:11px;font-weight:700;margin-right:6px;letter-spacing:0.02em">⚡ SYNC</button>
   <button class="btn btn-g" onclick="refreshAll()" id="refresh-btn" style="padding:5px 10px;font-size:10px;margin-right:6px">↻</button>
   <button class="btn btn-g" onclick="toggleDebug()" id="debug-btn" style="padding:5px 8px;font-size:10px;margin-right:6px">🔍</button>
   <button class="btn btn-g" onclick="_toggleCBPanel()" id="cb-panel-btn" style="padding:5px 10px;font-size:10px;margin-right:6px;letter-spacing:0">🏦 RATES</button>
@@ -689,7 +688,6 @@ table{width:100%;border-collapse:collapse}
         <span class="autosync-status" style="font-size:9px;color:var(--text-muted);font-variant-numeric:tabular-nums"></span>
       </div>
       <div style="display:flex;gap:6px">
-        <button class="btn btn-g" style="padding:7px 10px;font-size:10px" onclick="quickSync()" title="Sync from IBKR">⚡ SYNC</button>
         <button class="btn btn-p" style="padding:7px 14px;background:var(--accent, #2f81f7);border-color:var(--accent, #2f81f7)" onclick="openFuturesModal()" title="Quick log NQ/ES/MNQ/MES">⚡ FUTURES</button>
         <button class="btn btn-p" style="padding:7px 14px;background:var(--positive);border-color:var(--positive);color:#0d1117;font-weight:700" onclick="openQuickLog()" title="Fast trade log with source + pre-entry checklist">⚡ QUICK LOG</button>
         <button class="btn btn-g" style="padding:7px 14px" onclick="openTradeModal()" title="Full trade entry">+ FULL FORM</button>
@@ -1549,19 +1547,14 @@ table{width:100%;border-collapse:collapse}
       <div class="frow"><label>Positions &amp; NAV Query ID <span style="color:var(--text-muted);font-size:9px">(optional — a 2nd Flex query with Open Positions + NAV sections)</span></label><input id="s-ibkr-extras-query" placeholder="Query ID..."></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:8px">
-      <button class="btn btn-p" style="flex:1" onclick="syncIBKR()">⚡ SYNC IBKR</button>
       <input type="file" id="ibkr-file" accept=".csv" style="display:none" onchange="handleIBKRImport(this)">
-      <button class="btn btn-g" style="flex:1" onclick="document.getElementById('ibkr-file').click()">📂 CSV IMPORT</button>
+      <button class="btn btn-g" style="flex:1" onclick="document.getElementById('ibkr-file').click()">📂 CSV IMPORT (fallback)</button>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
-        <input type="checkbox" id="s-autosync-enabled" style="accent-color:var(--positive)">
-        <span style="font-size:12px;color:var(--text-primary);font-weight:500">Auto-sync on page load (4h cooldown)</span>
-      </label>
-      <input id="s-autosync-interval" type="hidden" value="15">
-      <span class="autosync-status" style="font-size:10px;color:var(--text-muted);margin-left:auto;font-variant-numeric:tabular-nums"></span>
-    </div>
-    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Background auto-sync runs on the server every hour (VPS cron). Browser only re-pulls if it's been &gt;4h since last sync — prevents IBKR throttle. Use SYNC button for instant refresh; CSV upload as fallback.</div>
+    <!-- inert: kept only so settings JS reads don't hit null; browser sync is disabled -->
+    <input type="checkbox" id="s-autosync-enabled" checked style="display:none">
+    <input id="s-autosync-interval" type="hidden" value="15">
+    <span class="autosync-status" style="display:none"></span>
+    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Trades sync <b>automatically</b> — the VPS server pulls new fills append-only several times a day, and any manual updates go through Claude in chat. The Flex token / query IDs above are used by the server; CSV import is a fallback.</div>
     <div id="ibkr-sync-status" style="display:none;margin-bottom:8px"></div>
     <div id="ibkr-preview" style="display:none;margin-bottom:16px"></div>
 
@@ -14481,7 +14474,7 @@ function renderMobile() {
   let syncStr = "—";
   if (STATE.lastAutoSync) { try { syncStr = new Date(STATE.lastAutoSync).toLocaleString("en-US",{timeZone:"America/New_York",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}); } catch(e){} }
   const _syncLine = _mSyncing ? "↻ syncing IBKR…" : (_mSyncMsg || `⟳ IBKR ${syncStr} · tap to sync`);
-  if (sub) sub.innerHTML = `<div onclick="mSyncNow()" style="text-align:right;font-size:9px;color:var(--accent);cursor:pointer;white-space:nowrap">${_syncLine}</div><div style="text-align:right">today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}</div>`;
+  if (sub) sub.innerHTML = `<div style="text-align:right;font-size:9px;color:var(--text-muted);white-space:nowrap">${_syncLine}</div><div style="text-align:right">today ${todayPnl>=0?"+":""}$${Math.round(todayPnl).toLocaleString()}</div>`;
   if (!_dataLoaded) { el.innerHTML = `<div style="padding:48px 0;text-align:center;color:var(--text-muted);font-size:13px">Loading your desk…</div>`; return; }
   if (v === "am") { el.innerHTML = renderMAM(); if (!_macroCalEvents.length) _mLoadMacro(); }
   else if (v === "tag") el.innerHTML = renderMTag();
@@ -17110,8 +17103,8 @@ function startAutoSync() {
     // another device/session (or dropped by a stale-device clobber) reappear without a full
     // reload. Additive only (merges missing tags), no save() → introduces no clobber risk.
     if (typeof _loadTagRows === "function") _loadTagRows().then(() => { if (_isMobile()) renderMobile(); }).catch(()=>{});
-    const last = STATE.lastAutoSync ? Date.parse(STATE.lastAutoSync) : 0;
-    if (Date.now() - last > COOLDOWN_MS) autoSyncIBKR();
+    // Browser-side IBKR sync is DISABLED — the VPS append-only cron owns trade sync,
+    // and manual updates go through Claude in chat. (Kept the tag re-pull above.)
   };
   // Single fire shortly after load if the journal is stale
   setTimeout(maybeSync, 4000);
