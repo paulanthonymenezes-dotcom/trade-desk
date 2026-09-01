@@ -16768,6 +16768,15 @@ function applyFlexReconstruction(recon) {
       t.id = a.id; // keep stable id
     } else { t.id = nid++; }
   }
+  // WINDOWED-STATEMENT GUARD: a full-history Flex statement re-matches nearly all
+  // existing IBKR trades; a Last-Business-Day / windowed query matches almost none,
+  // so a full replace would silently DELETE history. Refuse in that case — the
+  // append-only auto-sync (VPS cron + /api/sync-ibkr) already adds new trades.
+  const reconSigs = new Set(recon.map(sig));
+  const droppedCount = oldIbkr.filter(o => !reconSigs.has(sig(o))).length;
+  if (droppedCount > 15) {
+    return { refused: true, droppedCount, imported: recon.length, existingIbkr: oldIbkr.length };
+  }
   STATE.trades = manual.concat(recon);
   STATE.nextId = Math.max(0, ...STATE.trades.map(t=>t.id||0)) + 1;
   return { replaced: oldIbkr.length, imported: recon.length, manualKept: manual.length };
@@ -17002,6 +17011,11 @@ async function syncIBKR(quiet = false) {
       return false; // didn't actually sync anything
     }
     const res = applyFlexReconstruction(recon);
+    if (res.refused) {
+      showSyncStatus(`Sync refused — statement has ${res.imported} trade(s) but you hold ${res.existingIbkr}. That's a windowed (Last-Business-Day) query, and manual SYNC does a full replace. Your append-only auto-sync already adds new trades.`, "warn");
+      if (!quiet) alert(`Sync refused to protect your history.\n\nThe Flex statement returned only ${res.imported} trade(s), but the desk holds ${res.existingIbkr} IBKR trades — so a full replace would delete ${res.droppedCount} of them.\n\nThis happens because your Flex query is now set to "Last Business Day". Your append-only auto-sync (VPS cron) already pulls new trades automatically, so you don't need this button. To do a genuine full re-sync, switch the query back to full history first.`);
+      return false;
+    }
     save();
     renderAll();
     if (STATE.ibkrExtrasQueryId) _syncFlexExtras(token).then(ok => { if (ok) renderAll(); });   // optional separate Positions&NAV query
@@ -17307,6 +17321,10 @@ function handleIBKRImport(input) {
       const pnl = cl.reduce((s,t)=>s+(t.realizedPnl||0),0);
       const win = cl.length ? Math.round(cl.filter(t=>t.realizedPnl>0).length/cl.length*100) : 0;
       const res = applyFlexReconstruction(recon);
+      if (res.refused) {
+        alert(`Import refused to protect your history.\n\nThis CSV has ${res.imported} trade(s), but the desk holds ${res.existingIbkr} IBKR trades — a full replace would delete ${res.droppedCount} of them. Use a full-history Flex export for a full re-import; new daily trades come in automatically via the append-only auto-sync.`);
+        return;
+      }
       save(); renderAll();
       alert(`✅ Imported from IBKR:\n\n${recon.length} trades (${cl.length} closed, ${op.length} open)\nRealized P&L: ${pnl>=0?'+$':'-$'}${Math.abs(pnl).toFixed(0)}\nWin rate: ${win}%\n\nReplaced ${res.replaced} prior IBKR trades · kept ${res.manualKept} manual.`);
       document.getElementById("ibkr-preview").style.display = "none";
