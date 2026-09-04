@@ -20848,7 +20848,7 @@ function _szxWindowStats(bars,smd,emd,years,endConv){
     let lo=Infinity,hi=-Infinity,loc=Infinity,hic=-Infinity;
     for(let k=i0+1;k<=i1;k++){lo=Math.min(lo,bars[k].l);hi=Math.max(hi,bars[k].h);loc=Math.min(loc,bars[k].c);hic=Math.max(hic,bars[k].c);}
     inst.push({year,entryD:bars[i0].day,exitD:bars[i1].day,entry,exit,ret:(exit/entry-1)*100,
-      maxRise:Math.max(0,(hi/entry-1)*100),maxDrop:Math.min(0,(lo/entry-1)*100),maxDropC:Math.min(0,(loc/entry-1)*100),td:i1-i0+1});
+      maxRise:Math.max(0,(hic/entry-1)*100),maxRiseI:Math.max(0,(hi/entry-1)*100),maxDrop:Math.min(0,(lo/entry-1)*100),maxDropC:Math.min(0,(loc/entry-1)*100),td:i1-i0+1});
   }
   const use=years?inst.slice(-years):inst, rets=use.map(i=>i.ret);
   const mean=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN;
@@ -20939,7 +20939,7 @@ window._szxRender=function(){
         </div>
         <div class="osl-card"><div class="osl-h">Worst drawdown by year <span id="szx-ddsub" style="color:var(--text-muted);font-weight:400;font-size:11px"></span></div><div id="szx-ddchart"></div><div class="szx-note" id="szx-breach"></div></div>
         <div class="osl-card"><div class="osl-h">Year by year</div><div class="seas-wrap"><table class="seas-tbl" id="szx-years"></table></div>
-          <div class="szx-note">Max drop (close) is the closing basis; max drop (intraday) is the worst tick — they can diverge violently on flash-crash opens.</div></div>
+          <div class="szx-note">Rise and drop are on the CLOSING basis (what Seasonax reports, and what matters if your exit rule ignores wicks). The intraday columns are the worst tick reached — the gap between them is flush risk a closes-only study cannot see.</div></div>
       </div>
       <aside class="szx-rail" id="szx-stats"></aside>
     </div>`;
@@ -21053,8 +21053,8 @@ window._szxAnalyze=async function(){
     _szxYearChart("szx-retchart",st.inst,{W:700,H:230,val:i=>i.ret,unit:"%",dec:0,zero:true,color:(it,v)=>v>=0?"var(--positive)":"var(--negative)"});
     const fd=ms=>{const d=new Date(ms);return (d.getUTCMonth()+1)+"/"+d.getUTCDate()+"/"+String(d.getUTCFullYear()).slice(2);};
     const fdl=ms=>{const d=new Date(ms);return String(d.getUTCDate()).padStart(2,"0")+" "+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()]+" "+d.getUTCFullYear();};
-    document.getElementById("szx-years").innerHTML=`<thead><tr><th>Start date</th><th class="r">Start price</th><th>End date</th><th class="r">End price</th><th class="r">Profit</th><th class="r">Profit %</th><th class="r">Max rise</th><th class="r">Max drop</th><th class="r">Max drop (intraday)</th><th class="r">Days</th></tr></thead><tbody>`
-      +st.inst.map(i=>{const p=i.exit-i.entry;return `<tr><td>${fdl(i.entryD)}</td><td class="r">${i.entry.toFixed(2)}</td><td>${fdl(i.exitD)}</td><td class="r">${i.exit.toFixed(2)}</td><td class="r ${p>=0?'seas-pos':'seas-neg'}">${p>=0?"+":""}${p.toFixed(2)}</td><td class="r ${i.ret>=0?'seas-pos':'seas-neg'}">${pct(i.ret,2)}</td><td class="r seas-pos">${pct(i.maxRise,2)}</td><td class="r seas-neg">${pct(i.maxDropC,2)}</td><td class="r seas-neg">${pct(i.maxDrop,2)}</td><td class="r">${i.td}</td></tr>`;}).join("")+`</tbody>`;
+    document.getElementById("szx-years").innerHTML=`<thead><tr><th>Start date</th><th class="r">Start price</th><th>End date</th><th class="r">End price</th><th class="r">Profit</th><th class="r">Profit %</th><th class="r">Max rise</th><th class="r">Max rise (intraday)</th><th class="r">Max drop</th><th class="r">Max drop (intraday)</th><th class="r">Days</th></tr></thead><tbody>`
+      +st.inst.map(i=>{const p=i.exit-i.entry;return `<tr><td>${fdl(i.entryD)}</td><td class="r">${i.entry.toFixed(2)}</td><td>${fdl(i.exitD)}</td><td class="r">${i.exit.toFixed(2)}</td><td class="r ${p>=0?'seas-pos':'seas-neg'}">${p>=0?"+":""}${p.toFixed(2)}</td><td class="r ${i.ret>=0?'seas-pos':'seas-neg'}">${pct(i.ret,2)}</td><td class="r seas-pos">${pct(i.maxRise,2)}</td><td class="r seas-pos" style="opacity:.72">${pct(i.maxRiseI,2)}</td><td class="r seas-neg">${pct(i.maxDropC,2)}</td><td class="r seas-neg">${pct(i.maxDrop,2)}</td><td class="r">${i.td}</td></tr>`;}).join("")+`</tbody>`;
   }catch(e){ if(S)S.textContent="error: "+(e&&e.message||e); const c=document.getElementById("szx-chart"); if(c)c.innerHTML=`<div style="padding:24px;color:var(--negative)">Couldn't analyze ${_SZX.tkr}: ${e&&e.message||e}</div>`; }
 };
 
