@@ -20663,7 +20663,7 @@ window._slvRun=async function(){
         const rets=inst.map(i=>S.dir==="short"?-i.ret:i.ret);
         const wins=rets.filter(r=>r>0).length, n=rets.length;
         const winRate=wins/n*100; if(winRate<S.minWin) continue;
-        const avg=rets.reduce((a,b)=>a+b,0)/n;
+        const avg=(Math.pow(rets.reduce((a,r)=>a*(1+r/100),1),1/n)-1)*100;   // geometric mean (Seasonax parity)
         const sd=n>1?Math.sqrt(rets.reduce((a,b)=>a+(b-avg)*(b-avg),0)/(n-1)):0;
         const sorted=[...rets].sort((a,b)=>a-b), mid=n>>1;
         const med=n%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
@@ -20965,10 +20965,14 @@ window._szxAnalyze=async function(){
     const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN;
     const calDays=mean(I.map(i=>(i.exitD-i.entryD)/86400000))||1;
     const tradDays=mean(I.map(i=>i.td));
-    const ann=(Math.pow(1+(st.avgRet||0)/100,365/calDays)-1)*100;
-    const sd=st.vol, sharpe=sd>0?(st.avgRet/sd)*Math.sqrt(365/calDays):NaN;
+    // Average return is the GEOMETRIC mean, not the arithmetic one — that's what
+    // compounding a sequence of returns actually yields, and it's what Seasonax
+    // reports (verified on APP 09-04→09-18: geo 9.76% vs arith 11.19%, they show 9.76%).
+    const geoAvg=N?(Math.pow(rets.reduce((a,r)=>a*(1+r/100),1),1/N)-1)*100:NaN;
+    const ann=(Math.pow(1+(geoAvg||0)/100,365/calDays)-1)*100;
+    const sd=st.vol, sharpe=sd>0?(geoAvg/sd)*Math.sqrt(365/calDays):NaN;
     const dn=rets.filter(r=>r<0), dsd=dn.length?Math.sqrt(dn.reduce((s,x)=>s+x*x,0)/dn.length):0;
-    const sortino=dsd>0?(st.avgRet/dsd)*Math.sqrt(365/calDays):NaN;
+    const sortino=dsd>0?(geoAvg/dsd)*Math.sqrt(365/calDays):NaN;
     const volAnn=sd*Math.sqrt(365/calDays);
     const ptsTotal=I.reduce((s,i)=>s+(i.exit-i.entry),0), ptsAvg=ptsTotal/(N||1);
     const gains=rets.filter(r=>r>0).length, losses=N-gains;
@@ -21000,7 +21004,7 @@ window._szxAnalyze=async function(){
       <div class="rail-card"><div class="rail-h">Return</div><div class="rail-2">
         <div><div class="rv ${ann>=0?'seas-pos':'seas-neg'}">${num(ann,2)}</div><div class="rl">Annualized return</div></div>
         <div><div class="rv ${restAnn>=0?'seas-pos':'seas-neg'}">${num(restAnn,2)}</div><div class="rl">Annualized / rest</div></div>
-        <div><div class="rv ${st.avgRet>=0?'seas-pos':'seas-neg'}">${num(st.avgRet,2)}</div><div class="rl">Average return</div></div>
+        <div><div class="rv ${geoAvg>=0?'seas-pos':'seas-neg'}">${num(geoAvg,2)}</div><div class="rl">Average return</div></div>
         <div><div class="rv ${st.median>=0?'seas-pos':'seas-neg'}">${num(st.median,2)}</div><div class="rl">Median return</div></div>
       </div></div>
       <div class="rail-card"><div class="rail-h">Profit</div><div class="rail-2">
