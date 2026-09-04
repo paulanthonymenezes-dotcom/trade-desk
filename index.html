@@ -897,6 +897,22 @@ table{width:100%;border-collapse:collapse}
     #seasonality-content .szx-stat .s{color:var(--text-tertiary);font-size:11px;margin-top:1px}
     #seasonality-content .szx-pair{display:flex;gap:10px}#seasonality-content .szx-pair>div{flex:1}
     #seasonality-content .szx-note{color:var(--text-tertiary);font-size:11px;line-height:1.5;margin-top:8px}
+    /* Seasonax-style layout: scrolling main column + a full-height rail of stat cards */
+    #seasonality-content .szx-page{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+    #seasonality-content .szx-main{display:flex;flex-direction:column;gap:14px;min-width:0}
+    #seasonality-content .szx-rail{display:flex;flex-direction:column;gap:10px;position:sticky;top:8px}
+    @media(max-width:1100px){#seasonality-content .szx-page{grid-template-columns:1fr}
+      #seasonality-content .szx-rail{position:static}}
+    #seasonality-content .rail-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:13px 15px}
+    #seasonality-content .rail-h{text-align:center;font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px}
+    #seasonality-content .rail-2{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px;text-align:center}
+    #seasonality-content .rail-2.split{border-top:1px solid var(--border-subtle);padding-top:11px;margin-top:11px}
+    #seasonality-content .rv{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+    #seasonality-content .rv.big{font-size:25px}
+    #seasonality-content .rl{color:var(--text-muted);font-size:10.5px;margin-top:2px}
+    #seasonality-content .rail-hero{display:grid;grid-template-columns:1fr 1fr;gap:10px;text-align:center;
+      background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:15px}
+    #seasonality-content .rail-colhead{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:7px;text-align:center}
   </style>
   <div id="tab-seasonality" class="section" style="display:none">
     <div id="seasonality-content" style="max-width:1900px;margin:0 auto;padding:6px"></div>
@@ -20595,12 +20611,143 @@ window.renderSeasonalityTab=function(){
   if(_seasMode==="instrument"){ try{ _szxRender(); }catch(e){ document.getElementById("seas-mode-body").textContent="Instrument view error: "+e.message; } }
   else _seasScreenerRender();
 };
+/* ── LIVE screener (Seasonax parity) ──────────────────────────────────────────
+   Computes on demand from the same JS engine the Instrument view uses, so the
+   start date is a REAL date picker rather than a dropdown of pre-scanned dates.
+   Feasible because you pick a market first (Dow 30 / NDX 100 / SPX 500) — the
+   bars are fetched once per universe and cached, after which changing any
+   parameter recomputes instantly with no network. */
+let _seasScreenerMode = "live";   // "live" = compute on demand (any start date) | "scan" = precomputed 5,003-ticker table
+window._seasScreenerSetMode=function(m){ _seasScreenerMode=m; _seasScreenerRender(); };
+const _SLV = { mkt:"D", start:"", years:20, minDays:5, maxDays:30, minWin:60, dir:"long",
+               rows:[], sort:"annual", running:false, prog:"", bars:{}, ran:false };
+window._slvSet=function(k,v){ _SLV[k]=(k==="years"||k==="minDays"||k==="maxDays"||k==="minWin")?+v:v; _seasScreenerRender(); };
+window._slvSetDate=function(iso){ if(iso&&iso.length>=10) _SLV.start=iso.slice(5); _seasScreenerRender(); };
+window._slvSort=function(k){ _SLV.sort=k; _slvPaint(); };
+function _slvUniverse(){
+  const U=window.CHART_UNIVERSE||[];
+  return U.filter(x=>(x.idx||"").includes(_SLV.mkt));
+}
+window._slvRun=async function(){
+  if(_SLV.running) return;
+  const S=_SLV; S.running=true; S.ran=true; S.rows=[];
+  const uni=_slvUniverse();
+  const paintProg=()=>{ const el=document.getElementById("slv-status"); if(el) el.textContent=S.prog; };
+  try{
+    // 1) fetch bars for any ticker not already cached (bounded concurrency)
+    const need=uni.filter(u=>!S.bars[u.s]);
+    let done=0;
+    const B=6;
+    for(let i=0;i<need.length;i+=B){
+      await Promise.all(need.slice(i,i+B).map(async u=>{
+        try{ S.bars[u.s]=await _szxFetchBars(u.s,S.years); }catch(e){ S.bars[u.s]=null; }
+        done++; S.prog=`loading price history… ${done}/${need.length}`; paintProg();
+      }));
+    }
+    // 2) compute every holding window from the chosen start date
+    S.prog="computing windows…"; paintProg();
+    const anchor=new Date(Date.UTC(2001,+S.start.slice(0,2)-1,+S.start.slice(3)));
+    const ends=[];
+    for(let n=S.minDays;n<=S.maxDays;n++){
+      const d=new Date(anchor.getTime()+n*86400000);
+      ends.push([String(d.getUTCMonth()+1).padStart(2,"0")+"-"+String(d.getUTCDate()).padStart(2,"0"), n]);
+    }
+    const out=[];
+    for(const u of uni){
+      const bars=S.bars[u.s]; if(!bars||bars.length<200) continue;
+      for(const [emd,cal] of ends){
+        let st; try{ st=_szxWindowStats(bars,S.start,emd,S.years,"on_or_after"); }catch(e){ continue; }
+        if(!st||st.n<5) continue;
+        const inst=st.inst;
+        const rets=inst.map(i=>S.dir==="short"?-i.ret:i.ret);
+        const wins=rets.filter(r=>r>0).length, n=rets.length;
+        const winRate=wins/n*100; if(winRate<S.minWin) continue;
+        const avg=rets.reduce((a,b)=>a+b,0)/n;
+        const sd=n>1?Math.sqrt(rets.reduce((a,b)=>a+(b-avg)*(b-avg),0)/(n-1)):0;
+        const sorted=[...rets].sort((a,b)=>a-b), mid=n>>1;
+        const med=n%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
+        const annual=(Math.pow(1+avg/100,365/Math.max(cal,1))-1)*100;
+        const sharpe=sd>0?(avg/sd)*Math.sqrt(365/Math.max(cal,1)):0;
+        out.push({s:u.s,n:u.n,sec:u.sec,emd,cal,inst:n,wins,winRate,avg,med,sd,annual,sharpe,
+                  maxProfit:Math.max(...rets),maxLoss:Math.min(...rets),
+                  maxDrop:S.dir==="short"?Math.max(...inst.map(i=>i.maxRise)):Math.min(...inst.map(i=>i.maxDropC))});
+      }
+    }
+    S.rows=out; S.prog=`${out.length.toLocaleString()} patterns from ${uni.length} instruments`;
+  }catch(e){ S.prog="error: "+(e&&e.message||e); }
+  S.running=false; _seasScreenerRender();
+};
+function _slvPaint(){
+  const body=document.getElementById("slv-body"); if(!body) return;
+  const S=_SLV;
+  if(S.running){ body.innerHTML=`<div style="padding:26px;color:var(--text-muted)">${S.prog||"working…"}</div>`; return; }
+  if(!S.ran){ body.innerHTML=`<div style="padding:26px;color:var(--text-muted)">Pick a market and start date, then <b>Run screen</b>. First run downloads price history (cached after that, so changing dates is instant).</div>`; return; }
+  if(!S.rows.length){ body.innerHTML=`<div style="padding:26px;color:var(--text-muted)">No patterns matched. Lower the win-rate filter or widen the holding period.</div>`; return; }
+  const K={annual:"annual",avg:"avg",med:"med",win:"winRate",sharpe:"sharpe",cal:"cal"}[S.sort]||"annual";
+  const rows=[...S.rows].sort((a,b)=>b[K]-a[K]).slice(0,200);
+  const pct=(v,d=2)=>(v>=0?"+":"")+v.toFixed(d)+"%";
+  const cls=v=>v>=0?"seas-pos":"seas-neg";
+  const mdLab=md=>{const[m,d]=md.split("-").map(Number);return ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m-1]+" "+d;};
+  const th=(l,k,r)=>`<th class="${r?"r":""}"${k?` onclick="_slvSort('${k}')" style="cursor:pointer;${S.sort===k?"color:var(--accent)":""}"`:""}>${l}${k?" ⇅":""}</th>`;
+  body.innerHTML=`<div class="seas-wrap"><table class="seas-tbl">
+    <thead><tr>${th("#")}${th("Symbol")}${th("Instrument")}${th("Annualized","annual",1)}${th("Average","avg",1)}${th("Median","med",1)}${th("Start")}${th("End")}${th("Days","cal",1)}${th("Max profit","",1)}${th("Max loss","",1)}${th("Win","win",1)}${th("Trades","",1)}${th("Std dev","",1)}${th("Sharpe","sharpe",1)}</tr></thead>
+    <tbody>${rows.map((r,i)=>`<tr onclick="_slvToInstrument('${r.s}','${r.emd}')" style="cursor:pointer" title="Open ${r.s} in the Instrument view">
+      <td style="color:var(--text-tertiary)">${i+1}</td>
+      <td><b>${r.s}</b></td><td class="seas-co">${(r.n||"").slice(0,26)}</td>
+      <td class="r ${cls(r.annual)}">${pct(r.annual,1)}</td>
+      <td class="r ${cls(r.avg)}">${pct(r.avg)}</td>
+      <td class="r ${cls(r.med)}">${pct(r.med)}</td>
+      <td>${mdLab(_SLV.start)}</td><td>${mdLab(r.emd)}</td>
+      <td class="r">${r.cal}</td>
+      <td class="r seas-pos">${pct(r.maxProfit)}</td>
+      <td class="r seas-neg">${pct(r.maxLoss)}</td>
+      <td class="r"><span class="seas-win">${r.winRate.toFixed(0)}%</span></td>
+      <td class="r">${r.wins}/${r.inst}</td>
+      <td class="r">${r.sd.toFixed(2)}</td>
+      <td class="r"><b>${r.sharpe.toFixed(2)}</b></td></tr>`).join("")}</tbody></table></div>
+    <div style="color:var(--text-tertiary);font-size:10px;margin-top:6px">${S.prog}${rows.length<S.rows.length?` · showing top ${rows.length}`:""} · click a row to open it in the Instrument view · click a header to sort</div>`;
+}
+window._slvToInstrument=function(sym,emd){
+  _SZX.tkr=sym; _SZX.smd=_SLV.start; _SZX.emd=emd; _SZX.years=_SLV.years;
+  _seasMode="instrument"; renderSeasonalityTab();
+};
+function _seasLiveRender(){
+  const host=document.getElementById("seas-mode-body"); if(!host) return;
+  const S=_SLV;
+  if(!S.start) S.start=_szxTodayMD(0);
+  const yr=new Date().getUTCFullYear();
+  const MK=[["D","Dow 30"],["N","Nasdaq 100"],["S","S&P 500"]];
+  const sel=(id,val,opts,oc,w)=>`<select onchange="${oc}" style="background:var(--bg-hover);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:7px;padding:8px 9px;font:inherit;font-size:13px${w?";width:"+w:""}">${opts.map(o=>`<option value="${o[0]}"${String(val)===String(o[0])?" selected":""}>${o[1]}</option>`).join("")}</select>`;
+  host.innerHTML=`
+    <div style="margin-bottom:10px"><span class="seas-seg">
+      <button class="on" onclick="_seasScreenerSetMode('live')">⚡ Live (any date)</button>
+      <button onclick="_seasScreenerSetMode('scan')">🗄 Scan (5,003)</button></span></div>
+    <div class="szx-filter">
+      <div class="szx-fcol"><label class="seas-lab">Market</label>${sel("mkt",S.mkt,MK,"_slvSet('mkt',this.value)")}</div>
+      <div class="szx-fcol"><label class="seas-lab">Start date</label><input type="date" value="${yr}-${S.start}" onchange="_slvSetDate(this.value)"></div>
+      <div class="szx-fcol"><label class="seas-lab">Examination period</label>${sel("years",S.years,[[10,"10 years"],[15,"15 years"],[20,"20 years"],[25,"25 years"]],"_slvSet('years',this.value)")}</div>
+      <div class="szx-fcol"><label class="seas-lab">Holding period</label><span style="display:flex;gap:5px;align-items:center">
+        ${sel("minDays",S.minDays,[1,3,5,7,10,14,20,30].map(v=>[v,v+"d"]),"_slvSet('minDays',this.value)")}
+        <span style="color:var(--text-muted)">–</span>
+        ${sel("maxDays",S.maxDays,[10,20,30,45,60,90].map(v=>[v,v+"d"]),"_slvSet('maxDays',this.value)")}</span></div>
+      <div class="szx-fcol"><label class="seas-lab">Min win %</label>${sel("minWin",S.minWin,[0,50,60,70,80,90].map(v=>[v,v+"%"]),"_slvSet('minWin',this.value)")}</div>
+      <div class="szx-fcol"><label class="seas-lab">Direction</label>${sel("dir",S.dir,[["long","Long"],["short","Short"]],"_slvSet('dir',this.value)")}</div>
+      <button onclick="_slvRun()" ${S.running?"disabled":""} style="background:var(--accent);border:none;color:#fff;font-weight:600;border-radius:7px;padding:9px 20px;cursor:pointer;font:inherit;${S.running?"opacity:.6":""}">${S.running?"Running…":"Run screen"}</button>
+      <div id="slv-status" style="color:var(--text-muted);font-size:12px;margin-left:auto">${S.prog||""}</div>
+    </div>
+    <div id="slv-body"></div>`;
+  _slvPaint();
+}
 function _seasScreenerRender(){
+  if(_seasScreenerMode==="live") return _seasLiveRender();
   const host=document.getElementById("seas-mode-body"); if(!host) return;
   const S=_SEAS;
   const chip=(on,label,oc)=>`<button class="${on?"on":""}" onclick="${oc}">${label}</button>`;
   host.innerHTML=`
-    <div class="seas-sub">5,003 tickers · up to 20-yr lookback · from your seasonality engine. <b>Pattern starts</b> picks which scanned start-date to search from; "Active" hides windows whose end date has already passed.</div>
+    <div style="margin-bottom:10px"><span class="seas-seg">
+      <button onclick="_seasScreenerSetMode('live')">⚡ Live (any date)</button>
+      <button class="on" onclick="_seasScreenerSetMode('scan')">🗄 Scan (5,003)</button></span></div>
+    <div class="seas-sub">5,003 tickers · up to 20-yr lookback · precomputed weekly. <b>Pattern starts</b> picks which scanned start-date to search from; "Active" hides windows whose end date has already passed. For an arbitrary start date, use <b>Live</b>.</div>
     <div class="seas-ctl">
       <div><span class="seas-lab">Min win</span><span class="seas-seg">${[70,75,80,85,90,100].map(w=>chip(S.win===w,w+"%",`_seasSet('win',${w})`)).join("")}</span></div>
       <div><span class="seas-lab">Min safe Δ</span><span class="seas-seg">${[0.10,0.15,0.20,0.25].map(d=>chip(S.delta===d,"Δ"+d,`_seasSet('delta',${d})`)).join("")}</span></div>
@@ -20773,18 +20920,20 @@ window._szxRender=function(){
       <div id="szx-status" style="color:var(--text-muted);font-size:12px;margin-left:auto"></div>
     </div>
     <div id="szx-head" class="szx-head"></div>
-    <div class="szx-grid">
-      <div class="osl-card"><div class="osl-h">Seasonal trend <span id="szx-psub" style="color:var(--text-muted);font-weight:400;font-size:11px"></span></div><div id="szx-chart"><div style="padding:30px;color:var(--text-muted)">Loading…</div></div>
-        <div class="szx-note">Averaging across years cancels opposing moves, so drawdowns are invisible here — this shows tendency. The risk lives in the drawdown chart below.</div></div>
-      <div id="szx-stats"></div>
-    </div>
-    <div class="osl-card" style="margin-bottom:14px"><div class="osl-h">Worst drawdown by year <span id="szx-ddsub" style="color:var(--text-muted);font-weight:400;font-size:11px"></span></div><div id="szx-ddchart"></div><div class="szx-note" id="szx-breach"></div></div>
-    <div class="szx-grid2">
-      <div class="osl-card"><div class="osl-h">Cumulative profit <span style="color:var(--text-muted);font-weight:400;font-size:11px">indexed to 100</span></div><div id="szx-cumchart"></div></div>
-      <div class="osl-card"><div class="osl-h">Individual returns <span style="color:var(--text-muted);font-weight:400;font-size:11px">per year</span></div><div id="szx-retchart"></div></div>
-    </div>
-    <div class="osl-card"><div class="osl-h">Year by year</div><div class="seas-wrap"><table class="seas-tbl" id="szx-years"></table></div>
-      <div class="szx-note">Max drop (close) is what Seasonax reports; max drop (intraday) is the worst tick — they can diverge violently on flash-crash opens.</div></div>`;
+    <div class="szx-page">
+      <div class="szx-main">
+        <div class="osl-card"><div class="osl-h">Seasonal trend <span id="szx-psub" style="color:var(--text-muted);font-weight:400;font-size:11px"></span></div><div id="szx-chart"><div style="padding:30px;color:var(--text-muted)">Loading…</div></div>
+          <div class="szx-note">Averaging across years cancels opposing moves, so drawdowns are invisible here — this shows tendency. The risk lives in the drawdown chart below.</div></div>
+        <div class="szx-grid2">
+          <div class="osl-card"><div class="osl-h">Cumulative profit <span style="color:var(--text-muted);font-weight:400;font-size:11px">indexed to 100</span></div><div id="szx-cumchart"></div></div>
+          <div class="osl-card"><div class="osl-h">Individual returns <span style="color:var(--text-muted);font-weight:400;font-size:11px">per year</span></div><div id="szx-retchart"></div></div>
+        </div>
+        <div class="osl-card"><div class="osl-h">Worst drawdown by year <span id="szx-ddsub" style="color:var(--text-muted);font-weight:400;font-size:11px"></span></div><div id="szx-ddchart"></div><div class="szx-note" id="szx-breach"></div></div>
+        <div class="osl-card"><div class="osl-h">Year by year</div><div class="seas-wrap"><table class="seas-tbl" id="szx-years"></table></div>
+          <div class="szx-note">Max drop (close) is the closing basis; max drop (intraday) is the worst tick — they can diverge violently on flash-crash opens.</div></div>
+      </div>
+      <aside class="szx-rail" id="szx-stats"></aside>
+    </div>`;
   _szxAnalyze();
 };
 window._szxAnalyze=async function(){
@@ -20799,13 +20948,85 @@ window._szxAnalyze=async function(){
     _szxChart(_szxPath(bars,_SZX.years),_SZX.smd,_SZX.emd);
     const el=document.getElementById("szx-psub"); if(el)el.textContent="avg annual path, indexed to 100 · window shaded";
     const wc=st.winRate>=60?"seas-pos":(st.winRate<50?"seas-neg":""), pf=st.profitFactor===Infinity?"∞":(isNaN(st.profitFactor)?"—":st.profitFactor.toFixed(2));
+    // ── extended metrics (Seasonax parity) ────────────────────────────────────
+    const I=st.inst, rets=I.map(i=>i.ret), N=I.length;
+    const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN;
+    const calDays=mean(I.map(i=>(i.exitD-i.entryD)/86400000))||1;
+    const tradDays=mean(I.map(i=>i.td));
+    const ann=(Math.pow(1+(st.avgRet||0)/100,365/calDays)-1)*100;
+    const sd=st.vol, sharpe=sd>0?(st.avgRet/sd)*Math.sqrt(365/calDays):NaN;
+    const dn=rets.filter(r=>r<0), dsd=dn.length?Math.sqrt(dn.reduce((s,x)=>s+x*x,0)/dn.length):0;
+    const sortino=dsd>0?(st.avgRet/dsd)*Math.sqrt(365/calDays):NaN;
+    const volAnn=sd*Math.sqrt(365/calDays);
+    const ptsTotal=I.reduce((s,i)=>s+(i.exit-i.entry),0), ptsAvg=ptsTotal/(N||1);
+    const gains=rets.filter(r=>r>0).length, losses=N-gains;
+    const maxProfit=N?Math.max(...rets):NaN, maxLoss=N?Math.min(...rets):NaN;
+    // rest-of-year: exit price -> next year's entry price, annualised over the remaining days
+    const restR=[]; for(let k=0;k<N-1;k++) restR.push((I[k+1].entry/I[k].exit-1)*100);
+    const restAnn=restR.length?(Math.pow(1+mean(restR)/100,365/Math.max(365-calDays,1))-1)*100:NaN;
+    // current streak (consecutive same-sign outcomes at the most recent end)
+    let streak=0, sign=null;
+    for(let k=N-1;k>=0;k--){ const s2=rets[k]>0?1:-1; if(sign===null)sign=s2; if(s2!==sign)break; streak++; }
+    const share=(ann+restAnn)!==0&&isFinite(restAnn)?Math.max(0,Math.min(1,ann/(Math.abs(ann)+Math.abs(restAnn)))):0.5;
+    const C=2*Math.PI*34, dash=C*share;
+    const num=(v,d=2,suf="%")=>v==null||isNaN(v)||!isFinite(v)?"—":(v>=0?"+":"")+v.toFixed(d)+suf;
+    const plain=(v,d=2,suf="")=>v==null||isNaN(v)||!isFinite(v)?"—":v.toFixed(d)+suf;
     document.getElementById("szx-stats").innerHTML=`
-      <div class="szx-stat"><div class="l">Win rate</div><div class="v ${wc}">${isNaN(st.winRate)?"—":st.winRate.toFixed(0)+"%"}</div><div class="s">${st.wins} of ${st.n} years</div></div>
-      <div class="szx-stat"><div class="l">Median return</div><div class="v ${st.median>=0?'seas-pos':'seas-neg'}">${pct(st.median,2)}</div><div class="s">avg ${pct(st.avgRet,2)}</div></div>
-      <div class="szx-stat"><div class="l">Worst drawdown (close)</div><div class="v seas-neg">${pct(st.worstDropC,2)}</div><div class="s">intraday ${pct(st.worstDrop,2)}</div></div>
-      <div class="szx-stat"><div class="szx-pair"><div><div class="l">Avg gain</div><div class="v seas-pos" style="font-size:16px">${pct(st.avgGain,2)}</div></div><div><div class="l">Avg loss</div><div class="v seas-neg" style="font-size:16px">${pct(st.avgLoss,2)}</div></div></div></div>
-      <div class="szx-stat"><div class="szx-pair"><div><div class="l">Volatility</div><div class="v" style="font-size:16px">${isNaN(st.vol)?"—":st.vol.toFixed(1)+"%"}</div></div><div><div class="l">Profit factor</div><div class="v" style="font-size:16px">${pf}</div></div></div></div>`;
+      <div class="rail-card" style="padding:16px 15px 12px">
+        <svg viewBox="0 0 90 90" style="width:104px;height:104px;display:block;margin:0 auto 8px">
+          <circle cx="45" cy="45" r="34" fill="none" stroke="var(--border-visible)" stroke-width="13"/>
+          <circle cx="45" cy="45" r="34" fill="none" stroke="var(--accent)" stroke-width="13"
+            stroke-dasharray="${dash.toFixed(1)} ${(C-dash).toFixed(1)}" transform="rotate(-90 45 45)"/></svg>
+        <div style="display:flex;gap:12px;justify-content:center;font-size:10.5px;color:var(--text-muted)">
+          <span><span style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:2px"></span> ${num(ann,1)} pattern</span>
+          <span><span style="display:inline-block;width:8px;height:8px;background:var(--border-visible);border-radius:2px"></span> ${num(restAnn,1)} rest</span>
+        </div></div>
+      <div class="rail-hero">
+        <div><div class="rv big ${ann>=0?'seas-pos':'seas-neg'}">${num(ann,2)}</div><div class="rl">Annualized return</div></div>
+        <div><div class="rv big ${wc}">${isNaN(st.winRate)?"—":st.winRate.toFixed(2)+"%"}</div><div class="rl">Win rate</div></div>
+      </div>
+      <div class="rail-card"><div class="rail-h">Return</div><div class="rail-2">
+        <div><div class="rv ${ann>=0?'seas-pos':'seas-neg'}">${num(ann,2)}</div><div class="rl">Annualized return</div></div>
+        <div><div class="rv ${restAnn>=0?'seas-pos':'seas-neg'}">${num(restAnn,2)}</div><div class="rl">Annualized / rest</div></div>
+        <div><div class="rv ${st.avgRet>=0?'seas-pos':'seas-neg'}">${num(st.avgRet,2)}</div><div class="rl">Average return</div></div>
+        <div><div class="rv ${st.median>=0?'seas-pos':'seas-neg'}">${num(st.median,2)}</div><div class="rl">Median return</div></div>
+      </div></div>
+      <div class="rail-card"><div class="rail-h">Profit</div><div class="rail-2">
+        <div><div class="rv ${ptsTotal>=0?'seas-pos':'seas-neg'}">${num(ptsTotal,2," pts")}</div><div class="rl">Total profit</div></div>
+        <div><div class="rv ${ptsAvg>=0?'seas-pos':'seas-neg'}">${num(ptsAvg,2," pts")}</div><div class="rl">Average profit</div></div>
+      </div></div>
+      <div class="rail-card"><div class="rail-2" style="gap:0 10px">
+        <div class="rail-colhead">Gains</div><div class="rail-colhead">Losses</div></div>
+        <div class="rail-2">
+          <div><div class="rv seas-pos">${gains}</div><div class="rl">Gains</div></div>
+          <div><div class="rv seas-neg">${losses}</div><div class="rl">Losses</div></div>
+          <div><div class="rv seas-pos">${num(st.avgGain,2)}</div><div class="rl">Avg. gain</div></div>
+          <div><div class="rv seas-neg">${num(st.avgLoss,2)}</div><div class="rl">Avg. loss</div></div>
+          <div><div class="rv seas-pos">${num(maxProfit,2)}</div><div class="rl">Max. profit</div></div>
+          <div><div class="rv seas-neg">${num(maxLoss,2)}</div><div class="rl">Max. loss</div></div>
+        </div></div>
+      <div class="rail-card"><div class="rail-h">Risk metrics</div><div class="rail-2">
+        <div><div class="rv">${N}</div><div class="rl">Trades</div></div>
+        <div><div class="rv ${sign>0?'seas-pos':'seas-neg'}">${streak} ${sign>0?"gains":"losses"}</div><div class="rl">Current streak</div></div>
+        <div><div class="rv">${plain(tradDays,0)}</div><div class="rl">Trading days</div></div>
+        <div><div class="rv">${plain(calDays,0)}</div><div class="rl">Calendar days</div></div>
+        <div><div class="rv">${plain(sd,2,"%")}</div><div class="rl">Standard deviation</div></div>
+        <div><div class="rv">${plain(sharpe,2)}</div><div class="rl">Sharpe ratio</div></div>
+        <div><div class="rv">${plain(sortino,2)}</div><div class="rl">Sortino ratio</div></div>
+        <div><div class="rv">${plain(volAnn,2,"%")}</div><div class="rl">Volatility</div></div>
+      </div></div>
+      <div class="rail-card" style="border-color:color-mix(in srgb,var(--accent) 30%,transparent)">
+        <div class="rail-h" style="color:var(--accent)">Options — premium selling</div><div class="rail-2">
+        <div><div class="rv seas-neg">${num(st.worstDropC,2)}</div><div class="rl">Worst drop (close)</div></div>
+        <div><div class="rv seas-neg">${num(st.worstDrop,2)}</div><div class="rl">Worst drop (intraday)</div></div>
+        <div><div class="rv">${pf}</div><div class="rl">Profit factor</div></div>
+        <div><div class="rv" id="szx-safedelta">—</div><div class="rl">Max safe strike</div></div>
+      </div></div>`;
     const strike=+_SZX.strike;
+    // deepest close-basis drawdown any year reached = the furthest OTM strike that was never breached
+    const sdEl=document.getElementById("szx-safedelta");
+    if(sdEl){ sdEl.textContent=isFinite(st.worstDropC)?st.worstDropC.toFixed(2)+"%":"—";
+              sdEl.className="rv "+(st.worstDropC<=strike?"seas-neg":"seas-pos"); }
     _szxYearChart("szx-ddchart",st.inst,{W:1400,H:250,val:i=>i.maxDropC,unit:"%",dec:0,zero:true,ceil:0,line:strike,lineLabel:"strike "+strike+"%",color:(it,v)=>v<=strike?"var(--negative)":"rgba(61,139,255,.45)"});
     const dds=document.getElementById("szx-ddsub"); if(dds)dds.textContent="close basis · red = breached your strike";
     const breaches=st.inst.filter(i=>i.maxDropC<=strike), br=document.getElementById("szx-breach");
@@ -20815,8 +21036,9 @@ window._szxAnalyze=async function(){
     _szxYearChart("szx-cumchart",cum,{W:700,H:230,val:i=>i.v,dec:0,area:true,base:100});
     _szxYearChart("szx-retchart",st.inst,{W:700,H:230,val:i=>i.ret,unit:"%",dec:0,zero:true,color:(it,v)=>v>=0?"var(--positive)":"var(--negative)"});
     const fd=ms=>{const d=new Date(ms);return (d.getUTCMonth()+1)+"/"+d.getUTCDate()+"/"+String(d.getUTCFullYear()).slice(2);};
-    document.getElementById("szx-years").innerHTML=`<thead><tr><th>Year</th><th>Entry</th><th>Exit</th><th class="r">Entry px</th><th class="r">Exit px</th><th class="r">Return</th><th class="r">Max rise</th><th class="r">Max drop (close)</th><th class="r">Max drop (intraday)</th><th class="r">Days</th></tr></thead><tbody>`
-      +st.inst.slice().reverse().map(i=>`<tr><td>${i.year}</td><td>${fd(i.entryD)}</td><td>${fd(i.exitD)}</td><td class="r">${i.entry.toFixed(2)}</td><td class="r">${i.exit.toFixed(2)}</td><td class="r ${i.ret>=0?'seas-pos':'seas-neg'}">${pct(i.ret,2)}</td><td class="r seas-pos">${pct(i.maxRise,2)}</td><td class="r seas-neg">${pct(i.maxDropC,2)}</td><td class="r seas-neg">${pct(i.maxDrop,2)}</td><td class="r">${i.td}</td></tr>`).join("")+`</tbody>`;
+    const fdl=ms=>{const d=new Date(ms);return String(d.getUTCDate()).padStart(2,"0")+" "+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()]+" "+d.getUTCFullYear();};
+    document.getElementById("szx-years").innerHTML=`<thead><tr><th>Start date</th><th class="r">Start price</th><th>End date</th><th class="r">End price</th><th class="r">Profit</th><th class="r">Profit %</th><th class="r">Max rise</th><th class="r">Max drop</th><th class="r">Max drop (intraday)</th><th class="r">Days</th></tr></thead><tbody>`
+      +st.inst.map(i=>{const p=i.exit-i.entry;return `<tr><td>${fdl(i.entryD)}</td><td class="r">${i.entry.toFixed(2)}</td><td>${fdl(i.exitD)}</td><td class="r">${i.exit.toFixed(2)}</td><td class="r ${p>=0?'seas-pos':'seas-neg'}">${p>=0?"+":""}${p.toFixed(2)}</td><td class="r ${i.ret>=0?'seas-pos':'seas-neg'}">${pct(i.ret,2)}</td><td class="r seas-pos">${pct(i.maxRise,2)}</td><td class="r seas-neg">${pct(i.maxDropC,2)}</td><td class="r seas-neg">${pct(i.maxDrop,2)}</td><td class="r">${i.td}</td></tr>`;}).join("")+`</tbody>`;
   }catch(e){ if(S)S.textContent="error: "+(e&&e.message||e); const c=document.getElementById("szx-chart"); if(c)c.innerHTML=`<div style="padding:24px;color:var(--negative)">Couldn't analyze ${_SZX.tkr}: ${e&&e.message||e}</div>`; }
 };
 
