@@ -20620,7 +20620,8 @@ window.renderSeasonalityTab=function(){
 let _seasScreenerMode = "live";   // "live" = compute on demand (any start date) | "scan" = precomputed 5,003-ticker table
 window._seasScreenerSetMode=function(m){ _seasScreenerMode=m; _seasScreenerRender(); };
 const _SLV = { mkt:"D", start:"", years:20, minDays:5, maxDays:30, minWin:60, dir:"long",
-               rows:[], sort:"annual", running:false, prog:"", bars:{}, ran:false };
+               rows:[], sort:"annual", best:true, running:false, prog:"", bars:{}, ran:false };
+window._slvToggleBest=function(){ _SLV.best=!_SLV.best; _slvPaint(); };
 window._slvSet=function(k,v){ _SLV[k]=(k==="years"||k==="minDays"||k==="maxDays"||k==="minWin")?+v:v; _seasScreenerRender(); };
 window._slvSetDate=function(iso){ if(iso&&iso.length>=10) _SLV.start=iso.slice(5); _seasScreenerRender(); };
 window._slvSort=function(k){ _SLV.sort=k; _slvPaint(); };
@@ -20684,7 +20685,13 @@ function _slvPaint(){
   if(!S.ran){ body.innerHTML=`<div style="padding:26px;color:var(--text-muted)">Pick a market and start date, then <b>Run screen</b>. First run downloads price history (cached after that, so changing dates is instant).</div>`; return; }
   if(!S.rows.length){ body.innerHTML=`<div style="padding:26px;color:var(--text-muted)">No patterns matched. Lower the win-rate filter or widen the holding period.</div>`; return; }
   const K={annual:"annual",avg:"avg",med:"med",win:"winRate",sharpe:"sharpe",cal:"cal"}[S.sort]||"annual";
-  const rows=[...S.rows].sort((a,b)=>b[K]-a[K]).slice(0,200);
+  // "Best per ticker": adjacent holding periods on one name are near-duplicates — six rows
+  // differing by a day are one idea, not six. Rows are already ranked by the ACTIVE sort,
+  // so the first hit per symbol is that ticker's best window by whatever you're sorting on.
+  let ranked=[...S.rows].sort((a,b)=>b[K]-a[K]);
+  const totalRanked=ranked.length;
+  if(S.best){ const seen=new Set(); ranked=ranked.filter(r=>seen.has(r.s)?false:(seen.add(r.s),true)); }
+  const rows=ranked.slice(0,200);
   const pct=(v,d=2)=>(v>=0?"+":"")+v.toFixed(d)+"%";
   const cls=v=>v>=0?"seas-pos":"seas-neg";
   const mdLab=md=>{const[m,d]=md.split("-").map(Number);return ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m-1]+" "+d;};
@@ -20705,7 +20712,7 @@ function _slvPaint(){
       <td class="r">${r.wins}/${r.inst}</td>
       <td class="r">${r.sd.toFixed(2)}</td>
       <td class="r"><b>${r.sharpe.toFixed(2)}</b></td></tr>`).join("")}</tbody></table></div>
-    <div style="color:var(--text-tertiary);font-size:10px;margin-top:6px">${S.prog}${rows.length<S.rows.length?` · showing top ${rows.length}`:""} · click a row to open it in the Instrument view · click a header to sort</div>`;
+    <div style="color:var(--text-tertiary);font-size:10px;margin-top:6px">${S.prog}${S.best?` · best window per ticker (${ranked.length} of ${totalRanked.toLocaleString()})`:""}${rows.length<ranked.length?` · showing top ${rows.length}`:""} · click a row to open it in the Instrument view · click a header to sort</div>`;
 }
 window._slvToInstrument=function(sym,emd){
   _SZX.tkr=sym; _SZX.smd=_SLV.start; _SZX.emd=emd; _SZX.years=_SLV.years;
@@ -20732,6 +20739,7 @@ function _seasLiveRender(){
         ${sel("maxDays",S.maxDays,[10,20,30,45,60,90].map(v=>[v,v+"d"]),"_slvSet('maxDays',this.value)")}</span></div>
       <div class="szx-fcol"><label class="seas-lab">Min win %</label>${sel("minWin",S.minWin,[0,50,60,70,80,90].map(v=>[v,v+"%"]),"_slvSet('minWin',this.value)")}</div>
       <div class="szx-fcol"><label class="seas-lab">Direction</label>${sel("dir",S.dir,[["long","Long"],["short","Short"]],"_slvSet('dir',this.value)")}</div>
+      <div class="szx-fcol"><label class="seas-lab">Rows</label><span class="seas-seg"><button class="${S.best?"on":""}" onclick="_slvToggleBest()" title="One row per ticker — its best window by the current sort. Off = every holding period.">Best per ticker</button></span></div>
       <button onclick="_slvRun()" ${S.running?"disabled":""} style="background:var(--accent);border:none;color:#fff;font-weight:600;border-radius:7px;padding:9px 20px;cursor:pointer;font:inherit;${S.running?"opacity:.6":""}">${S.running?"Running…":"Run screen"}</button>
       <div id="slv-status" style="color:var(--text-muted);font-size:12px;margin-left:auto">${S.prog||""}</div>
     </div>
