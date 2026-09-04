@@ -20559,8 +20559,22 @@ window._oslQuoteFetch = async function(){
 };
 
 /* ── Seasonality screener (desktop; reads seasonality_scans table) ────────── */
-const _SEAS = { win:80, delta:0.15, tier:"options", active:true, sort:"max_safe_delta.desc", rows:[], loading:false };
+const _SEAS = { win:80, delta:0.15, tier:"options", active:true, sort:"max_safe_delta.desc", rows:[], loading:false,
+                start:"", starts:null };   // start = "" means any start date
 window._seasSet=function(k,v){ _SEAS[k]=v; _SEAS.rows=[]; renderSeasonalityTab(); };
+// Which pattern start-dates actually exist in the scan table. The scan is a batch
+// job run per start_md, so the picker is populated from the data rather than a
+// hardcoded list — one date today, more as the weekly scan adds them.
+async function _seasLoadStarts(){
+  if(_SEAS.starts) return _SEAS.starts;
+  try{
+    const r=await fetch(SUPABASE_URL+"/rest/v1/seasonality_scans?select=start_md&limit=20000",
+      {headers:{apikey:SUPABASE_KEY,Authorization:"Bearer "+SUPABASE_KEY}});
+    const rows=await r.json();
+    _SEAS.starts=[...new Set((rows||[]).map(x=>x.start_md))].filter(Boolean).sort();
+  }catch(e){ _SEAS.starts=[]; }
+  return _SEAS.starts;
+}
 function _seasTodayMD(){ const d=new Date(); return String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 window._seasMode = "instrument";
 window._seasSetMode=function(m){ _seasMode=m; renderSeasonalityTab(); };
@@ -20583,15 +20597,30 @@ function _seasScreenerRender(){
   const S=_SEAS;
   const chip=(on,label,oc)=>`<button class="${on?"on":""}" onclick="${oc}">${label}</button>`;
   host.innerHTML=`
-    <div class="seas-sub">3,198 tickers · up to 20-yr lookback · from your seasonality engine. "Active" = the seasonal window is still open as of today (per the latest scan).</div>
+    <div class="seas-sub">5,003 tickers · up to 20-yr lookback · from your seasonality engine. <b>Pattern starts</b> picks which scanned start-date to search from; "Active" hides windows whose end date has already passed.</div>
     <div class="seas-ctl">
       <div><span class="seas-lab">Min win</span><span class="seas-seg">${[70,75,80,85,90,100].map(w=>chip(S.win===w,w+"%",`_seasSet('win',${w})`)).join("")}</span></div>
       <div><span class="seas-lab">Min safe Δ</span><span class="seas-seg">${[0.10,0.15,0.20,0.25].map(d=>chip(S.delta===d,"Δ"+d,`_seasSet('delta',${d})`)).join("")}</span></div>
       <div><span class="seas-lab">Tier</span><span class="seas-seg">${[["options","Options"],["equity","Equity"],["all","All"]].map(t=>chip(S.tier===t[0],t[1],`_seasSet('tier','${t[0]}')`)).join("")}</span></div>
+      <div><span class="seas-lab">Pattern starts</span><span id="seas-startpick"><select disabled style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-muted);border-radius:6px;padding:6px 8px;font:inherit;font-size:12px"><option>loading…</option></select></span></div>
       <span class="seas-seg">${chip(S.active,"Active only",`_seasSet('active',${!S.active})`)}</span>
     </div>
     <div id="seas-body"><div style="padding:24px;color:var(--text-muted)">Loading…</div></div>`;
+  _seasStartPicker();
   _seasLoad();
+}
+// Populate the start-date <select> from whatever the scan table actually holds.
+async function _seasStartPicker(){
+  const host=document.getElementById("seas-startpick"); if(!host) return;
+  const starts=await _seasLoadStarts();
+  const mdLabel=md=>{ const [m,d]=md.split("-").map(Number);
+    return ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m-1]+" "+d; };
+  const cur=_SEAS.start;
+  if(!starts.length){ host.innerHTML=`<span style="color:var(--text-muted);font-size:12px">none scanned</span>`; return; }
+  host.innerHTML=`<select onchange="_seasSet('start',this.value)" style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:6px;padding:6px 8px;font:inherit;font-size:12px">
+      <option value=""${cur===""?" selected":""}>Any (${starts.length} date${starts.length>1?"s":""})</option>
+      ${starts.map(s=>`<option value="${s}"${cur===s?" selected":""}>${mdLabel(s)}</option>`).join("")}
+    </select>`;
 }
 async function _seasLoad(){
   const S=_SEAS, body=document.getElementById("seas-body"); if(!body) return;
@@ -20600,6 +20629,7 @@ async function _seasLoad(){
     q.set("select","ticker,company,start_md,end_md,lookback_years,n,win_rate,median_ret,expectancy,max_safe_delta,worst_drop_intraday,drop_sigma,vol,liquidity_tier,scanned_at");
     q.set("win_rate","gte."+S.win); q.set("max_safe_delta","gte."+S.delta); q.set("n","gte.8");
     if(S.tier!=="all") q.set("liquidity_tier","eq."+S.tier);
+    if(S.start) q.set("start_md","eq."+S.start);
     if(S.active) q.set("end_md","gte."+_seasTodayMD());
     q.set("order",S.sort); q.set("limit","150");
     const r=await fetch(SUPABASE_URL+"/rest/v1/seasonality_scans?"+q.toString(),{headers:{apikey:SUPABASE_KEY,Authorization:"Bearer "+SUPABASE_KEY}});
