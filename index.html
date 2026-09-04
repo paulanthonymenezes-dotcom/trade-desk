@@ -20568,7 +20568,10 @@ window._seasSet=function(k,v){ _SEAS[k]=v; _SEAS.rows=[]; renderSeasonalityTab()
 async function _seasLoadStarts(){
   if(_SEAS.starts) return _SEAS.starts;
   try{
-    const r=await fetch(SUPABASE_URL+"/rest/v1/seasonality_scans?select=start_md&limit=20000",
+    // Reads the seasonality_start_dates VIEW (SELECT DISTINCT start_md). Querying the
+    // main table with a row limit only sampled the first chunk — with 700k+ rows that
+    // surfaced 2 of the 9 dates.
+    const r=await fetch(SUPABASE_URL+"/rest/v1/seasonality_start_dates?select=start_md&order=start_md",
       {headers:{apikey:SUPABASE_KEY,Authorization:"Bearer "+SUPABASE_KEY}});
     const rows=await r.json();
     _SEAS.starts=[...new Set((rows||[]).map(x=>x.start_md))].filter(Boolean).sort();
