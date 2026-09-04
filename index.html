@@ -14663,6 +14663,13 @@ function _netEdgeConf(e){
   const langc= Math.min(0.18, lang/3*0.18);
   let c = base + artc + wtc + langc;
   if(sec) c = Math.min(c*0.88, 0.72);
+  // Respect the graph builder's own confidence when it's HIGHER than this heuristic.
+  // The heuristic is news-driven, so an edge the builder derived from filings/other
+  // evidence with 0 articles scored ~0.40 here and got hidden — e.g. HOOD→GameStop
+  // (customer) was stored at 0.825 but computed 0.41 and vanished from the Sankey
+  // while the legend still counted it. Never downgrade, only rescue.
+  const stored = +e.confidence;
+  if(isFinite(stored) && stored > c) c = stored;
   return Math.min(0.97, c);
 }
 function _netRows(){
@@ -15141,11 +15148,21 @@ function renderNetworkDesktop(){
 
   const rows = _netRows();
   const chips = NET_ROLES.map(r=>{
-    const n=(g.edges||[]).filter(e=>e.role===r).length, on=S.roles.has(r);
-    return `<div onclick="_netDeskToggle('${r}')" style="display:flex;align-items:center;gap:6px;cursor:pointer;
-      font-size:11.5px;user-select:none;${on?"":"opacity:.4;text-decoration:line-through"}">
-      <span style="width:8px;height:8px;border-radius:50%;background:${NET_COLOR[r]};display:inline-block"></span>
-      ${r.charAt(0).toUpperCase()+r.slice(1)} <b style="color:#8b949e;font-weight:400">${n}</b></div>`;
+    // Count what's ACTUALLY DRAWN, not every edge in the graph. The confidence
+    // filter in _netRows can drop an edge (e.g. a sole low-confidence customer)
+    // while the raw count still said "1" — legend claimed a relationship the
+    // chart never rendered. Any dropped edges are surfaced as a clickable "+N weak".
+    const total=(g.edges||[]).filter(e=>e.role===r).length, on=S.roles.has(r);
+    const shown = on ? rows.filter(e=>e.role===r).length : total;
+    const hidden = on ? Math.max(0,total-shown) : 0;
+    return `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;user-select:none;
+      ${on?"":"opacity:.4;text-decoration:line-through"}">
+      <span onclick="_netDeskToggle('${r}')" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <span style="width:8px;height:8px;border-radius:50%;background:${NET_COLOR[r]};display:inline-block"></span>
+        ${r.charAt(0).toUpperCase()+r.slice(1)} <b style="color:#8b949e;font-weight:400">${shown}</b></span>
+      ${hidden?`<span onclick="_netToggleWeak()" title="${hidden} ${r} edge${hidden>1?"s":""} below the ${Math.round(_NET_MIN_CONF*100)}% confidence cut — click to show"
+        style="cursor:pointer;color:#8b949e;border:1px solid #2b3742;border-radius:3px;padding:0 4px;font-size:10px">+${hidden} weak</span>`:""}
+      </div>`;
   }).join("");
 
   host.innerHTML = header + `
