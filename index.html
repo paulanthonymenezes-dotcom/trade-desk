@@ -20626,6 +20626,8 @@ window._slvSet=function(k,v){ _SLV[k]=(k==="years"||k==="minDays"||k==="maxDays"
 window._slvSetDate=function(iso){ if(iso&&iso.length>=10) _SLV.start=iso.slice(5); _seasScreenerRender(); };
 window._slvSort=function(k){ _SLV.sort=k; _slvPaint(); };
 function _slvUniverse(){
+  const G=_SEAS_UNIV[_SLV.mkt];
+  if(G) return G.map(([sym,nm,sec])=>({s:sym,n:nm,sec:sec||_SEAS_UNIV_LABEL[_SLV.mkt]}));
   const U=window.CHART_UNIVERSE||[];
   return U.filter(x=>(x.idx||"").includes(_SLV.mkt));
 }
@@ -20723,7 +20725,7 @@ function _seasLiveRender(){
   const S=_SLV;
   if(!S.start) S.start=_szxTodayMD(0);
   const yr=new Date().getUTCFullYear();
-  const MK=[["D","Dow 30"],["N","Nasdaq 100"],["S","S&P 500"]];
+  const MK=[["D","Dow 30"],["N","Nasdaq 100"],["S","S&P 500"]].concat(Object.keys(_SEAS_UNIV).map(g=>[g,_SEAS_UNIV_LABEL[g]+" ("+_SEAS_UNIV[g].length+")"]));
   const sel=(id,val,opts,oc,w)=>`<select onchange="${oc}" style="background:var(--bg-hover);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:7px;padding:8px 9px;font:inherit;font-size:13px${w?";width:"+w:""}">${opts.map(o=>`<option value="${o[0]}"${String(val)===String(o[0])?" selected":""}>${o[1]}</option>`).join("")}</select>`;
   host.innerHTML=`
     <div style="margin-bottom:10px"><span class="seas-seg">
@@ -20822,6 +20824,34 @@ const _SZX = { tkr:"", smd:"", emd:"", years:20, loading:false };
 window._szxSet=function(k,v){ _SZX[k]=(k==="years"||k==="strike")?+v:v; };
 window._szxSetDate=function(k,iso){ if(iso&&iso.length>=10) _SZX[k]=iso.slice(5); };
 function _szxTodayMD(off){ const d=new Date(); if(off) d.setDate(d.getDate()+off); return String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+/* ── Non-equity seasonality universe ──────────────────────────────────────────
+   Every symbol here was checked against /api/candles before shipping — no dead
+   entries. Commodity and FX seasonality is what Seasonax is actually known for;
+   the engine handled these all along, there was just no way to reach them.      */
+const _SEAS_UNIV = {
+  IDX:[["^GSPC","S&P 500"],["^DJI","Dow Jones"],["^IXIC","Nasdaq Composite"],["^NDX","Nasdaq 100"],
+       ["^RUT","Russell 2000"],["^VIX","VIX"],["^VVIX","VVIX"],["^GSPTSE","TSX Composite"],
+       ["^FTSE","FTSE 100"],["^GDAXI","DAX"],["^FCHI","CAC 40"],["^STOXX50E","Euro Stoxx 50"],
+       ["^N225","Nikkei 225"],["^HSI","Hang Seng"],["^KS11","KOSPI"],["^BSESN","Sensex"],
+       ["^AXJO","ASX 200"],["^BVSP","Bovespa"]],
+  FX:[["EURUSD=X","EUR/USD"],["GBPUSD=X","GBP/USD"],["USDJPY=X","USD/JPY"],["AUDUSD=X","AUD/USD"],
+      ["USDCAD=X","USD/CAD"],["USDCHF=X","USD/CHF"],["NZDUSD=X","NZD/USD"],["EURGBP=X","EUR/GBP"],
+      ["EURJPY=X","EUR/JPY"],["USDMXN=X","USD/MXN"],["DX-Y.NYB","Dollar Index"]],
+  COMM:[["CL=F","WTI Crude","Energy"],["BZ=F","Brent Crude","Energy"],["NG=F","Natural Gas","Energy"],
+        ["RB=F","RBOB Gasoline","Energy"],["HO=F","Heating Oil","Energy"],
+        ["GC=F","Gold","Metals"],["SI=F","Silver","Metals"],["PL=F","Platinum","Metals"],
+        ["PA=F","Palladium","Metals"],["HG=F","Copper","Metals"],
+        ["ZC=F","Corn","Grains"],["ZW=F","Wheat","Grains"],["ZS=F","Soybeans","Grains"],
+        ["ZM=F","Soybean Meal","Grains"],["ZL=F","Soybean Oil","Grains"],
+        ["KC=F","Coffee","Softs"],["SB=F","Sugar","Softs"],["CC=F","Cocoa","Softs"],
+        ["CT=F","Cotton","Softs"],["OJ=F","Orange Juice","Softs"],
+        ["LE=F","Live Cattle","Livestock"],["HE=F","Lean Hogs","Livestock"],["LBS=F","Lumber","Lumber"]],
+  RATES:[["^IRX","13-week T-Bill"],["^FVX","5Y Yield"],["^TNX","10Y Yield"],["^TYX","30Y Yield"],
+         ["ZT=F","2Y Note"],["ZF=F","5Y Note"],["ZN=F","10Y Note"],["ZB=F","30Y Bond"]],
+  CRYPTO:[["BTC-USD","Bitcoin"],["ETH-USD","Ethereum"],["SOL-USD","Solana"],["XRP-USD","XRP"],["DOGE-USD","Dogecoin"]],
+  FUT:[["ES=F","E-mini S&P"],["NQ=F","E-mini Nasdaq"],["YM=F","E-mini Dow"],["RTY=F","E-mini Russell"]],
+};
+const _SEAS_UNIV_LABEL={IDX:"Indices",FX:"Currencies",COMM:"Commodities",RATES:"Rates & bonds",CRYPTO:"Crypto",FUT:"Index futures"};
 // Yahoo wants a caret on index symbols — typing "VIX" returns no_data, which read as
 // the page silently doing nothing. Accept the plain names and translate.
 const _SZX_ALIAS={VIX:"^VIX",VVIX:"^VVIX",VIX9D:"^VIX9D",VIX3M:"^VIX3M",SPX:"^GSPC",SPXW:"^GSPC",
@@ -20940,9 +20970,7 @@ window._szxRender=function(){
   host.innerHTML=`
     <div class="szx-filter">
       <div class="szx-fcol" style="width:118px"><label class="seas-lab">Ticker</label><input id="szx-tkr" value="${_SZX.tkr}" oninput="_szxSet('tkr',this.value.toUpperCase())" onkeydown="if(event.key==='Enter')_szxAnalyze()" style="text-transform:uppercase"></div>
-      <div class="szx-fcol"><label class="seas-lab">Indices, vol, futures &amp; FX</label><span class="seas-seg">${
-        [["^VIX","VIX"],["^VVIX","VVIX"],["^GSPC","SPX"],["^NDX","NDX"],["NQ=F","/NQ"],["ES=F","/ES"],["CL=F","Crude"],["GC=F","Gold"],["EURUSD=X","EURUSD"],["BTC-USD","BTC"]].map(([s,l])=>
-          `<button class="${_SZX.tkr===s?"on":""}" onclick="_szxSet('tkr','${s}');_szxRender()" title="${s}">${l}</button>`).join("")}</span></div>
+      <div class="szx-fcol"><label class="seas-lab">Quick pick</label><select onchange="if(this.value){_szxSet('tkr',this.value);_szxRender();}" style="background:var(--bg-hover);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:7px;padding:8px 9px;font:inherit;font-size:13px;max-width:190px"><option value="">— indices, FX, commodities —</option>${Object.keys(_SEAS_UNIV).map(g=>`<optgroup label="${_SEAS_UNIV_LABEL[g]}">`+_SEAS_UNIV[g].map(([sym,nm])=>`<option value="${sym}"${_SZX.tkr===sym?" selected":""}>${nm}</option>`).join("")+`</optgroup>`).join("")}</select></div>
       <div class="szx-fcol"><label class="seas-lab">From — pattern start</label><input id="szx-smd" type="date" value="${isoMD(_SZX.smd)}" onchange="_szxSetDate('smd',this.value)"></div>
       <div class="szx-fcol"><label class="seas-lab">To — pattern end</label><input id="szx-emd" type="date" value="${isoMD(_SZX.emd)}" onchange="_szxSetDate('emd',this.value)"></div>
       <div class="szx-fcol"><label class="seas-lab">Lookback</label><select id="szx-lb" onchange="_szxSet('years',this.value)">${[3,5,10,15,20,25,30,40,50].map(y=>`<option ${_SZX.years===y?'selected':''}>${y}</option>`).join("")}</select></div>
