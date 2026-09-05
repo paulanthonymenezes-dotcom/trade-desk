@@ -20921,6 +20921,9 @@ window._szxRender=function(){
   host.innerHTML=`
     <div class="szx-filter">
       <div class="szx-fcol" style="width:118px"><label class="seas-lab">Ticker</label><input id="szx-tkr" value="${_SZX.tkr}" oninput="_szxSet('tkr',this.value.toUpperCase())" onkeydown="if(event.key==='Enter')_szxAnalyze()" style="text-transform:uppercase"></div>
+      <div class="szx-fcol"><label class="seas-lab">Indices &amp; vol</label><span class="seas-seg">${
+        [["^VIX","VIX"],["^VVIX","VVIX"],["^GSPC","SPX"],["^NDX","NDX"]].map(([s,l])=>
+          `<button class="${_SZX.tkr===s?"on":""}" onclick="_szxSet('tkr','${s}');_szxRender()" title="${s}">${l}</button>`).join("")}</span></div>
       <div class="szx-fcol"><label class="seas-lab">From — pattern start</label><input id="szx-smd" type="date" value="${isoMD(_SZX.smd)}" onchange="_szxSetDate('smd',this.value)"></div>
       <div class="szx-fcol"><label class="seas-lab">To — pattern end</label><input id="szx-emd" type="date" value="${isoMD(_SZX.emd)}" onchange="_szxSetDate('emd',this.value)"></div>
       <div class="szx-fcol"><label class="seas-lab">Lookback</label><select id="szx-lb" onchange="_szxSet('years',this.value)"><option ${_SZX.years===10?'selected':''}>10</option><option ${_SZX.years===15?'selected':''}>15</option><option ${_SZX.years===20?'selected':''}>20</option><option ${_SZX.years===30?'selected':''}>30</option></select></div>
