@@ -20732,7 +20732,7 @@ function _seasLiveRender(){
     <div class="szx-filter">
       <div class="szx-fcol"><label class="seas-lab">Market</label>${sel("mkt",S.mkt,MK,"_slvSet('mkt',this.value)")}</div>
       <div class="szx-fcol"><label class="seas-lab">Start date</label><input type="date" value="${yr}-${S.start}" onchange="_slvSetDate(this.value)"></div>
-      <div class="szx-fcol"><label class="seas-lab">Examination period</label>${sel("years",S.years,[[10,"10 years"],[15,"15 years"],[20,"20 years"],[25,"25 years"]],"_slvSet('years',this.value)")}</div>
+      <div class="szx-fcol"><label class="seas-lab">Examination period</label>${sel("years",S.years,[[3,"3 years"],[5,"5 years"],[10,"10 years"],[15,"15 years"],[20,"20 years"],[25,"25 years"]],"_slvSet('years',this.value)")}</div>
       <div class="szx-fcol"><label class="seas-lab">Holding period</label><span style="display:flex;gap:5px;align-items:center">
         ${sel("minDays",S.minDays,[1,3,5,7,10,14,20,30].map(v=>[v,v+"d"]),"_slvSet('minDays',this.value)")}
         <span style="color:var(--text-muted)">–</span>
@@ -20822,12 +20822,19 @@ const _SZX = { tkr:"", smd:"", emd:"", years:20, loading:false };
 window._szxSet=function(k,v){ _SZX[k]=(k==="years"||k==="strike")?+v:v; };
 window._szxSetDate=function(k,iso){ if(iso&&iso.length>=10) _SZX[k]=iso.slice(5); };
 function _szxTodayMD(off){ const d=new Date(); if(off) d.setDate(d.getDate()+off); return String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+// Yahoo wants a caret on index symbols — typing "VIX" returns no_data, which read as
+// the page silently doing nothing. Accept the plain names and translate.
+const _SZX_ALIAS={VIX:"^VIX",VVIX:"^VVIX",VIX9D:"^VIX9D",VIX3M:"^VIX3M",SPX:"^GSPC",SPXW:"^GSPC",
+  NDX:"^NDX",RUT:"^RUT",DJI:"^DJI",DJIA:"^DJI",VXN:"^VXN",SKEW:"^SKEW",TNX:"^TNX",MOVE:"^MOVE"};
+function _szxResolve(t){ const u=String(t||"").trim().toUpperCase(); return _SZX_ALIAS[u]||u; }
+window._szxResolve=_szxResolve;
 async function _szxFetchBars(tkr,years){
+  tkr=_szxResolve(tkr);
   const end=new Date(), start=new Date(); start.setFullYear(start.getFullYear()-years-1);
   const iso=d=>d.toISOString().slice(0,10);
   const r=await fetch(`/api/candles?ticker=${encodeURIComponent(tkr)}&start=${iso(start)}&end=${iso(end)}&interval=1d`);
   const d=await r.json();
-  if(d.s!=="ok"||!d.t) throw new Error("no daily data for "+tkr);
+  if(d.s!=="ok"||!d.t) throw new Error("no daily data for “"+tkr+"”. Index symbols need a caret (^VIX, ^GSPC) — try the Indices & vol buttons, or check the ticker.");
   const bars=[];
   for(let i=0;i<d.t.length;i++){ if(d.c[i]==null) continue; const dt=new Date(d.t[i]*1000);
     bars.push({day:Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate()), y:dt.getUTCFullYear(), c:d.c[i], h:d.h[i], l:d.l[i]}); }
@@ -20926,7 +20933,7 @@ window._szxRender=function(){
           `<button class="${_SZX.tkr===s?"on":""}" onclick="_szxSet('tkr','${s}');_szxRender()" title="${s}">${l}</button>`).join("")}</span></div>
       <div class="szx-fcol"><label class="seas-lab">From — pattern start</label><input id="szx-smd" type="date" value="${isoMD(_SZX.smd)}" onchange="_szxSetDate('smd',this.value)"></div>
       <div class="szx-fcol"><label class="seas-lab">To — pattern end</label><input id="szx-emd" type="date" value="${isoMD(_SZX.emd)}" onchange="_szxSetDate('emd',this.value)"></div>
-      <div class="szx-fcol"><label class="seas-lab">Lookback</label><select id="szx-lb" onchange="_szxSet('years',this.value)"><option ${_SZX.years===10?'selected':''}>10</option><option ${_SZX.years===15?'selected':''}>15</option><option ${_SZX.years===20?'selected':''}>20</option><option ${_SZX.years===30?'selected':''}>30</option></select></div>
+      <div class="szx-fcol"><label class="seas-lab">Lookback</label><select id="szx-lb" onchange="_szxSet('years',this.value)">${[3,5,10,15,20,25,30].map(y=>`<option ${_SZX.years===y?'selected':''}>${y}</option>`).join("")}</select></div>
       <div class="szx-fcol"><label class="seas-lab">Candidate strike %</label><input id="szx-strike" type="number" step="0.5" max="0" value="${_SZX.strike}" onchange="_szxSet('strike',this.value);_szxAnalyze()" style="width:92px"></div>
       <button onclick="_szxAnalyze()" style="background:var(--accent);border:none;color:#fff;font-weight:600;border-radius:7px;padding:9px 20px;cursor:pointer;font:inherit">Analyze</button>
       <div id="szx-status" style="color:var(--text-muted);font-size:12px;margin-left:auto"></div>
@@ -20949,7 +20956,7 @@ window._szxRender=function(){
   _szxAnalyze();
 };
 window._szxAnalyze=async function(){
-  const S=document.getElementById("szx-status"); if(S)S.textContent="loading "+_SZX.tkr+"…";
+  const S=document.getElementById("szx-status"); if(S){S.textContent="loading "+_SZX.tkr+"…"; S.style.color="var(--text-muted)";}
   const pct=(v,d=1)=>v==null||isNaN(v)?"—":(v>=0?"+":"")+v.toFixed(d)+"%";
   try{
     const bars=await _szxFetchBars(_SZX.tkr,_SZX.years);
@@ -20958,7 +20965,8 @@ window._szxAnalyze=async function(){
     const spanY=Math.round((bars[bars.length-1].day-bars[0].day)/(365.25*86400000));
     // Call out a thin sample: "20y lookback" with only 5 instances is the young-company trap.
     const thin=st.n<_SZX.years*0.75;
-    const hd=document.getElementById("szx-head"); if(hd)hd.innerHTML=`${_SZX.tkr} <span style="color:var(--text-muted);font-size:13px;font-weight:400">seasonal window</span> <span class="szx-badge">${spanY}y history</span><span class="szx-badge">${_SZX.smd} → ${_SZX.emd}</span><span class="szx-badge" style="border-color:${thin?"#d9963a":"var(--accent)"};color:${thin?"#d9963a":"var(--accent)"}">${st.n} of ${_SZX.years} years${thin?" ⚠":""}</span>`
+    const _disp=(typeof _szxResolve==="function"?_szxResolve(_SZX.tkr):_SZX.tkr);
+    const hd=document.getElementById("szx-head"); if(hd)hd.innerHTML=`${_disp} <span style="color:var(--text-muted);font-size:13px;font-weight:400">seasonal window</span> <span class="szx-badge">${spanY}y history</span><span class="szx-badge">${_SZX.smd} → ${_SZX.emd}</span><span class="szx-badge" style="border-color:${thin?"#d9963a":"var(--accent)"};color:${thin?"#d9963a":"var(--accent)"}">${st.n} of ${_SZX.years} years${thin?" ⚠":""}</span>`
       +(thin?`<span style="color:#d9963a;font-size:11.5px;margin-left:8px">thin sample — only ${st.n} of the ${_SZX.years} examined years had this window</span>`:"");
     _szxChart(_szxPath(bars,_SZX.years),_SZX.smd,_SZX.emd);
     const el=document.getElementById("szx-psub"); if(el)el.textContent="avg annual path, indexed to 100 · window shaded";
@@ -21058,7 +21066,10 @@ window._szxAnalyze=async function(){
     const fdl=ms=>{const d=new Date(ms);return String(d.getUTCDate()).padStart(2,"0")+" "+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()]+" "+d.getUTCFullYear();};
     document.getElementById("szx-years").innerHTML=`<thead><tr><th>Start date</th><th class="r">Start price</th><th>End date</th><th class="r">End price</th><th class="r">Profit</th><th class="r">Profit %</th><th class="r">Max rise</th><th class="r">Max rise (intraday)</th><th class="r">Max drop</th><th class="r">Max drop (intraday)</th><th class="r">Days</th></tr></thead><tbody>`
       +st.inst.map(i=>{const p=i.exit-i.entry;return `<tr><td>${fdl(i.entryD)}</td><td class="r">${i.entry.toFixed(2)}</td><td>${fdl(i.exitD)}</td><td class="r">${i.exit.toFixed(2)}</td><td class="r ${p>=0?'seas-pos':'seas-neg'}">${p>=0?"+":""}${p.toFixed(2)}</td><td class="r ${i.ret>=0?'seas-pos':'seas-neg'}">${pct(i.ret,2)}</td><td class="r seas-pos">${pct(i.maxRise,2)}</td><td class="r seas-pos" style="opacity:.72">${pct(i.maxRiseI,2)}</td><td class="r seas-neg">${pct(i.maxDropC,2)}</td><td class="r seas-neg">${pct(i.maxDrop,2)}</td><td class="r">${i.td}</td></tr>`;}).join("")+`</tbody>`;
-  }catch(e){ if(S)S.textContent="error: "+(e&&e.message||e); const c=document.getElementById("szx-chart"); if(c)c.innerHTML=`<div style="padding:24px;color:var(--negative)">Couldn't analyze ${_SZX.tkr}: ${e&&e.message||e}</div>`; }
+  }catch(e){ const msg=(e&&e.message)||String(e);
+    if(S){ S.textContent=msg; S.style.color="var(--negative)"; }
+    const c=document.getElementById("szx-chart"); if(c)c.innerHTML=`<div style="padding:24px;color:var(--negative);font-size:14px"><b>Couldn't analyze ${_SZX.tkr}</b><br><span style="color:var(--text-muted);font-size:12.5px">${msg}</span></div>`;
+    const st2=document.getElementById("szx-stats"); if(st2)st2.innerHTML=""; }
 };
 
 /* ── Macro (global inflation / rates / employment via FRED proxy) ────────── */
