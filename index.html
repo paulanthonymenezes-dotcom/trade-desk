@@ -20928,12 +20928,12 @@ window._szxRender=function(){
   host.innerHTML=`
     <div class="szx-filter">
       <div class="szx-fcol" style="width:118px"><label class="seas-lab">Ticker</label><input id="szx-tkr" value="${_SZX.tkr}" oninput="_szxSet('tkr',this.value.toUpperCase())" onkeydown="if(event.key==='Enter')_szxAnalyze()" style="text-transform:uppercase"></div>
-      <div class="szx-fcol"><label class="seas-lab">Indices &amp; vol</label><span class="seas-seg">${
-        [["^VIX","VIX"],["^VVIX","VVIX"],["^GSPC","SPX"],["^NDX","NDX"]].map(([s,l])=>
+      <div class="szx-fcol"><label class="seas-lab">Indices, vol, futures &amp; FX</label><span class="seas-seg">${
+        [["^VIX","VIX"],["^VVIX","VVIX"],["^GSPC","SPX"],["^NDX","NDX"],["NQ=F","/NQ"],["ES=F","/ES"],["CL=F","Crude"],["GC=F","Gold"],["EURUSD=X","EURUSD"],["BTC-USD","BTC"]].map(([s,l])=>
           `<button class="${_SZX.tkr===s?"on":""}" onclick="_szxSet('tkr','${s}');_szxRender()" title="${s}">${l}</button>`).join("")}</span></div>
       <div class="szx-fcol"><label class="seas-lab">From — pattern start</label><input id="szx-smd" type="date" value="${isoMD(_SZX.smd)}" onchange="_szxSetDate('smd',this.value)"></div>
       <div class="szx-fcol"><label class="seas-lab">To — pattern end</label><input id="szx-emd" type="date" value="${isoMD(_SZX.emd)}" onchange="_szxSetDate('emd',this.value)"></div>
-      <div class="szx-fcol"><label class="seas-lab">Lookback</label><select id="szx-lb" onchange="_szxSet('years',this.value)">${[3,5,10,15,20,25,30].map(y=>`<option ${_SZX.years===y?'selected':''}>${y}</option>`).join("")}</select></div>
+      <div class="szx-fcol"><label class="seas-lab">Lookback</label><select id="szx-lb" onchange="_szxSet('years',this.value)">${[3,5,10,15,20,25,30,40,50].map(y=>`<option ${_SZX.years===y?'selected':''}>${y}</option>`).join("")}</select></div>
       <div class="szx-fcol"><label class="seas-lab">Candidate strike %</label><input id="szx-strike" type="number" step="0.5" max="0" value="${_SZX.strike}" onchange="_szxSet('strike',this.value);_szxAnalyze()" style="width:92px"></div>
       <button onclick="_szxAnalyze()" style="background:var(--accent);border:none;color:#fff;font-weight:600;border-radius:7px;padding:9px 20px;cursor:pointer;font:inherit">Analyze</button>
       <div id="szx-status" style="color:var(--text-muted);font-size:12px;margin-left:auto"></div>
