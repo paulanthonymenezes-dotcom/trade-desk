@@ -2168,7 +2168,14 @@ async function _authHeaders(requireUser) {
   };
 }
 
-const _BLOCKED_TRADE_IDS = new Set(["989","994"]);  // AMA reconstruction ghosts — permanently filtered client-side so they can never re-persist or display (see AMA cleanup 2026-08-29)
+// Permanently filtered client-side so they can never re-persist or display.
+// Needed because save() deliberately re-adds "client trades not in cloud" to protect
+// data, which means a server-side delete is undone by any open tab.
+//   989, 994 — AMA reconstruction ghosts (2026-08-29)
+//   1184     — long leg of the 8/26 NVDA calendar. Multi-expiry positions reconstruct
+//              as separate legs, so this pair displayed as +$16,275 next to -$17,036
+//              when it was ONE position that netted -$760.54. Kept on trade 1183.
+const _BLOCKED_TRADE_IDS = new Set(["989","994","1184"]);
 function _stripBlockedTrades(){ if(STATE && Array.isArray(STATE.trades)) STATE.trades = STATE.trades.filter(t=>!_BLOCKED_TRADE_IDS.has(String(t.id))); }
 
 async function save() {
