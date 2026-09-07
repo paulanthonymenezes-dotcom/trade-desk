@@ -441,6 +441,40 @@ table{width:100%;border-collapse:collapse}
 </head>
 <body>
 
+<!-- Visible error reporter. A thrown error used to just leave a blank panel with
+     no clue why (a tab would silently render nothing). Now it says so on screen,
+     so a failure is diagnosable without opening the console. -->
+<div id="err-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:100000;
+     background:#7f1d1d;color:#fee2e2;font:12px/1.45 ui-monospace,Menlo,monospace;
+     padding:9px 40px 9px 12px;border-bottom:1px solid #ef4444;max-height:38vh;overflow:auto"></div>
+<script>
+(function(){
+  var seen={}, box=null;
+  function show(kind,msg,where){
+    var key=kind+msg; if(seen[key])return; seen[key]=1;
+    box=box||document.getElementById("err-banner"); if(!box)return;
+    box.style.display="block";
+    var row=document.createElement("div");
+    row.textContent="⚠ "+kind+": "+msg+(where?"   ["+where+"]":"");
+    box.appendChild(row);
+    if(!box.dataset.x){ box.dataset.x="1";
+      var b=document.createElement("button");
+      b.textContent="×"; b.setAttribute("aria-label","dismiss");
+      b.style.cssText="position:absolute;top:5px;right:9px;background:none;border:none;color:#fee2e2;font-size:19px;cursor:pointer;line-height:1";
+      b.onclick=function(){box.style.display="none";};
+      box.appendChild(b);
+    }
+  }
+  window.addEventListener("error",function(e){
+    show("JS error", (e.message||"unknown"),
+         (e.filename||"").split("/").pop()+(e.lineno?":"+e.lineno:""));
+  });
+  window.addEventListener("unhandledrejection",function(e){
+    var r=e.reason; show("Promise rejected", (r&&(r.message||r))||"unknown","");
+  });
+})();
+</script>
+
 <!-- LOGIN GATE — shown until authenticated; blocks access to the journal -->
 <div id="login-gate" style="display:flex;position:fixed;inset:0;z-index:9999;background:#0d1117;align-items:center;justify-content:center;flex-direction:column;font-family:'Inter',sans-serif">
   <div style="width:100%;max-width:340px;padding:28px 24px;background:#161b22;border:1px solid #21262d;border-radius:8px">
