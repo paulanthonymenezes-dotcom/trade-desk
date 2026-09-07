@@ -17555,9 +17555,21 @@ async function doLogin() {
   }
 }
 
+// Sign out for real. The old version awaited signOut() inside a silent catch and
+// reloaded regardless — so if that call failed (offline, or the page had already
+// thrown) the session stayed in localStorage and you came back logged in, which
+// looked like the button doing nothing. Now the local session is cleared
+// explicitly, whether or not the network round-trip succeeds.
 async function doLogout() {
-  try { await _sbClient().auth.signOut(); } catch (e) {}
-  location.reload();
+  try { await _sbClient().auth.signOut({ scope: "local" }); } catch (e) {}
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && (/^sb-.*-auth-token/.test(k) || k.startsWith("supabase.auth."))) localStorage.removeItem(k);
+    }
+  } catch (e) {}
+  try { sessionStorage.clear(); } catch (e) {}
+  location.replace(location.pathname + "?signedout=" + Date.now());   // bypass bfcache
 }
 
 async function doForgotPassword() {
